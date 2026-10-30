@@ -298,7 +298,7 @@ Staff act through the store app's admin screen, which calls BarPay's admin API.
 - **Alternative flow**: staff change a setting → it applies as in the [Pricing model](#4-pricing-model). Floor and ceiling above 0 with the floor below the ceiling, a block of at least 1 minute, and a pause or cap of 0 or more are required; otherwise the change is rejected.
 - **Exception**: a session is PaymentFailed → staff retry, which charges the total again with the saved PayPal as a new attempt; or staff mark it settled outside BarPay with the amount settled, which closes the session.
 - **Exception**: a PaymentFailed session reaches 3 days after checkout began → retries stop, it is closed as unpaid with the unpaid amount recorded.
-- **Exception**: the same close or retry request arrives twice (same idempotency key) → it runs once; both get the same result.
+- **Exception**: the same close or retry request arrives twice (same idempotency key) → it runs once: a repeat after it finished gets the same result, and one that arrives while it is still running is rejected and can be sent again.
 - **Postcondition**: every admin action is recorded with the staff member the store app named.
 
 ### UC8 — Store connects to BarPay
