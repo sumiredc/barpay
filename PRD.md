@@ -2,9 +2,6 @@
 
 `PRD.ja.md` is the Japanese translation of this file.
 
-The source of truth for what BarPay is, what it guarantees, and what it deliberately leaves out.
-API shapes and data models belong in the code and design docs; the build schedule belongs in issues.
-
 ## 1. Purpose
 
 BarPay is a payment and pricing module that a bar plugs into its own mobile order system. It adds a cover charge that moves like a stock price with how crowded and lively the room is, and lets a member who linked PayPal settle the whole visit by walking out.
