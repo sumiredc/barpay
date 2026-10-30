@@ -12,40 +12,16 @@ BarPay is a payment and pricing module that a bar plugs into its own mobile orde
 
 BarPay solves this as a module: the store keeps its own app, menu and members; BarPay adds the live cover charge, an optional PayPal link for members that turns the exit QR into the checkout on every visit, and a register path for everyone else, paid into the store's own PayPal account.
 
-## 2. Hackathon fit
-
-Submission target: [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/), deadline **2026-11-12 12:00 PST** (2026-11-13 05:00 JST). Built solo. Repository: [sumiredc/barpay](https://github.com/sumiredc/barpay).
-
-| Judging criterion | How BarPay answers it |
-|---|---|
-| Technological Implementation | PayPal Vault v3 to save a member's PayPal without a payment, and one merchant-initiated charge with the saved PayPal at checkout through Orders v2; an AI pricing agent that reasons over room signals toward the owner's goal and logs every decision |
-| Design | One continuous experience from the entrance QR to the exit gate unlocking, shown through a sample mobile order app built on BarPay's API |
-| Potential Impact | A concrete pain (opaque cover charges, empty off-peak hours, register queues) for a concrete audience (small bars), delivered as a module existing mobile order systems can adopt |
-| Innovation | A cover charge priced like a stock ticker by an AI that records its reasoning for staff, settled by just walking out |
-| Presentation | The video shows the price moving with the room and the exit gate opening on payment |
-
-Hard requirements from the rules, all of which BarPay must meet:
-
-- Meaningful use of **both** PayPal (sandbox) and AI.
-- A **functional demo** judges can run or use: a hosted URL of the sample mobile order app, plus complete setup and run instructions in the repository. Judges have no Raspberry Pi or smart lock. A mockup or static prototype does not count.
-- The hosted demo stays available, free and unrestricted, **until the judging period ends on 2026-12-15 08:00 PT**. This includes the AI API key and its budget.
-- A **public repository** (GitHub, GitLab or Bitbucket) with all source, assets and run instructions, and an open-source `LICENSE` at the root that GitHub shows in the About section. It stays public until the judging period ends.
-- A **text description** of the features, and a **tools description** naming the AI model/service used and how it is used.
-- A **demo video** under 3 minutes on YouTube, showing BarPay working on a real phone, with no third-party trademarks or copyrighted music (a bar scene with background music is a real risk).
-- All submission materials in **English** (or with English translations). This project goes further: nothing Japanese-only is put in the public repository.
-- The sponsor may ask for physical access to hardware other than phones and computers (the Raspberry Pi).
-- The project is built during the submission period; the commit history is the evidence.
-
-## 3. Users
+## 2. Users
 
 | User | Goal |
 |---|---|
 | Customer | Enter, drink and eat, see what they are paying, and leave by walking out (a member with PayPal linked) or by paying at the register |
 | Store app | The store's mobile order system (here: the sample app). Starts visits, reports orders, and learns how each visit was settled |
 | Staff / owner | Watch the room's state and handle the exceptions on the staff console; the owner sets prices, limits and cover-charge rules on its settings tab |
-| Judge | Experience the full flow from a laptop, without hardware |
+| Demo visitor | Try the full flow from a laptop, without hardware |
 
-## 4. Responsibilities
+## 3. Responsibilities
 
 BarPay owns what is about the cover charge and the money; the store app owns everything about the menu and the customer relationship.
 
@@ -98,7 +74,7 @@ Boundary rules:
 - **Panel**: a BarPay page that the store app links to or embeds as a frame. It shows the live rate, its change and chart, a line while the cover charge is paused or capped, time stayed, cover charge so far, orders, payment method (PayPal or register), the running total, and a Pay button. Pay opens a choice: PayPal (shown only when linked) opens the exit QR; "Pay at register" asks staff to collect. After checkout the panel shows the result. The store app shows the receipt in its own UI from the notification or lookup.
 - **API key**: the store app calls BarPay from its server; the sample app has a backend that holds the key.
 
-## 5. Pricing model
+## 4. Pricing model
 
 The cover charge is a **rate per hour** that changes over time, charged in **blocks**: every block (settings tab, default 10 store minutes) after check-in, the block that just ended is charged at the rate published at that moment.
 
@@ -116,7 +92,7 @@ flowchart LR
 
 The AI decides the rate toward the owner's goal; guardrails set by the owner decide what can actually be charged.
 
-- **Signals**: occupancy and liveliness (the author's core inputs), plus staff events. Occupancy counts checked-in phones, not people (this may change with [Open question 1](#13-open-questions)). Liveliness is computed on the edge device from the microphone, and only numbers leave the device; without the edge device, it comes from the simulator.
+- **Signals**: occupancy and liveliness (the author's core inputs), plus staff events. Occupancy counts checked-in phones, not people (this may change with [Open question 1](#12-open-questions)). Liveliness is computed on the edge device from the microphone, and only numbers leave the device; without the edge device, it comes from the simulator.
 - **Goal**: the owner sets where the store sits between "fill the room" and "maximize revenue". The agent states how each decision serves that goal.
 - **Cadence**: the rate is re-evaluated on a fixed tick (config file, default 5 minutes). Staff can also trigger one evaluation now; it counts toward the daily call cap like any other.
 - **Guardrails** (settings tab): floor, ceiling, and maximum change per evaluation (config file). A proposal outside them is clamped, and the published rate is rounded to the currency's rate step (fixed: 10 JPY, 0.05 USD) without leaving the range. When the owner changes the floor or ceiling, the published rate moves into the new range at once, even beyond the max step, and the decision log records it.
@@ -130,7 +106,7 @@ The AI decides the rate toward the owner's goal; guardrails set by the owner dec
 - **Settings changes**: block length, pause and cap apply to active sessions from their next block. A cap lowered below what a session has already accrued stops further blocks; nothing already accrued is reduced.
 - **Demo mode**: a store-wide time factor (config file, default exactly 10) makes a store minute pass in 6 real seconds. Blocks, pauses, tick length and maximum stay use store time. The re-unlock window, the exit QR's refresh, the 3-day limits and notification retries are real time.
 
-## 6. Payment model
+## 5. Payment model
 
 Linking PayPal is optional and moves no money: it saves a member's PayPal for this store, and the whole visit is charged once, at checkout.
 
@@ -146,28 +122,28 @@ Linking PayPal is optional and moves no money: it saves a member's PayPal for th
 - The **running total** = orders + cover charge so far.
 - A guest, a member without a saved PayPal, or anyone who chooses the register pays at the register. BarPay fixes the total, staff take the money outside BarPay and record it, and the session is closed as settled outside BarPay.
 
-## 7. Guarantees
+## 6. Guarantees
 
 | Area | BarPay guarantees |
 |---|---|
 | Consent | A saved PayPal is charged only after the customer agreed, when linking, to have the visit's total charged at checkout without further approval, and only at checkout. They see the running total throughout |
-| Transparency | While staying, the customer sees the current rate, its change and chart, the cover charge so far, whether it is paused or capped, and the running total. The pricing rules before check-in are posted by the store (see [Out of scope](#8-out-of-scope)) |
+| Transparency | While staying, the customer sees the current rate, its change and chart, the cover charge so far, whether it is paused or capped, and the running total. The pricing rules before check-in are posted by the store (see [Out of scope](#7-out-of-scope)) |
 | Charges only for this visit | BarPay charges a member's saved PayPal only during the checkout of that member's session or a staff retry of it, and staff can retry for at most 3 days after checkout began. A saved PayPal is deleted when the member asks, never while a session that uses it is not yet closed |
 | Accuracy | When a session is closed through BarPay checkout, the amount charged equals the final total the server fixed at the moment of checkout, and the receipt shows that total with its PayPal capture ID. When it is settled at the register or outside BarPay, the receipt shows the total and the amount staff recorded; nothing was charged through BarPay |
 | Price bounds | The rate is always within the store's floor and ceiling. It never moves more than the max step per evaluation, scheduled or manual, except when the owner changes the floor or ceiling, which the decision log records |
 | Single payment | Each session is settled once. A repeated scan, a retry after a network error or timeout, or a staff retry never charges the same amount twice. Before retrying a call whose outcome is unknown, BarPay checks its status in PayPal |
 | Unlock only on payment | BarPay unlocks the exit gate only for a closed session that was fully charged, or whose payment staff recorded at the register or outside BarPay, and only within the re-unlock window after it closed. Once a session is closed its exit QR stops changing. Staff can also open the gate by hand from the console |
 | Store notified | The store app is notified of every session start, PayPal link, register request and result. Notifications are signed, carry an event ID and a sequence number, and are retried for up to 24 hours, so the store app may receive one more than once or out of order; it can always read the current state by lookup |
-| Access | Only the store app with the store's API key can start check-ins, report orders, request a PayPal link page for a member and delete a member's saved PayPal. A session link gives access to that session only: its panel and its register request, which fixes the total but charges nothing. Checkout is triggered only by an authenticated edge device, by staff with the staff passcode, or by BarPay itself at the maximum stay. Only staff can record a register payment or change settings. The exit token is separate from the session link. In the hosted demo the passcode is public (see [Out of scope](#8-out-of-scope)) |
+| Access | Only the store app with the store's API key can start check-ins, report orders, request a PayPal link page for a member and delete a member's saved PayPal. A session link gives access to that session only: its panel and its register request, which fixes the total but charges nothing. Checkout is triggered only by an authenticated edge device, by staff with the staff passcode, or by BarPay itself at the maximum stay. Only staff can record a register payment or change settings. The exit token is separate from the session link. In the hosted demo the passcode is public (see [Out of scope](#7-out-of-scope)) |
 | Durability | Sessions, orders, settings, capture IDs and saved-PayPal references survive a backend restart |
 | Privacy | Raw audio (and video, if used) is never stored or sent off the edge device |
 | Observability | Failed charges, failed unlocks, register requests, rejected late orders, sessions past the maximum stay, notifications given up and failed deletions appear on the staff console; failed charges and unlocks are also sent to the store app |
 
-## 8. Out of scope
+## 7. Out of scope
 
 | Not doing | Why |
 |---|---|
-| Real-money payments | Hackathon uses the PayPal sandbox only |
+| Real-money payments | Charging saved PayPal in production needs PayPal's approval for reference transactions (see [Fixed constraints](#8-fixed-constraints)); everything is built and shown in the PayPal sandbox |
 | Store onboarding screens, more than one store per deployment | One store is set up with a config file; prices and cover-charge rules are changed on the staff console |
 | BarPay as a payment intermediary (platform fees, multiparty) | Each store is paid into its own PayPal account |
 | Using a saved PayPal across a chain's stores | Future: may work when the stores share one PayPal account; not verified |
@@ -176,8 +152,8 @@ Linking PayPal is optional and moves no money: it saves a member's PayPal for th
 | Menu, order screen, kitchen workflow | The store app's job; BarPay records order lines and amounts only |
 | Showing the pricing rules before check-in | The store posts them (variable rate, block length, cap per visit) on its website or in the store; the store app's join screen does not show them |
 | Taking money at the register | The store's job; BarPay fixes the total and records what staff say they received |
-| Protecting staff actions in the hosted demo | The passcode is published in the README so judges can use the staff console; any judge can change settings, reset the store or close a session |
-| A separate store per demo visitor | Judges share one demo store; a "Reset demo" button restores its sessions and settings instead |
+| Protecting staff actions in the hosted demo | The passcode is published in the README so demo visitors can use the staff console; any visitor can change settings, reset the store or close a session |
+| A separate store per demo visitor | Demo visitors share one demo store; a "Reset demo" button restores its sessions and settings instead |
 | Cancelling or correcting an order line | Once reported, an order stays in the total; the store refunds through the PayPal dashboard |
 | Correctness of what the store app reports | BarPay charges the order amounts the store app reports and trusts the member ID it sends; checking them is the store app's job |
 | Notifications after 24 hours of retries | The store app recovers through lookup |
@@ -187,24 +163,24 @@ Linking PayPal is optional and moves no money: it saves a member's PayPal for th
 | A deposit or holding funds at check-in | The gate opens only after payment, so a customer whose charge fails is still inside and pays at the register; a hold would add a second charge and a pending amount on the customer's statement |
 | Refunds and disputes | Handled in the PayPal dashboard |
 | Tax calculation | All prices are tax-inclusive |
-| Japanese UI | Submission must be in English; currency (JPY/USD) is selectable, language is not |
+| Japanese UI | A second language doubles every screen and string, and English serves foreign visitors, who are most surprised by cover charges; currency (JPY/USD) is selectable, language is not |
 | Locking customers in | The door must always open from inside; the lock unlocks an exit gate as part of the walk-through experience, not as a way to stop customers from leaving |
 
-## 9. Fixed constraints
+## 8. Fixed constraints
 
-- **Verified in the sandbox (2026-10-28, USD)**: a `CAPTURE` order with only `payment_source.paypal.vault_id` was `COMPLETED` in the create response, without buyer approval. The saved PayPal used then came from an order approval, not from the setup-token flow BarPay now uses; see [Open question 5](#13-open-questions).
+- **Verified in the sandbox (2026-10-28, USD)**: a `CAPTURE` order with only `payment_source.paypal.vault_id` was `COMPLETED` in the create response, without buyer approval. The saved PayPal used then came from an order approval, not from the setup-token flow BarPay now uses; see [Open question 5](#12-open-questions).
 - **Verify before trusting**: after the customer returns from PayPal, the backend checks that the setup token it created was approved and that creating the saved PayPal from it succeeded before saving it to the member.
-- **Idempotency**: every PayPal call that saves PayPal, moves money or deletes a saved PayPal carries a `PayPal-Request-Id` derived from the session, the step and the attempt, stored before the call. A network retry reuses it; a staff retry starts a new attempt. The checkout charge carries an `invoice_id` per session, which PayPal is expected to reject as a duplicate (not verified; see [Open question 5](#13-open-questions)). When a call's outcome is unknown (timeout), BarPay checks its status before any retry.
+- **Idempotency**: every PayPal call that saves PayPal, moves money or deletes a saved PayPal carries a `PayPal-Request-Id` derived from the session, the step and the attempt, stored before the call. A network retry reuses it; a staff retry starts a new attempt. The checkout charge carries an `invoice_id` per session, which PayPal is expected to reject as a duplicate (not verified; see [Open question 5](#12-open-questions)). When a call's outcome is unknown (timeout), BarPay checks its status before any retry.
 - **The store's own PayPal**: BarPay calls PayPal with the store's REST credentials and keeps them as secrets.
 - **Approval for saved PayPal**: in production, saving PayPal for merchant-initiated charges needs PayPal's approval for reference transactions. It does not block the sandbox demo.
-- **Currency**: each store picks JPY or USD; all amounts in that store use it. JPY has no decimal places. JPY in the sandbox depends on [Open question 4](#13-open-questions).
+- **Currency**: each store picks JPY or USD; all amounts in that store use it. JPY has no decimal places. JPY in the sandbox depends on [Open question 4](#12-open-questions).
 - **Hardware**: Raspberry Pi 5, a USB QR reader that acts as a keyboard, a SwitchBot Lock over BLE. The lock needs its MAC address, key ID and encryption key, read from environment variables.
 - **Secrets**: PayPal credentials, the store API key, the AI API key and the SwitchBot keys never enter the public repository.
-- **Judging without hardware**: every hardware step has a browser stand-in (virtual exit gate, signal simulator).
-- **Shared demo**: several judges may use the hosted demo at the same time, and the README lists several PayPal sandbox buyer accounts so one judge changing a password does not lock out the others.
-- **Language**: UI, README, video and description in English. Every non-exempt `.md` in the repo has a `.ja.md` translation (see `.claude/skills/bilingual-docs`).
+- **Trying without hardware**: every hardware step has a browser stand-in (virtual exit gate, signal simulator).
+- **Shared demo**: several demo visitors may use the hosted demo at the same time, and the README lists several PayPal sandbox buyer accounts so one visitor changing a password does not lock out the others.
+- **Language**: UI and README in English. Every non-exempt `.md` in the repo has a `.ja.md` translation (see `.claude/skills/bilingual-docs`).
 
-## 10. Use cases
+## 9. Use cases
 
 ```mermaid
 stateDiagram-v2
@@ -257,7 +233,7 @@ Read: a session only ends through a successful charge, a register payment or set
 ### UC4 — Store app reports an order
 
 - **Precondition**: the session is active.
-- **Main flow**: the customer orders in the store app; the store app sends BarPay the order lines and amounts. BarPay adds them to the session. From the second order of the visit, the cover charge pauses as in the [Pricing model](#5-pricing-model).
+- **Main flow**: the customer orders in the store app; the store app sends BarPay the order lines and amounts. BarPay adds them to the session. From the second order of the visit, the cover charge pauses as in the [Pricing model](#4-pricing-model).
 - **Exception**: the session is not active (at the register, checking out, payment failed, closed, closed unpaid, unknown) → rejected and shown on the staff console; anything already served is collected by the store outside BarPay.
 - **Exception**: the same order is reported twice (same order ID) → recorded once, and the pause is not restarted.
 - **Exception**: an amount is negative or in another currency → rejected.
@@ -266,7 +242,7 @@ Read: a session only ends through a successful charge, a register payment or set
 ### UC5 — Customer checks out at the exit gate
 
 - **Precondition**: the session is active and PayPal is linked.
-- **Main flow**: the customer taps Pay in the panel, chooses PayPal, and shows the exit QR to the reader at the exit. The QR changes at a fixed interval (config file, default 30 seconds), so an old screenshot does not work. The server fixes the final total at that moment and stops the cover charge, charges the total once with the saved PayPal as in the [Payment model](#6-payment-model), and unlocks the gate. The panel shows the result with the total and the PayPal capture ID, and the store app is notified with the receipt.
+- **Main flow**: the customer taps Pay in the panel, chooses PayPal, and shows the exit QR to the reader at the exit. The QR changes at a fixed interval (config file, default 30 seconds), so an old screenshot does not work. The server fixes the final total at that moment and stops the cover charge, charges the total once with the saved PayPal as in the [Payment model](#5-payment-model), and unlocks the gate. The panel shows the result with the total and the PayPal capture ID, and the store app is notified with the receipt.
 - **Alternative flow**: the same exit QR is scanned again within the re-unlock window (config file, default 2 minutes) after success → the gate unlocks again; nothing is charged.
 - **Exception**: the session has no PayPal linked → rejected; the reader shows "Please pay at the register"; nothing is charged.
 - **Exception**: the charge fails or is declined → the gate stays locked, the customer sees "Please see staff", the session becomes PaymentFailed with the unpaid amount on the staff console, and the store app is notified.
@@ -296,7 +272,7 @@ Read: a session only ends through a successful charge, a register payment or set
   - **System log**: the AI decision log, notifications to the store app, and the config file loaded at start.
 - **Alternative flow**: a linked customer leaves through another door or has no battery → staff close the session, which checks out as in UC5 without the gate.
 - **Alternative flow**: staff record a register payment as in UC6, or mark a session waiting at the register as unpaid when the customer left without paying.
-- **Alternative flow**: staff change a setting → it applies as in the [Pricing model](#5-pricing-model). Floor and ceiling above 0 with the floor below the ceiling, a block of at least 1 minute, and a pause or cap of 0 or more are required; otherwise the change is rejected.
+- **Alternative flow**: staff change a setting → it applies as in the [Pricing model](#4-pricing-model). Floor and ceiling above 0 with the floor below the ceiling, a block of at least 1 minute, and a pause or cap of 0 or more are required; otherwise the change is rejected.
 - **Alternative flow**: staff reset the demo store → every session is removed whatever its state, and its unpaid amount is discarded; members' saved PayPal is kept; alerts and notifications are cleared; prices, cover-charge rules and the goal return to the config file's starting values. The signal simulator is left as it is.
 - **Exception**: a session is PaymentFailed → staff retry, which charges the total again with the saved PayPal as a new attempt; or staff mark it settled outside BarPay with the amount settled, which closes the session.
 - **Exception**: a PaymentFailed session reaches 3 days after checkout began → retries stop, it is closed as unpaid with the unpaid amount recorded.
@@ -316,12 +292,12 @@ Read: a session only ends through a successful charge, a register payment or set
 - **Exception**: PayPal does not confirm the deletion → BarPay retries until it does; a deletion that keeps failing is flagged on the staff console.
 - **Postcondition**: the member has no saved PayPal; their next check-in starts unlinked, and linking again goes through PayPal approval (UC2).
 
-### UC10 — Judge tries BarPay without hardware
+### UC10 — Demo visitor tries BarPay without hardware
 
-- **Main flow**: from the hosted sample app, the judge logs in as a member on their phone or laptop, checks in, orders, links PayPal with a sandbox buyer account from the README, opens the staff console with the passcode from the README, moves the signal sliders to watch the AI reprice, and checks out by picking their session in the virtual exit gate. They can also join as a guest and pay at the register, recording the payment on the staff console.
+- **Main flow**: from the hosted sample app, the visitor logs in as a member on their phone or laptop, checks in, orders, links PayPal with a sandbox buyer account from the README, opens the staff console with the passcode from the README, moves the signal sliders to watch the AI reprice, and checks out by picking their session in the virtual exit gate. They can also join as a guest and pay at the register, recording the payment on the staff console.
 - **Postcondition**: for a PayPal checkout, the receipt shows the PayPal capture ID and the payment appears in the sandbox buyer account's activity; for a register payment, the receipt shows the amount recorded.
 
-## 11. System overview
+## 10. System overview
 
 ```mermaid
 flowchart LR
@@ -347,27 +323,21 @@ Implementation notes:
 - A member's saved PayPal is deleted, on request, with `DELETE /v3/vault/payment-tokens/{id}`.
 - The edge device reads the USB QR reader through the input device (`evdev`), not `stdin`, so it works as a background service.
 
-## 12. Priorities
+## 11. Priorities
 
 | Priority | Scope |
 |---|---|
-| P0 — must ship | BarPay: UC1–UC7 and UC9 with the virtual exit gate, retry and "settled outside BarPay"; UC8 as a config file; the PayPal link page and the panel as BarPay pages; store API with session lookup; signed notifications with simple retries; AI pricing with goal, guardrails, explanations and decision log; cover charge in blocks with the pause and the cap; the settings tab; USD; demo mode; reset demo. Sample app with its own backend: entrance landing, sign-up, login and guest join, menu, ordering, settings with PayPal link, BarPay panel, receipt. UC10; hosted demo; `LICENSE`; README with an API table; video; Devpost text |
+| P0 — must ship | BarPay: UC1–UC7 and UC9 with the virtual exit gate, retry and "settled outside BarPay"; UC8 as a config file; the PayPal link page and the panel as BarPay pages; store API with session lookup; signed notifications with simple retries; AI pricing with goal, guardrails, explanations and decision log; cover charge in blocks with the pause and the cap; the settings tab; USD; demo mode; reset demo. Sample app with its own backend: entrance landing, sign-up, login and guest join, menu, ordering, settings with PayPal link, BarPay panel, receipt. UC10; hosted demo; README with an API table |
 | P1 | Real edge device: QR reader → checkout → SwitchBot unlock, microphone liveliness; JPY (after Open question 4) |
 | P2 | Store onboarding screens; saved PayPal across a chain's stores; AI suggestions beyond pricing (e.g. a summary of the stay on the receipt) |
 
-Scope rules for the deadline:
+## 12. Open questions
 
-- If P0 is not working end to end by **2026-11-05**, staff retry moves to P1; "Settled outside BarPay" stays.
-- Anything P1 not working by **2026-11-07** is dropped, and the video uses the virtual exit gate.
-- **2026-11-10 to 11-12** is reserved for the video, the Devpost text and the README. No new features.
-
-## 13. Open questions
-
-Questions 1–3 are decided after building a mock in `mock/`, by **2026-10-31**. The mock is a throwaway prototype in plain HTML, CSS and JavaScript only, is not the functional demo, and is not tracked in git, so it never reaches the public repository. Its UI is Japanese, for the author. It is exempt from translation pairing and from the product's tests and CI; no third-party trademarks or assets still apply.
+Questions 1 and 3 are decided after building a mock in `mock/`. The mock is a throwaway prototype in plain HTML, CSS and JavaScript only, is not the demo, and is not tracked in git, so it never reaches the public repository. Its UI is Japanese, for the author. It is exempt from translation pairing and from the product's tests and CI.
 
 1. **Liveliness sensing**: microphone loudness only, or an on-device audio classifier (cheering, music, laughter)? Camera people-count as well (which would change how occupancy is counted)? The mock can stand in with browser microphone loudness.
-2. **Hosting**: home server behind Cloudflare Tunnel, or Render (also eligible for the Render sponsor prize)? It must stay up until 2026-12-15.
-3. **Exit gate framing** for the video: what the lock physically secures, so the story does not read as "customers are locked in". The video must not show the SwitchBot or Raspberry Pi logos or play copyrighted music.
+2. **Hosting**: home server behind Cloudflare Tunnel, or Render? Whichever keeps the hosted demo reachable at all times at the lower cost.
+3. **Exit gate framing**: what the lock physically secures, so BarPay does not read as "customers are locked in".
 4. **JPY in the sandbox**: confirm a sandbox business account can receive JPY without holding it as pending.
 5. **Untested PayPal behavior**: saving PayPal with a setup token and no payment, then charging with that `vault_id` without buyer approval; checking a saved PayPal by ID; deleting a saved PayPal; replaying a `PayPal-Request-Id`; a declined charge; and whether a staff retry after a declined charge is rejected as a duplicate `invoice_id`.
-6. **AI model and prompt approach**: chosen at implementation time and named in the tools description.
+6. **AI model and prompt approach**: chosen at implementation time.

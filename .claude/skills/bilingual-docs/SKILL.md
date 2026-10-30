@@ -1,12 +1,12 @@
 ---
 name: bilingual-docs
-description: BarPay keeps every Markdown document in English with a Japanese translation beside it. Use when creating, editing, renaming, or deleting any .md file in this repository (README, PRD, design docs, docs/, Devpost text or video script drafts), so the English file and its .ja.md translation stay in sync.
+description: BarPay keeps every Markdown document in English with a Japanese translation beside it. Use when creating, editing, renaming, or deleting any .md file in this repository (README, PRD, design docs, docs/), so the English file and its .ja.md translation stay in sync.
 ---
 
 # bilingual-docs — English source, Japanese translation
 
 Every Markdown document in this repository is written in English, and has a Japanese translation next to it named `<name>.ja.md`.
-The hackathon requires English materials and the repository will be public for judging; the Japanese copy is for the author.
+The repository is public and read in English; the Japanese copy is for the author.
 
 ## Rules
 
@@ -24,7 +24,7 @@ The hackathon requires English materials and the repository will be public for j
 
 - **Translate, do not rewrite.** Keep the same sections, order, tables, diagrams and links so a reader can move between the two. Translate prose, headings, table cells and diagram labels; keep code, commands, identifiers, file names and API paths as they are.
 - **UI strings stay in English.** The UI is English only, so a string the user sees on screen is kept as is, with the Japanese in parentheses: `"Please see staff"（スタッフにお声がけください）`.
-- **Links to other documents point to the same language.** In a `.ja.md`, link to the other `.ja.md`. Anchors follow the translated heading using GitHub's rule: lowercase, spaces → `-`, punctuation such as `.` removed, Japanese characters kept. `## 13. 未決事項` → `#13-未決事項`.
+- **Links to other documents point to the same language.** In a `.ja.md`, link to the other `.ja.md`. Anchors follow the translated heading using GitHub's rule: lowercase, spaces → `-`, punctuation such as `.` removed, Japanese characters kept. `## 12. 未決事項` → `#12-未決事項`.
 - When the Japanese side is edited first (for example, the author fixed wording there), carry the change into the English file and treat the English wording as final.
 
 ## Check after editing
