@@ -68,9 +68,9 @@ Read: checking in needs no PayPal; a member approves PayPal once, on BarPay's li
 Boundary rules:
 
 - **Check-in**: the store app starts a check-in from its server; the session starts at once and its ID is returned. No BarPay page is shown at check-in.
-- **PayPal link**: linking belongs to a member, not to a visit, and guests cannot link. The store app asks BarPay for a link page for a logged-in member and sends them there as a full page, never inside the panel, because PayPal approval is not expected to run inside an embedded frame (believed, not verified). PayPal returns the member to BarPay, which returns them to the store app. When a member with a saved PayPal checks in, BarPay links the session by itself.
-- **Lookup**: the store app can read a session's state and receipt by its ID at any time. This is how it confirms the result when the customer returns, and how it recovers missed notifications.
-- **Notifications**: the events are `session.started`, `session.paypal_linked`, `session.register_requested`, `session.closed` (with the receipt), `session.payment_failed`, `session.settled_outside`, `session.closed_unpaid`, `gate.unlock_failed`, and for members `member.paypal_linked` and `member.saved_paypal_deleted`. Each carries an event ID and a per-session sequence number, is signed, and is retried on a fixed schedule for up to 24 hours; after that it is marked as given up on the staff console.
+- **PayPal link**: linking belongs to a member, not to a visit, and guests cannot link. The store app asks BarPay for a link page for a logged-in member and sends them there as a full page, never inside the panel, because PayPal approval is not expected to run inside an embedded frame (believed, not verified). A link page works for 30 minutes, and a new request replaces an earlier unused one. PayPal returns the member to BarPay, which returns them to the store app. When a member with a saved PayPal checks in, BarPay links the session by itself.
+- **Lookup**: the store app can read a session's state and receipt by its ID, and whether a member has a saved PayPal by the member ID, at any time. This is how it confirms the result when the customer returns, decides whether its settings screen offers linking or deleting, and recovers missed notifications.
+- **Notifications**: the events are `session.started`, `session.paypal_linked`, `session.register_requested`, `session.closed`, `session.payment_failed`, `session.settled_outside`, `session.closed_unpaid`, `gate.unlock_failed`, and for members `member.paypal_linked` and `member.saved_paypal_deleted`. Each carries an event ID and a sequence number per session (per member for `member.*` events) and is signed. A notification not acknowledged is retried 1 minute, 5 minutes, 30 minutes, 2 hours, 6 hours, 12 hours and 24 hours after the first attempt; after that it is marked as given up on the staff console. A session ends with exactly one of `session.closed` (checked out through BarPay: charged, or a total of 0), `session.settled_outside` (staff recorded a register or outside payment) or `session.closed_unpaid`, and that event carries the receipt.
 - **Panel**: a BarPay page that the store app links to or embeds as a frame. It shows the live rate, its change and chart, a line while the cover charge is paused or capped, time stayed, cover charge so far, orders, payment method (PayPal or register), the running total, and a Pay button. Pay opens a choice: PayPal (shown only when linked) opens the exit QR; "Pay at register" asks staff to collect. After checkout the panel shows the result. The store app shows the receipt in its own UI from the notification or lookup.
 - **API key**: the store app calls BarPay from its server; the sample app has a backend that holds the key.
 
@@ -134,7 +134,7 @@ Linking PayPal is optional and moves no money: it saves a member's PayPal for th
 | Single payment | Each session is settled once. A repeated scan, a retry after a network error or timeout, or a staff retry never charges the same amount twice. Before retrying a call whose outcome is unknown, BarPay checks its status in PayPal |
 | Unlock only on payment | BarPay unlocks the exit gate only for a closed session that was fully charged, or whose payment staff recorded at the register or outside BarPay, and only within the re-unlock window after it closed. Once a session is closed its exit QR stops changing. Staff can also open the gate by hand from the console |
 | Store notified | The store app is notified of every session start, PayPal link, register request and result. Notifications are signed, carry an event ID and a sequence number, and are retried for up to 24 hours, so the store app may receive one more than once or out of order; it can always read the current state by lookup |
-| Access | Only the store app with the store's API key can start check-ins, report orders, request a PayPal link page for a member and delete a member's saved PayPal. A session link gives access to that session only: its panel and its register request, which fixes the total but charges nothing. Checkout is triggered only by an authenticated edge device, by staff with the staff passcode, or by BarPay itself at the maximum stay. Only staff can record a register payment or change settings. The exit token is separate from the session link. In the hosted demo the passcode is public (see [Out of scope](#7-out-of-scope)) |
+| Access | Only the store app with the store's API key can start check-ins, report orders, read sessions and members, request a PayPal link page for a member and delete a member's saved PayPal. A session link gives access to that session only: its panel and its register request, which fixes the total but charges nothing. Checkout is triggered only by an authenticated edge device, by staff with the staff passcode, or by BarPay itself at the maximum stay. Only staff can record a register payment or change settings. The exit token is separate from the session link. In the hosted demo the passcode is public (see [Out of scope](#7-out-of-scope)) |
 | Durability | Sessions, orders, settings, capture IDs and saved-PayPal references survive a backend restart |
 | Privacy | Raw audio (and video, if used) is never stored or sent off the edge device |
 | Observability | Failed charges, failed unlocks, register requests, rejected late orders, sessions past the maximum stay, notifications given up and failed deletions appear on the staff console; failed charges and unlocks are also sent to the store app |
@@ -209,6 +209,7 @@ Read: a session only ends through a successful charge, a register payment or set
 - **Alternative flow**: a member with a saved PayPal checks in → the session starts at once; BarPay then checks with PayPal that the saved PayPal still works and links the session. The member does nothing.
 - **Exception**: the member's saved PayPal no longer works (deleted by the customer in PayPal, declined) → the session stays unlinked; BarPay deletes the saved PayPal and notifies the store app (`member.saved_paypal_deleted`); the member can link again (UC2) or pay at the register.
 - **Exception**: the store app's API key is missing or wrong → rejected; nothing is created.
+- **Exception**: no rate has been published yet → rejected; nothing is created; the store app can try again.
 - **Exception**: the store app starts the same check-in twice (same idempotency key) → the same session is returned. A member who already has an open session → rejected.
 - **Postcondition**: the session is active, linked only if the member has a working saved PayPal, with no cover charge yet; its first block ends one block length after check-in; the store's occupancy count includes it.
 
@@ -217,6 +218,9 @@ Read: a session only ends through a successful charge, a register payment or set
 - **Precondition**: the customer is logged in to the store app as a member and has no saved PayPal.
 - **Main flow**: in the store app's settings, the member chooses to link PayPal. The store app asks BarPay for a link page for that member and opens it as a full page. The member continues to PayPal and approves that the store may charge a visit's total at checkout without asking again. BarPay keeps the saved PayPal under the member ID and returns the member to the store app. If the member has an active session, it becomes linked at once; otherwise the next check-in uses it (UC1). The store app is notified.
 - **Exception**: the customer is a guest → the store app does not offer linking and says that it needs an account; BarPay rejects a link request without a member ID.
+- **Exception**: the member already has a saved PayPal, or its deletion is still pending → rejected.
+- **Exception**: the store app asks to return the member to a URL outside its origin (config file) → rejected; no link page is created.
+- **Exception**: the member opens the link page after it stopped working → nothing is saved; the member is returned to the store app and can start again.
 - **Exception**: the member goes back from the link page or cancels in PayPal → nothing is saved; the member can try again later or pay at the register.
 - **Exception**: the setup token was not approved, or saving PayPal fails → nothing is saved; the member sees an error and can try again.
 - **Exception**: the member closes the tab after approving but before BarPay saves PayPal → nothing is saved; linking again starts over.
@@ -235,7 +239,8 @@ Read: a session only ends through a successful charge, a register payment or set
 - **Precondition**: the session is active.
 - **Main flow**: the customer orders in the store app; the store app sends BarPay the order lines and amounts. BarPay adds them to the session. From the second order of the visit, the cover charge pauses as in the [Pricing model](#4-pricing-model).
 - **Exception**: the session is not active (at the register, checking out, payment failed, closed, closed unpaid, unknown) → rejected and shown on the staff console; anything already served is collected by the store outside BarPay.
-- **Exception**: the same order is reported twice (same order ID) → recorded once, and the pause is not restarted.
+- **Exception**: the same order is reported twice (same order ID) → recorded once, and the pause is not restarted; this holds even after the session is no longer active.
+- **Exception**: an order ID already recorded comes with different lines → rejected; the recorded order stays as it was.
 - **Exception**: an amount is negative or in another currency → rejected.
 - **Postcondition**: the running total includes the order.
 
@@ -255,7 +260,7 @@ Read: a session only ends through a successful charge, a register payment or set
 ### UC6 — Customer pays at the register
 
 - **Precondition**: the session is active, with or without PayPal linked.
-- **Main flow**: the customer taps Pay in the panel and chooses "Pay at register". BarPay fixes the final total, stops the cover charge, and marks the session as waiting at the register; the store app and the staff console are notified. At the register, staff take the money and record it on the staff console. The session is closed as settled outside BarPay, the store app is notified, and the panel shows an exit QR that opens the gate within the re-unlock window.
+- **Main flow**: the customer taps Pay in the panel and chooses "Pay at register". BarPay fixes the final total, stops the cover charge, sets the session's payment method to register, and marks the session as waiting at the register; the store app and the staff console are notified. At the register, staff take the money and record it on the staff console. The session is closed as settled outside BarPay, the store app is notified (`session.settled_outside` with the receipt), and the panel shows an exit QR that opens the gate within the re-unlock window.
 - **Alternative flow**: the customer goes straight to the register → staff record the payment from the guest list; the total is fixed at that moment.
 - **Alternative flow**: staff record an amount different from the total → the receipt shows both; BarPay charges nothing for the difference.
 - **Exception**: the customer leaves after choosing the register without paying → staff mark the session unpaid, or it is closed as unpaid 3 days after the request. Either way the unpaid total is recorded and nothing is charged to PayPal.
@@ -279,7 +284,7 @@ Read: a session only ends through a successful charge, a register payment or set
 
 ### UC8 — Store connects to BarPay
 
-- **Main flow**: the owner sets, in a config file loaded at start: the store's PayPal REST credentials, the store API key, the store app's notification URL and signing secret, the staff passcode, currency (JPY/USD), max step, tick length, daily AI call cap, capacity, maximum stay, re-unlock window, exit QR refresh interval, demo time factor, and the starting values of the settings tab.
+- **Main flow**: the owner sets, in a config file loaded at start: the store's PayPal REST credentials, the store API key, the store app's notification URL and signing secret, the store app's origin (the only place BarPay returns members to after linking and the only site that may embed the panel), the staff passcode, currency (JPY/USD), max step, tick length, daily AI call cap, capacity, maximum stay, re-unlock window, exit QR refresh interval, demo time factor, and the starting values of the settings tab.
 - **Exception**: starting floor not below starting ceiling, maximum stay of 3 days or more, or missing credentials → BarPay does not start, and says why.
 - **Exception**: currency changed while sessions are open → BarPay starts with the previous currency, flags the change on the staff console, and applies it at the first restart with no open session.
 - **Postcondition**: BarPay runs with the config file's values; the settings tab holds the values last saved there, or the starting values on first start and after "Reset demo".
@@ -289,7 +294,7 @@ Read: a session only ends through a successful charge, a register payment or set
 - **Precondition**: the member has a saved PayPal.
 - **Main flow**: the member deletes it in the store app's settings; the store app asks BarPay, which deletes it in PayPal. The store app is notified.
 - **Exception**: a session that uses it is not yet closed → rejected; the store app says it can be deleted after paying.
-- **Exception**: PayPal does not confirm the deletion → BarPay retries until it does; a deletion that keeps failing is flagged on the staff console.
+- **Alternative flow**: PayPal does not confirm the deletion at once → BarPay accepts the request and retries until PayPal confirms. Until then the saved PayPal shows as being deleted: the member cannot link again and a check-in starts unlinked. The store app is notified when the deletion is confirmed; a deletion that keeps failing is flagged on the staff console.
 - **Postcondition**: the member has no saved PayPal; their next check-in starts unlinked, and linking again goes through PayPal approval (UC2).
 
 ### UC10 — Demo visitor tries BarPay without hardware
@@ -303,7 +308,7 @@ Read: a session only ends through a successful charge, a register payment or set
 flowchart LR
   Phone["Customer phone"] --> App["Sample mobile order app<br/>(store app)"]
   Phone --> Pages["BarPay PayPal link page<br/>+ embedded panel"]
-  App -- "API key: check-in, orders, link" --> API
+  App -- "API key: check-in, orders, lookup, link, delete" --> API
   API -- "signed notifications" --> App
   Pages --> API
   Staff["Staff console<br/>+ signal simulator<br/>+ virtual exit gate"] -- "passcode" --> API
@@ -327,7 +332,7 @@ Implementation notes:
 
 | Priority | Scope |
 |---|---|
-| P0 — must ship | BarPay: UC1–UC7 and UC9 with the virtual exit gate, retry and "settled outside BarPay"; UC8 as a config file; the PayPal link page and the panel as BarPay pages; store API with session lookup; signed notifications with simple retries; AI pricing with goal, guardrails, explanations and decision log; cover charge in blocks with the pause and the cap; the settings tab; USD; demo mode; reset demo. Sample app with its own backend: entrance landing, sign-up, login and guest join, menu, ordering, settings with PayPal link, BarPay panel, receipt. UC10; hosted demo; README with an API table |
+| P0 — must ship | BarPay: UC1–UC7 and UC9 with the virtual exit gate, retry and "settled outside BarPay"; UC8 as a config file; the PayPal link page and the panel as BarPay pages; store API with session and member lookup; signed notifications with simple retries; AI pricing with goal, guardrails, explanations and decision log; cover charge in blocks with the pause and the cap; the settings tab; USD; demo mode; reset demo. Sample app with its own backend: entrance landing, sign-up, login and guest join, menu, ordering, settings with PayPal link, BarPay panel, receipt. UC10; hosted demo; README with an API table |
 | P1 | Real edge device: QR reader → checkout → SwitchBot unlock, microphone liveliness; JPY (after Open question 4) |
 | P2 | Store onboarding screens; saved PayPal across a chain's stores; AI suggestions beyond pricing (e.g. a summary of the stay on the receipt) |
 

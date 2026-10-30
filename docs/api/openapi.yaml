@@ -1,0 +1,1202 @@
+openapi: 3.1.0
+info:
+  title: BarPay store API
+  version: 0.1.0
+  summary: The contract between a store's mobile order app and BarPay.
+  description: |
+    The calls a store app makes to BarPay from its server, the notifications
+    BarPay sends back, and the browser hand-offs to BarPay's pages.
+
+    Behavior (pricing, state changes, exception handling) is defined in
+    `PRD.md`; each operation and webhook names the use case (UC) or the
+    Responsibilities rule it serves.
+
+    BarPay's own clients (staff console, exit gate, edge device, and the
+    panel's calls to the backend, including "Pay at register" and the exit QR)
+    are not part of this contract.
+
+    Format limits (lengths, patterns, maximums, timeouts) belong to this
+    contract, not to the PRD.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: /v1
+    description: Relative to the BarPay deployment's base URL. A deployment serves one store.
+security:
+  - storeApiKey: []
+tags:
+  - name: Sessions
+    description: Visits, from check-in to the end of the session.
+  - name: Members
+    description: A member's saved PayPal.
+
+paths:
+  /checkins:
+    post:
+      tags: [Sessions]
+      operationId: createCheckin
+      summary: Start a check-in
+      description: |
+        PRD: UC1; Responsibilities → Check-in.
+
+        Starts a session at once and returns it. The returned session is never
+        linked yet: for a member with a saved PayPal, linking is reported later
+        by `session.paypal_linked`, or `member.saved_paypal_deleted` if the
+        saved PayPal no longer works.
+
+        Repeating the call with the same `Idempotency-Key` and the same body
+        returns the original response.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckinRequest'
+      responses:
+        '201':
+          description: The session started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: |
+            `member_has_open_session`: the member already has a session that
+            is not closed. `idempotency_key_reused`: the key was used with a
+            different body. `idempotency_key_in_progress`: a request with the
+            same key is still being processed; retry shortly.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: |
+            `pricing_not_ready`: no rate has been published yet (UC1
+            precondition). Nothing is created; retry later.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /sessions/{session_id}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [Sessions]
+      operationId: getSession
+      summary: Read a session
+      description: |
+        PRD: Responsibilities → Lookup.
+
+        Returns the current state, totals, payment method, panel URL and, once
+        the session has ended, its receipt. Use it to confirm a result and to
+        recover missed notifications.
+      responses:
+        '200':
+          description: The session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+
+  /sessions/{session_id}/orders:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [Sessions]
+      operationId: reportOrder
+      summary: Report an order
+      description: |
+        PRD: UC4.
+
+        Adds an order to the session's running total. `order_id` is the dedup
+        key within the session: reporting the same order again records it
+        once, does not restart the pause, and returns `200` with the order as
+        first recorded, even after the session is no longer active.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderRequest'
+      responses:
+        '200':
+          description: The order was already recorded; nothing changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '201':
+          description: The order was recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '409':
+          description: |
+            `session_not_active`: the session is at the register, checking
+            out, payment failed or ended; the order is not recorded and is
+            shown on the staff console. `order_conflict`: the `order_id` was
+            already recorded with different lines.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: |
+            `currency_mismatch`: an amount is not in the store's currency.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /members/{member_id}:
+    parameters:
+      - $ref: '#/components/parameters/MemberId'
+    get:
+      tags: [Members]
+      operationId: getMember
+      summary: Read a member's saved PayPal
+      description: |
+        PRD: Responsibilities → Lookup; UC2; UC9.
+
+        BarPay does not own members; any member ID returns a result, with
+        `saved_paypal: null` when BarPay keeps nothing for it.
+      responses:
+        '200':
+          description: The member as BarPay knows it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /members/{member_id}/paypal-link:
+    parameters:
+      - $ref: '#/components/parameters/MemberId'
+    post:
+      tags: [Members]
+      operationId: createPaypalLink
+      summary: Ask for a PayPal link page
+      description: |
+        PRD: UC2; Responsibilities → PayPal link.
+
+        Returns a BarPay page to open as a full page, never inside the panel's
+        frame. Guests cannot link: the store app calls this only for a
+        logged-in member, and a request without a member ID has no path to
+        reach. A page works for 30 minutes (`expires_at`); each call returns a
+        new page, and an earlier unused page stops working.
+
+        After the member finishes or leaves PayPal, BarPay redirects the
+        browser to `return_url` (see the `paypalLinkReturn` callback).
+        A member who closes the tab is not redirected at all.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaypalLinkRequest'
+      callbacks:
+        paypalLinkReturn:
+          '{$request.body#/return_url}':
+            get:
+              operationId: onPaypalLinkReturn
+              summary: The member's browser returns to the store app
+              description: |
+                PRD: UC2.
+
+                Not a server call: BarPay redirects the member's browser here,
+                adding `paypal_link`. The value is a hint for the screen to
+                show; it is not signed, so the store app confirms the result
+                with `getMember` or `member.paypal_linked`.
+              security: []
+              parameters:
+                - name: paypal_link
+                  in: query
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/PaypalLinkResult'
+              responses:
+                '200':
+                  description: The store app shows its own screen.
+                '400':
+                  description: An unknown `paypal_link` value; the store app treats it as `failed` and confirms with `getMember`.
+      responses:
+        '201':
+          description: The link page was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaypalLink'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: |
+            `saved_paypal_exists`: the member already has a saved PayPal, or
+            its deletion is still pending.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: |
+            `return_url_not_allowed`: `return_url` is not on the store app's
+            origin set in the config file.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /members/{member_id}/saved-paypal:
+    parameters:
+      - $ref: '#/components/parameters/MemberId'
+    delete:
+      tags: [Members]
+      operationId: deleteSavedPaypal
+      summary: Delete a member's saved PayPal
+      description: |
+        PRD: UC9.
+
+        Deletes the saved PayPal in PayPal. When PayPal confirms within the
+        request, the response is `204`. Otherwise it is `202`: BarPay keeps
+        retrying, and the member's saved PayPal shows `deletion_pending`; the
+        member cannot link again and a check-in starts unlinked. Either way,
+        `member.saved_paypal_deleted` is sent once PayPal confirms.
+      responses:
+        '202':
+          description: Deletion accepted; PayPal has not confirmed yet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+        '204':
+          description: Deleted.
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: |
+            `saved_paypal_not_found`: the member has no saved PayPal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: |
+            `saved_paypal_in_use`: a session that uses it is not yet closed
+            (`details.session_id` names it). Nothing is deleted; the member
+            can delete it after paying.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+webhooks:
+  session.started:
+    post:
+      operationId: onSessionStarted
+      summary: A session started
+      description: |
+        PRD: UC1; Responsibilities → Notifications.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Signature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionStartedEvent'
+      responses:
+        '2XX':
+          $ref: '#/components/responses/Acknowledged'
+  session.paypal_linked:
+    post:
+      operationId: onSessionPaypalLinked
+      summary: A session was linked to the member's saved PayPal
+      description: |
+        PRD: UC1 alternative flow; UC2; Responsibilities → Notifications.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Signature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionPaypalLinkedEvent'
+      responses:
+        '2XX':
+          $ref: '#/components/responses/Acknowledged'
+  session.register_requested:
+    post:
+      operationId: onSessionRegisterRequested
+      summary: The customer chose to pay at the register
+      description: |
+        PRD: UC6; Responsibilities → Notifications.
+
+        The total is fixed, the cover charge has stopped and the payment method is `register`.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Signature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionRegisterRequestedEvent'
+      responses:
+        '2XX':
+          $ref: '#/components/responses/Acknowledged'
+  session.closed:
+    post:
+      operationId: onSessionClosed
+      summary: The session was checked out through BarPay
+      description: |
+        PRD: UC5; UC7 (staff close, retry); Responsibilities → Notifications.
+
+        The total was charged with the saved PayPal, or was 0. Carries the receipt.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Signature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionClosedEvent'
+      responses:
+        '2XX':
+          $ref: '#/components/responses/Acknowledged'
+  session.payment_failed:
+    post:
+      operationId: onSessionPaymentFailed
+      summary: The checkout charge failed
+      description: |
+        PRD: UC5; Responsibilities → Notifications.
+
+        The session stays open with `unpaid_amount` set.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Signature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionPaymentFailedEvent'
+      responses:
+        '2XX':
+          $ref: '#/components/responses/Acknowledged'
+  session.settled_outside:
+    post:
+      operationId: onSessionSettledOutside
+      summary: Staff recorded a payment taken outside BarPay
+      description: |
+        PRD: UC6 (register, including a customer who went straight to the
+        register); UC7 (settled outside BarPay after a failed charge);
+        Responsibilities → Notifications.
+
+        Carries the receipt with `settlement` `register` or `outside`.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Signature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionSettledOutsideEvent'
+      responses:
+        '2XX':
+          $ref: '#/components/responses/Acknowledged'
+  session.closed_unpaid:
+    post:
+      operationId: onSessionClosedUnpaid
+      summary: The session was closed as unpaid
+      description: |
+        PRD: UC6; UC7; Responsibilities → Notifications.
+
+        Staff marked it unpaid, or 3 days passed. Carries the receipt with the
+        unpaid amount.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Signature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionClosedUnpaidEvent'
+      responses:
+        '2XX':
+          $ref: '#/components/responses/Acknowledged'
+  gate.unlock_failed:
+    post:
+      operationId: onGateUnlockFailed
+      summary: The charge succeeded but the exit gate did not unlock
+      description: |
+        PRD: UC5; Responsibilities → Notifications.
+
+        The payment stands; staff open the gate.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Signature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GateUnlockFailedEvent'
+      responses:
+        '2XX':
+          $ref: '#/components/responses/Acknowledged'
+  member.paypal_linked:
+    post:
+      operationId: onMemberPaypalLinked
+      summary: A member saved PayPal
+      description: |
+        PRD: UC2; Responsibilities → Notifications.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Signature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemberPaypalLinkedEvent'
+      responses:
+        '2XX':
+          $ref: '#/components/responses/Acknowledged'
+  member.saved_paypal_deleted:
+    post:
+      operationId: onMemberSavedPaypalDeleted
+      summary: A member's saved PayPal was deleted
+      description: |
+        PRD: UC9; UC1 exception (saved PayPal no longer works);
+        Responsibilities → Notifications.
+
+        `data.reason` says why.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Signature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemberSavedPaypalDeletedEvent'
+      responses:
+        '2XX':
+          $ref: '#/components/responses/Acknowledged'
+
+components:
+  securitySchemes:
+    storeApiKey:
+      type: http
+      scheme: bearer
+      description: |
+        PRD: Responsibilities → API key.
+
+        The store API key from the config file, sent from the store app's
+        server as `Authorization: Bearer <key>`. Never send it from a browser.
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        A unique key chosen by the store app for this check-in. BarPay keeps
+        a key for at least 24 hours after a `201`. The same key with the same
+        body returns the original `201`; with a different body it is rejected
+        with `idempotency_key_reused`. A request whose key is still being
+        processed is rejected with `idempotency_key_in_progress`. After an
+        error response nothing is kept, so the same key can be sent again.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: '^[A-Za-z0-9_.:-]+$'
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/SessionId'
+    MemberId:
+      name: member_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/MemberId'
+    Signature:
+      name: BarPay-Signature
+      in: header
+      required: true
+      description: |
+        `t=<unix seconds>,v1=<hex>`, where `v1` is HMAC-SHA256 with the store
+        app's signing secret over `<t>.<raw request body>`. `t` is the time of
+        this delivery attempt: every retry is signed again, while the event's
+        `id` stays the same. Verify it with a constant-time comparison against
+        the raw body before parsing, and reject a `t` more than 5 minutes from
+        the current time.
+      schema:
+        type: string
+        pattern: '^t=[0-9]+,v1=[0-9a-f]{64}$'
+
+  responses:
+    Acknowledged:
+      description: |
+        Any 2xx acknowledges the notification. Anything else, or no answer
+        within 10 seconds, is retried 1 minute, 5 minutes, 30 minutes,
+        2 hours, 6 hours, 12 hours and 24 hours after the first attempt, then
+        given up. The same event may arrive more than once or out of order:
+        deduplicate by `id` and order by `sequence`.
+    InvalidRequest:
+      description: |
+        `invalid_request`: the body, a parameter or a header is missing or
+        malformed (for example a negative amount, or a member ID that is not
+        allowed). `details.field` names the first bad field.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: '`unauthorized`: the API key is missing or wrong. Nothing is created.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    SessionNotFound:
+      description: '`session_not_found`: no session has this ID.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    SessionId:
+      type: string
+      description: Assigned by BarPay.
+      pattern: '^ses_[A-Za-z0-9]{16,32}$'
+      examples: [ses_8f3k2m9q1x7v4b6n]
+    MemberId:
+      type: string
+      description: The store app's own member ID. BarPay trusts it as sent.
+      minLength: 1
+      maxLength: 64
+      pattern: '^[A-Za-z0-9_-]+$'
+      examples: [m_1024]
+    Currency:
+      type: string
+      enum: [JPY, USD]
+      description: The store's currency, set in the config file.
+    Money:
+      type: object
+      description: |
+        An amount as an integer in the currency's smallest unit: yen for JPY
+        (no decimals), cents for USD. `{"value": 1250, "currency": "USD"}` is
+        $12.50.
+      required: [value, currency]
+      additionalProperties: false
+      properties:
+        value:
+          type: integer
+          minimum: 0
+          maximum: 100000000
+        currency:
+          $ref: '#/components/schemas/Currency'
+    SessionState:
+      type: string
+      description: |
+        PRD: the state diagram in Use cases. `active` (Active),
+        `checking_out` (CheckingOut), `at_register` (AtRegister),
+        `payment_failed` (PaymentFailed), `closed` (Closed),
+        `closed_unpaid` (ClosedUnpaid). `closed` covers both a charge through
+        BarPay and a payment recorded by staff; `receipt.settlement` tells
+        them apart.
+      enum: [active, checking_out, at_register, payment_failed, closed, closed_unpaid]
+    PaymentMethod:
+      type: string
+      description: '`paypal` when the session is linked to the member''s saved PayPal and the register was not requested; otherwise `register`.'
+      enum: [paypal, register]
+    CoverChargeStatus:
+      type: string
+      description: '`running`, `paused` (an additional order paused it), `capped` (the cap per visit was reached) or `stopped` (the total is fixed).'
+      enum: [running, paused, capped, stopped]
+    CheckinRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        member_id:
+          description: Omit for a guest.
+          $ref: '#/components/schemas/MemberId'
+    Session:
+      type: object
+      additionalProperties: false
+      required:
+        - session_id
+        - state
+        - member_id
+        - payment_method
+        - checked_in_at
+        - rate_per_hour
+        - cover_charge_status
+        - orders_total
+        - cover_charge
+        - total
+        - order_count
+        - unpaid_amount
+        - panel_url
+        - receipt
+      properties:
+        session_id:
+          $ref: '#/components/schemas/SessionId'
+        state:
+          $ref: '#/components/schemas/SessionState'
+        member_id:
+          description: '`null` for a guest.'
+          oneOf:
+            - $ref: '#/components/schemas/MemberId'
+            - type: 'null'
+        payment_method:
+          $ref: '#/components/schemas/PaymentMethod'
+        checked_in_at:
+          type: string
+          format: date-time
+        total_fixed_at:
+          description: When the final total was fixed (checkout began or the register was requested); absent while active.
+          type: string
+          format: date-time
+        rate_per_hour:
+          description: The rate published now; for a session whose total is fixed, the rate at that moment.
+          $ref: '#/components/schemas/Money'
+        cover_charge_status:
+          $ref: '#/components/schemas/CoverChargeStatus'
+        orders_total:
+          $ref: '#/components/schemas/Money'
+        cover_charge:
+          description: The sum of the ended blocks' amounts so far.
+          $ref: '#/components/schemas/Money'
+        total:
+          description: '`orders_total` + `cover_charge`.'
+          $ref: '#/components/schemas/Money'
+        order_count:
+          type: integer
+          minimum: 0
+        unpaid_amount:
+          description: Set while `payment_failed` and for `closed_unpaid`; otherwise `null`.
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        panel_url:
+          description: |
+            PRD: Responsibilities → Panel.
+
+            The session link: BarPay's panel for this session, to link to or
+            embed as a frame. It gives access to this session only. Only the
+            store app's origin set in the config file may embed it.
+          type: string
+          format: uri
+        receipt:
+          description: Set once the session has ended (`closed` or `closed_unpaid`); otherwise `null`.
+          oneOf:
+            - $ref: '#/components/schemas/Receipt'
+            - type: 'null'
+    Receipt:
+      description: |
+        PRD: Guarantees → Accuracy.
+
+        How the session ended, chosen by `settlement`.
+      oneOf:
+        - $ref: '#/components/schemas/PaypalReceipt'
+        - $ref: '#/components/schemas/RegisterReceipt'
+        - $ref: '#/components/schemas/OutsideReceipt'
+        - $ref: '#/components/schemas/UnpaidReceipt'
+      discriminator:
+        propertyName: settlement
+        mapping:
+          paypal: '#/components/schemas/PaypalReceipt'
+          register: '#/components/schemas/RegisterReceipt'
+          outside: '#/components/schemas/OutsideReceipt'
+          unpaid: '#/components/schemas/UnpaidReceipt'
+    ReceiptBase:
+      type: object
+      required: [settlement, orders_total, cover_charge, total, ended_at]
+      properties:
+        settlement:
+          type: string
+          enum: [paypal, register, outside, unpaid]
+        orders_total:
+          $ref: '#/components/schemas/Money'
+        cover_charge:
+          $ref: '#/components/schemas/Money'
+        total:
+          $ref: '#/components/schemas/Money'
+        ended_at:
+          type: string
+          format: date-time
+    PaypalReceipt:
+      description: Checked out through BarPay; the amount charged equals `total`.
+      allOf:
+        - $ref: '#/components/schemas/ReceiptBase'
+        - type: object
+          required: [paypal_capture_id]
+          properties:
+            settlement:
+              const: paypal
+            paypal_capture_id:
+              description: '`null` only when `total` was 0 and nothing was charged.'
+              oneOf:
+                - type: string
+                  maxLength: 64
+                - type: 'null'
+      unevaluatedProperties: false
+    RegisterReceipt:
+      description: Staff recorded a payment at the register; nothing was charged through BarPay. `amount_recorded` may differ from `total`.
+      allOf:
+        - $ref: '#/components/schemas/ReceiptBase'
+        - type: object
+          required: [amount_recorded]
+          properties:
+            settlement:
+              const: register
+            amount_recorded:
+              $ref: '#/components/schemas/Money'
+      unevaluatedProperties: false
+    OutsideReceipt:
+      description: Staff settled a failed charge outside BarPay; nothing was charged through BarPay. `amount_recorded` may differ from `total`.
+      allOf:
+        - $ref: '#/components/schemas/ReceiptBase'
+        - type: object
+          required: [amount_recorded]
+          properties:
+            settlement:
+              const: outside
+            amount_recorded:
+              $ref: '#/components/schemas/Money'
+      unevaluatedProperties: false
+    UnpaidReceipt:
+      description: Closed as unpaid; nothing was collected through BarPay.
+      allOf:
+        - $ref: '#/components/schemas/ReceiptBase'
+        - type: object
+          required: [unpaid_amount]
+          properties:
+            settlement:
+              const: unpaid
+            unpaid_amount:
+              $ref: '#/components/schemas/Money'
+      unevaluatedProperties: false
+    OrderLine:
+      type: object
+      additionalProperties: false
+      required: [name, quantity, unit_price]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 99
+        unit_price:
+          $ref: '#/components/schemas/Money'
+    OrderRequest:
+      type: object
+      additionalProperties: false
+      required: [order_id, lines]
+      properties:
+        order_id:
+          description: The store app's order ID; unique within the session.
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9_.:-]+$'
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/OrderLine'
+    Order:
+      type: object
+      additionalProperties: false
+      required: [order_id, lines, amount, recorded_at]
+      properties:
+        order_id:
+          type: string
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderLine'
+        amount:
+          description: The sum of `quantity` × `unit_price` over the lines.
+          $ref: '#/components/schemas/Money'
+        recorded_at:
+          type: string
+          format: date-time
+    Member:
+      type: object
+      additionalProperties: false
+      required: [member_id, saved_paypal]
+      properties:
+        member_id:
+          $ref: '#/components/schemas/MemberId'
+        saved_paypal:
+          description: '`null` when BarPay keeps no saved PayPal for this member.'
+          oneOf:
+            - $ref: '#/components/schemas/SavedPaypal'
+            - type: 'null'
+    SavedPaypal:
+      type: object
+      description: A reference to the member's saved PayPal. BarPay never exposes PayPal's token.
+      additionalProperties: false
+      required: [status, saved_at, in_use_by_session_id]
+      properties:
+        status:
+          type: string
+          enum: [saved, deletion_pending]
+        saved_at:
+          type: string
+          format: date-time
+        in_use_by_session_id:
+          description: A session that uses it and is not yet closed, which blocks deletion; otherwise `null`.
+          oneOf:
+            - $ref: '#/components/schemas/SessionId'
+            - type: 'null'
+    PaypalLinkRequest:
+      type: object
+      additionalProperties: false
+      required: [return_url]
+      properties:
+        return_url:
+          description: Where BarPay sends the member back. Must be on the store app's origin set in the config file.
+          type: string
+          format: uri
+          maxLength: 2048
+    PaypalLink:
+      type: object
+      additionalProperties: false
+      required: [link_url, expires_at]
+      properties:
+        link_url:
+          description: BarPay's link page. Open it as a full page.
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+    PaypalLinkResult:
+      type: string
+      description: |
+        The `paypal_link` query parameter on the return URL (PRD: UC2).
+        `linked`: PayPal was saved (an active session of the member is linked
+        if there is one). `cancelled`: the member went back or cancelled in
+        PayPal; nothing was saved. `failed`: PayPal did not approve, or saving
+        failed; nothing was saved. `expired`: the link page was no longer
+        valid; nothing was saved.
+      enum: [linked, cancelled, failed, expired]
+    EventBase:
+      type: object
+      description: |
+        PRD: Responsibilities → Notifications.
+
+        Every notification. `sequence` increases by one per subject (the
+        session for `session.*` and `gate.*`, the member for `member.*`)
+        and starts at 1.
+      required: [id, type, created_at, sequence]
+      properties:
+        id:
+          description: The event ID; the same across retries.
+          type: string
+          pattern: '^evt_[A-Za-z0-9]{16,32}$'
+        type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        sequence:
+          type: integer
+          minimum: 1
+    SessionStartedEvent:
+      allOf:
+        - $ref: '#/components/schemas/EventBase'
+        - type: object
+          required: [data]
+          properties:
+            type:
+              const: session.started
+            data:
+              type: object
+              additionalProperties: false
+              required: [session]
+              properties:
+                session:
+                  description: The session as of this event.
+                  allOf:
+                    - $ref: '#/components/schemas/Session'
+                    - type: object
+                      properties:
+                        state:
+                          const: active
+    SessionPaypalLinkedEvent:
+      allOf:
+        - $ref: '#/components/schemas/EventBase'
+        - type: object
+          required: [data]
+          properties:
+            type:
+              const: session.paypal_linked
+            data:
+              type: object
+              additionalProperties: false
+              required: [session]
+              properties:
+                session:
+                  description: The session as of this event.
+                  allOf:
+                    - $ref: '#/components/schemas/Session'
+                    - type: object
+                      properties:
+                        payment_method:
+                          const: paypal
+    SessionRegisterRequestedEvent:
+      allOf:
+        - $ref: '#/components/schemas/EventBase'
+        - type: object
+          required: [data]
+          properties:
+            type:
+              const: session.register_requested
+            data:
+              type: object
+              additionalProperties: false
+              required: [session]
+              properties:
+                session:
+                  description: The session as of this event.
+                  allOf:
+                    - $ref: '#/components/schemas/Session'
+                    - type: object
+                      properties:
+                        state:
+                          const: at_register
+                        payment_method:
+                          const: register
+    SessionClosedEvent:
+      allOf:
+        - $ref: '#/components/schemas/EventBase'
+        - type: object
+          required: [data]
+          properties:
+            type:
+              const: session.closed
+            data:
+              type: object
+              additionalProperties: false
+              required: [session]
+              properties:
+                session:
+                  description: The session as of this event.
+                  allOf:
+                    - $ref: '#/components/schemas/Session'
+                    - type: object
+                      properties:
+                        state:
+                          const: closed
+                        receipt:
+                          $ref: '#/components/schemas/PaypalReceipt'
+    SessionPaymentFailedEvent:
+      allOf:
+        - $ref: '#/components/schemas/EventBase'
+        - type: object
+          required: [data]
+          properties:
+            type:
+              const: session.payment_failed
+            data:
+              type: object
+              additionalProperties: false
+              required: [session]
+              properties:
+                session:
+                  description: The session as of this event.
+                  allOf:
+                    - $ref: '#/components/schemas/Session'
+                    - type: object
+                      properties:
+                        state:
+                          const: payment_failed
+                        unpaid_amount:
+                          $ref: '#/components/schemas/Money'
+    SessionSettledOutsideEvent:
+      allOf:
+        - $ref: '#/components/schemas/EventBase'
+        - type: object
+          required: [data]
+          properties:
+            type:
+              const: session.settled_outside
+            data:
+              type: object
+              additionalProperties: false
+              required: [session]
+              properties:
+                session:
+                  description: The session as of this event.
+                  allOf:
+                    - $ref: '#/components/schemas/Session'
+                    - type: object
+                      properties:
+                        state:
+                          const: closed
+                        receipt:
+                          oneOf:
+                            - $ref: '#/components/schemas/RegisterReceipt'
+                            - $ref: '#/components/schemas/OutsideReceipt'
+    SessionClosedUnpaidEvent:
+      allOf:
+        - $ref: '#/components/schemas/EventBase'
+        - type: object
+          required: [data]
+          properties:
+            type:
+              const: session.closed_unpaid
+            data:
+              type: object
+              additionalProperties: false
+              required: [session]
+              properties:
+                session:
+                  description: The session as of this event.
+                  allOf:
+                    - $ref: '#/components/schemas/Session'
+                    - type: object
+                      properties:
+                        state:
+                          const: closed_unpaid
+                        receipt:
+                          $ref: '#/components/schemas/UnpaidReceipt'
+    GateUnlockFailedEvent:
+      allOf:
+        - $ref: '#/components/schemas/EventBase'
+        - type: object
+          required: [data]
+          properties:
+            type:
+              const: gate.unlock_failed
+            data:
+              type: object
+              additionalProperties: false
+              required: [session]
+              properties:
+                session:
+                  description: The session as of this event.
+                  allOf:
+                    - $ref: '#/components/schemas/Session'
+                    - type: object
+                      properties:
+                        state:
+                          const: closed
+    MemberPaypalLinkedEvent:
+      allOf:
+        - $ref: '#/components/schemas/EventBase'
+        - type: object
+          required: [data]
+          properties:
+            type:
+              const: member.paypal_linked
+            data:
+              type: object
+              additionalProperties: false
+              required: [member]
+              properties:
+                member:
+                  description: The member as of this event.
+                  $ref: '#/components/schemas/Member'
+    MemberSavedPaypalDeletedEvent:
+      allOf:
+        - $ref: '#/components/schemas/EventBase'
+        - type: object
+          required: [data]
+          properties:
+            type:
+              const: member.saved_paypal_deleted
+            data:
+              type: object
+              additionalProperties: false
+              required: [member, reason]
+              properties:
+                member:
+                  description: The member as of this event; `saved_paypal` is `null`.
+                  $ref: '#/components/schemas/Member'
+                reason:
+                  description: '`member_request` (UC9) or `no_longer_valid` (UC1 exception).'
+                  type: string
+                  enum: [member_request, no_longer_valid]
+    Error:
+      type: object
+      description: Every error response.
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - invalid_request
+                - unauthorized
+                - session_not_found
+                - session_not_active
+                - order_conflict
+                - currency_mismatch
+                - member_has_open_session
+                - idempotency_key_reused
+                - idempotency_key_in_progress
+                - pricing_not_ready
+                - saved_paypal_exists
+                - saved_paypal_not_found
+                - saved_paypal_in_use
+                - return_url_not_allowed
+            message:
+              description: For developers; not shown to customers.
+              type: string
+            details:
+              type: object
+              additionalProperties: false
+              properties:
+                field:
+                  type: string
+                session_id:
+                  $ref: '#/components/schemas/SessionId'
