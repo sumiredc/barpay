@@ -1,0 +1,17 @@
+# Secrets: PayPal credentials, AI API key, SwitchBot keys
+.env
+.env.*
+!.env.example
+
+# Local agent settings
+.claude/settings.local.json
+
+# Dependencies and builds
+node_modules/
+dist/
+build/
+
+.DS_Store
+
+# Throwaway prototype, not tracked
+mock/
