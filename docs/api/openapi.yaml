@@ -1,19 +1,24 @@
 openapi: 3.1.0
 info:
-  title: BarPay store API
-  version: 0.1.0
+  title: BarPay API
+  version: 0.2.0
   summary: The contract between a store's mobile order app and BarPay.
   description: |
     The calls a store app makes to BarPay from its server, the notifications
-    BarPay sends back, and the browser hand-offs to BarPay's pages.
+    BarPay sends back, and the browser redirects of the PayPal link. BarPay
+    has no screens: the store app draws the panel, the admin screen and the
+    consent before linking from these calls.
+
+    Customer-facing calls use the store API key; admin calls (under `/admin`)
+    use the admin API key and name the staff member acting.
 
     Behavior (pricing, state changes, exception handling) is defined in
     `PRD.md`; each operation and webhook names the use case (UC) or the
     Responsibilities rule it serves.
 
-    BarPay's own clients (staff console, exit gate, edge device, and the
-    panel's calls to the backend, including "Pay at register" and the exit QR)
-    are not part of this contract.
+    The edge device's API (exit tokens scanned at the gate, liveliness
+    signals), which the development tools also use, is not part of this
+    contract.
 
     Format limits (lengths, patterns, maximums, timeouts) belong to this
     contract, not to the PRD.
@@ -30,6 +35,10 @@ tags:
     description: Visits, from check-in to the end of the session.
   - name: Members
     description: A member's saved PayPal.
+  - name: Pricing
+    description: The published rate and its evaluation.
+  - name: Admin
+    description: Running the room, for the store app's admin screen.
 
 paths:
   /checkins:
@@ -76,14 +85,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        '503':
-          description: |
-            `pricing_not_ready`: no rate has been published yet (UC1
-            precondition). Nothing is created; retry later.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
 
   /sessions/{session_id}:
     parameters:
@@ -93,11 +94,12 @@ paths:
       operationId: getSession
       summary: Read a session
       description: |
-        PRD: Responsibilities → Lookup.
+        PRD: Responsibilities → Lookup, Panel.
 
-        Returns the current state, totals, payment method, panel URL and, once
-        the session has ended, its receipt. Use it to confirm a result and to
-        recover missed notifications.
+        Returns the current state, totals, payment method and, once the
+        session has ended, its receipt. Use it to draw the panel, to confirm
+        a result and to recover missed notifications. The rate over the visit
+        comes from `getRateHistory` with `since` set to `checked_in_at`.
       responses:
         '200':
           description: The session.
@@ -152,9 +154,9 @@ paths:
         '409':
           description: |
             `session_not_active`: the session is at the register, checking
-            out, payment failed or ended; the order is not recorded and is
-            shown on the staff console. `order_conflict`: the `order_id` was
-            already recorded with different lines.
+            out, payment failed or ended; the order is not recorded and an
+            alert is raised. `order_conflict`: the `order_id` was already
+            recorded with different lines.
           content:
             application/json:
               schema:
@@ -166,6 +168,163 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+
+  /sessions/{session_id}/register-request:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [Sessions]
+      operationId: requestRegister
+      summary: The customer chooses to pay at the register
+      description: |
+        PRD: UC6; Responsibilities → Panel.
+
+        Fixes the final total, stops the cover charge, sets the payment
+        method to `register` and moves the session to `at_register`; nothing
+        is charged. The request cannot be withdrawn. Repeating it for a
+        session already at the register returns `200` with the session as it
+        is.
+      responses:
+        '200':
+          description: The session is waiting at the register.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '409':
+          description: |
+            `session_not_active`: the session is checking out, payment failed
+            or ended.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /sessions/{session_id}/exit-token:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [Sessions]
+      operationId: getExitToken
+      summary: Get the session's current exit token
+      description: |
+        PRD: UC5; UC6; Responsibilities → Exit token; Guarantees → Access.
+
+        Returns the token to show only to this session's customer as a QR.
+        Issued for an active session linked to PayPal, and for a session
+        closed (charged, or recorded by staff) within the re-unlock window.
+        For an active session it changes at the refresh interval; get a new
+        one by `expires_at`. For a closed session it no longer changes, and
+        `expires_at` is the end of the re-unlock window. The token works only at the exit
+        gate. Do not log it; the response carries `Cache-Control: no-store`.
+      responses:
+        '200':
+          description: The current exit token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExitToken'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '409':
+          description: |
+            `exit_token_unavailable`: the session has no PayPal linked, is at
+            the register, checking out or payment failed, or closed longer
+            ago than the re-unlock window.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /rate:
+    get:
+      tags: [Pricing]
+      operationId: getRate
+      summary: Read the published rate
+      description: |
+        PRD: Pricing model; Responsibilities → Lookup.
+      responses:
+        '200':
+          description: The rate published now.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RatePoint'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /rate/history:
+    get:
+      tags: [Pricing]
+      operationId: getRateHistory
+      summary: Read the published rates over a period
+      description: |
+        PRD: UC3; Responsibilities → Panel.
+
+        The published rates from `since`, oldest first, including the rate
+        in effect at `since`, up to the 1,000 most recent. Explanations are
+        not included; they are for the admin screen (`listDecisions`).
+      parameters:
+        - name: since
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: The rates.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [rates]
+                properties:
+                  rates:
+                    type: array
+                    maxItems: 1000
+                    items:
+                      $ref: '#/components/schemas/RatePoint'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /rate-evaluations:
+    post:
+      tags: [Pricing]
+      operationId: requestRateEvaluation
+      summary: Ask BarPay to evaluate the rate
+      description: |
+        PRD: Pricing model → Evaluation on request, Fallback; Guarantees →
+        Price bounds; UC7.
+
+        Call it on the store app's own schedule (the sample app: every
+        5 minutes). BarPay runs at most one evaluation at a time and at most
+        one per minimum interval: a request that arrives while one is running
+        waits for it and gets its result (`evaluated: true`); a request
+        sooner than the minimum interval after the last one returns the
+        current rate with `evaluated: false`. The admin screen's "evaluate
+        now" uses this operation too.
+        If the AI does not answer in time or its answer cannot be read, the
+        rate stays as it was and `fallback` says why. The call answers within
+        30 seconds.
+      responses:
+        '200':
+          description: The rate after this request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateEvaluation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /members/{member_id}:
     parameters:
@@ -197,19 +356,19 @@ paths:
     post:
       tags: [Members]
       operationId: createPaypalLink
-      summary: Ask for a PayPal link page
+      summary: Ask for a PayPal link URL
       description: |
-        PRD: UC2; Responsibilities → PayPal link.
+        PRD: UC2; Responsibilities → PayPal link; Guarantees → Consent.
 
-        Returns a BarPay page to open as a full page, never inside the panel's
-        frame. Guests cannot link: the store app calls this only for a
-        logged-in member, and a request without a member ID has no path to
-        reach. A page works for 30 minutes (`expires_at`); each call returns a
-        new page, and an earlier unused page stops working.
-
-        After the member finishes or leaves PayPal, BarPay redirects the
-        browser to `return_url` (see the `paypalLinkReturn` callback).
-        A member who closes the tab is not redirected at all.
+        Call it only for a logged-in member, after showing the consent text
+        whose version is sent as `consent_version`, with a `state` value that
+        the store app binds to that member's browser session. Returns a URL to open as
+        a full page, never embedded. BarPay shows no page there: the
+        browser is redirected to PayPal, and from PayPal back to `return_url`
+        (see the `paypalLinkReturn` callback). Redirects carry
+        `Referrer-Policy: no-referrer`. A URL works for 30 minutes
+        (`expires_at`); each call returns a new URL, and an earlier unused one
+        stops working. Nothing is saved until `confirmPaypalLink`.
       requestBody:
         required: true
         content:
@@ -226,9 +385,15 @@ paths:
                 PRD: UC2.
 
                 Not a server call: BarPay redirects the member's browser here,
-                adding `paypal_link`. The value is a hint for the screen to
-                show; it is not signed, so the store app confirms the result
-                with `getMember` or `member.paypal_linked`.
+                adding `paypal_link`, `state` and, when PayPal approved,
+                `code`. No PayPal token is added. The values are not signed
+                and save nothing. The store app must check that `state`
+                belongs to this browser's session before calling
+                `confirmPaypalLink` with the code and the ID of the member
+                logged in to that session; if it does not, it must not
+                confirm. The page must remove `code` from the address bar
+                (for example with a redirect to a clean URL), send
+                `Referrer-Policy: no-referrer`, and not log the query string.
               security: []
               parameters:
                 - name: paypal_link
@@ -236,14 +401,26 @@ paths:
                   required: true
                   schema:
                     $ref: '#/components/schemas/PaypalLinkResult'
+                - name: state
+                  in: query
+                  required: true
+                  description: The `state` sent in `createPaypalLink`.
+                  schema:
+                    $ref: '#/components/schemas/PaypalLinkState'
+                - name: code
+                  in: query
+                  required: false
+                  description: Present only with `paypal_link=approved`.
+                  schema:
+                    $ref: '#/components/schemas/PaypalLinkCode'
               responses:
                 '200':
                   description: The store app shows its own screen.
                 '400':
-                  description: An unknown `paypal_link` value; the store app treats it as `failed` and confirms with `getMember`.
+                  description: An unknown `paypal_link` value; the store app treats it as `failed`.
       responses:
         '201':
-          description: The link page was created.
+          description: The link URL was created.
           content:
             application/json:
               schema:
@@ -264,6 +441,67 @@ paths:
           description: |
             `return_url_not_allowed`: `return_url` is not on the store app's
             origin set in the config file.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /members/{member_id}/paypal-link/confirm:
+    parameters:
+      - $ref: '#/components/parameters/MemberId'
+    post:
+      tags: [Members]
+      operationId: confirmPaypalLink
+      summary: Confirm a PayPal link
+      description: |
+        PRD: UC2; Responsibilities → PayPal link; Fixed constraints → Verify
+        before trusting.
+
+        `member_id` must be the member logged in to the store app's own
+        session, not a value taken from the return URL. BarPay saves PayPal
+        only if the code is known, unused, not expired and was issued for a
+        link URL made for this member. A code works for 10 minutes and is
+        used up by the first confirm request, whether it succeeds or not.
+        On success an active session of the member is linked, and
+        `member.paypal_linked` is sent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaypalLinkConfirmRequest'
+      responses:
+        '201':
+          description: PayPal was saved for the member.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: |
+            `saved_paypal_exists`: the member already has a saved PayPal, or
+            its deletion is still pending.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: |
+            `link_code_invalid`: the code is unknown, already used, expired,
+            or was issued for another member. Nothing is saved, and the code
+            cannot be used again.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: |
+            `paypal_save_failed`: PayPal did not save it. Nothing is saved;
+            the member can start linking again.
           content:
             application/json:
               schema:
@@ -313,6 +551,521 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+
+  /admin/sessions:
+    get:
+      tags: [Admin]
+      operationId: listSessions
+      summary: List sessions
+      description: |
+        PRD: UC7; Responsibilities → Admin.
+
+        Newest check-in first. Filter by `state` to list, for example, the
+        sessions waiting at the register.
+      security:
+        - adminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+        - name: state
+          in: query
+          required: false
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/SessionState'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of sessions.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [sessions, next_cursor]
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Session'
+                  next_cursor:
+                    $ref: '#/components/schemas/NextCursor'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/sessions/{session_id}/close:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [Admin]
+      operationId: closeSession
+      summary: Staff close a linked session
+      description: |
+        PRD: UC7 (a linked customer left through another door); UC5.
+
+        Checks the session out as in UC5 without the gate: the total is fixed
+        and charged once with the saved PayPal. The session moves to
+        `checking_out` before PayPal is called, so a concurrent request gets
+        `session_not_active`. Once the charge has been attempted, the response
+        is kept under the key even if it is an error. The response is the session
+        after the attempt (`closed` or `payment_failed`); the result is also
+        notified. The same `Idempotency-Key` returns the first result and
+        never charges again.
+      security:
+        - adminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: The session after the checkout attempt.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '409':
+          description: |
+            `session_not_active`: the session is not active.
+            `session_not_linked`: it has no PayPal linked; record a register
+            payment instead. `idempotency_key_reused`,
+            `idempotency_key_in_progress`: as for `createCheckin`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/sessions/{session_id}/retry:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [Admin]
+      operationId: retryCharge
+      summary: Staff retry a failed charge
+      description: |
+        PRD: UC7 exception; Guarantees → Charges only for this visit, Single
+        payment.
+
+        Charges the total again with the saved PayPal as a new attempt. The
+        session moves to `checking_out` before PayPal is called, so a
+        concurrent request, even with another key, gets
+        `session_not_payment_failed`. The same `Idempotency-Key` returns the
+        first result and never charges again; once the charge has been
+        attempted, the response is kept under the key even if it is an
+        error.
+      security:
+        - adminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: The session after the attempt (`closed` or `payment_failed`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '409':
+          description: |
+            `session_not_payment_failed`: the session is not PaymentFailed.
+            `retry_window_over`: 3 days have passed since checkout began.
+            `idempotency_key_reused`, `idempotency_key_in_progress`: as for
+            `createCheckin`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/sessions/{session_id}/register-payment:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [Admin]
+      operationId: recordRegisterPayment
+      summary: Staff record a payment at the register
+      description: |
+        PRD: UC6 (including a customer who went straight to the register).
+
+        For an active session or one waiting at the register. Fixes the
+        total if it is not fixed yet, records the amount taken and closes the
+        session; `session.settled_outside` follows. Nothing is charged
+        through BarPay. If a retry after a lost response gets `409`, read the
+        session: it may already be closed by the first request.
+      security:
+        - adminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AmountRecordedRequest'
+      responses:
+        '200':
+          description: The session, closed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '409':
+          description: |
+            `session_not_active`: the session is checking out, payment
+            failed or ended.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: '`currency_mismatch`: the amount is not in the store''s currency.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/sessions/{session_id}/settle-outside:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [Admin]
+      operationId: settleOutside
+      summary: Staff settle a failed charge outside BarPay
+      description: |
+        PRD: UC7 exception.
+
+        For a PaymentFailed session. Records the amount settled and closes
+        the session; `session.settled_outside` follows.
+      security:
+        - adminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AmountRecordedRequest'
+      responses:
+        '200':
+          description: The session, closed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '409':
+          description: '`session_not_payment_failed`: the session is not PaymentFailed.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: '`currency_mismatch`: the amount is not in the store''s currency.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/sessions/{session_id}/mark-unpaid:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [Admin]
+      operationId: markUnpaid
+      summary: Staff mark a session at the register as unpaid
+      description: |
+        PRD: UC6 exception; UC7.
+
+        For a session waiting at the register whose customer left without
+        paying. Records the unpaid total and closes the session;
+        `session.closed_unpaid` follows. Nothing is charged.
+      security:
+        - adminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+      responses:
+        '200':
+          description: The session, closed as unpaid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '409':
+          description: '`session_not_at_register`: the session is not waiting at the register.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/gate/unlock:
+    post:
+      tags: [Admin]
+      operationId: unlockGate
+      summary: Staff open the exit gate by hand
+      description: |
+        PRD: Guarantees → Unlock only on payment; UC5 exception; UC7.
+
+        Asks the edge device to unlock once. Recorded with the staff member
+        and, if given, the session it is for.
+      security:
+        - adminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                session_id:
+                  description: The session the gate is opened for, if any.
+                  $ref: '#/components/schemas/SessionId'
+      responses:
+        '202':
+          description: The unlock was sent to the edge device.
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          description: '`gate_unavailable`: no edge device is connected.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/settings:
+    get:
+      tags: [Admin]
+      operationId: getSettings
+      summary: Read the settings
+      description: |
+        PRD: Pricing model; UC7; UC8 postcondition.
+      security:
+        - adminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+      responses:
+        '200':
+          description: The settings in effect.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    put:
+      tags: [Admin]
+      operationId: updateSettings
+      summary: Change the settings
+      description: |
+        PRD: UC7 alternative flow (staff change a setting); Pricing model →
+        Guardrails, Settings changes.
+
+        Replaces all settings. Block length, pause and cap apply to active
+        sessions from their next block; a new floor or ceiling moves the
+        published rate into range at once.
+      security:
+        - adminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Settings'
+      responses:
+        '200':
+          description: The settings now in effect.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: |
+            `invalid_settings`: the floor is not below the ceiling, a value
+            is below its minimum, or an amount is not in the store's
+            currency. Nothing changes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/staff-events:
+    post:
+      tags: [Admin]
+      operationId: sendStaffEvent
+      summary: Send a staff event
+      description: |
+        PRD: Pricing model → Signals; UC7.
+
+        A signal for the next evaluations, such as a live show starting or
+        ending.
+      security:
+        - adminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StaffEvent'
+      responses:
+        '201':
+          description: The event was recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffEvent'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/decisions:
+    get:
+      tags: [Admin]
+      operationId: listDecisions
+      summary: Read the decision log
+      description: |
+        PRD: Pricing model → Explanation, Decision log; UC7.
+
+        Newest first. Each entry is one evaluation, or a floor or ceiling
+        change that moved the rate.
+      security:
+        - adminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of decisions.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [decisions, next_cursor]
+                properties:
+                  decisions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Decision'
+                  next_cursor:
+                    $ref: '#/components/schemas/NextCursor'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/alerts:
+    get:
+      tags: [Admin]
+      operationId: listAlerts
+      summary: Read the alerts
+      description: |
+        PRD: Guarantees → Observability; UC3, UC4, UC5, UC6, UC8, UC9.
+
+        Newest first.
+      security:
+        - adminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of alerts.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [alerts, next_cursor]
+                properties:
+                  alerts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Alert'
+                  next_cursor:
+                    $ref: '#/components/schemas/NextCursor'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/notifications:
+    get:
+      tags: [Admin]
+      operationId: listNotifications
+      summary: Read the notification log
+      description: |
+        PRD: Responsibilities → Notifications; UC7.
+
+        Newest first. Shows each notification's delivery status, including
+        the ones given up after 24 hours of retries.
+      security:
+        - adminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of notifications.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [notifications, next_cursor]
+                properties:
+                  notifications:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotificationRecord'
+                  next_cursor:
+                    $ref: '#/components/schemas/NextCursor'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
 webhooks:
   session.started:
@@ -461,7 +1214,7 @@ webhooks:
       description: |
         PRD: UC5; Responsibilities → Notifications.
 
-        The payment stands; staff open the gate.
+        The payment stands; staff can open the gate by hand (`unlockGate`).
       security: []
       parameters:
         - $ref: '#/components/parameters/Signature'
@@ -520,10 +1273,20 @@ components:
       type: http
       scheme: bearer
       description: |
-        PRD: Responsibilities → API key.
+        PRD: Responsibilities → API keys; Guarantees → Access.
 
         The store API key from the config file, sent from the store app's
         server as `Authorization: Bearer <key>`. Never send it from a browser.
+    adminApiKey:
+      type: http
+      scheme: bearer
+      description: |
+        PRD: Responsibilities → API keys, Admin; Guarantees → Access.
+
+        The admin API key from the config file, separate from the store API
+        key, sent from the store app's server as `Authorization: Bearer <key>`
+        for the operations under `/admin`. The store API key is rejected
+        there, and the admin API key is rejected everywhere else.
 
   parameters:
     IdempotencyKey:
@@ -531,12 +1294,14 @@ components:
       in: header
       required: true
       description: |
-        A unique key chosen by the store app for this check-in. BarPay keeps
-        a key for at least 24 hours after a `201`. The same key with the same
-        body returns the original `201`; with a different body it is rejected
-        with `idempotency_key_reused`. A request whose key is still being
-        processed is rejected with `idempotency_key_in_progress`. After an
-        error response nothing is kept, so the same key can be sent again.
+        A unique key chosen by the store app for this request. BarPay keeps
+        a key for at least 24 hours after a successful response. The same key
+        with the same request returns the original response; with a different
+        request it is rejected with `idempotency_key_reused`. A request whose
+        key is still being processed is rejected with
+        `idempotency_key_in_progress`. After an error response returned
+        before anything changed, nothing is kept, so the same key can be sent
+        again.
       schema:
         type: string
         minLength: 1
@@ -554,6 +1319,38 @@ components:
       required: true
       schema:
         $ref: '#/components/schemas/MemberId'
+    StaffId:
+      name: BarPay-Staff-Id
+      in: header
+      required: true
+      description: |
+        PRD: Responsibilities → Admin; UC7 postcondition.
+
+        The store app's ID of the staff member acting, as authenticated by
+        the store app. BarPay records it with every change it makes and
+        trusts it as sent.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+        pattern: '^[A-Za-z0-9_-]+$'
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: '`next_cursor` from the previous page.'
+      schema:
+        type: string
+        maxLength: 256
     Signature:
       name: BarPay-Signature
       in: header
@@ -587,7 +1384,7 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
     Unauthorized:
-      description: '`unauthorized`: the API key is missing or wrong. Nothing is created.'
+      description: '`unauthorized`: the API key is missing, wrong, or not the key for this operation. Nothing changes.'
       content:
         application/json:
           schema:
@@ -672,7 +1469,6 @@ components:
         - total
         - order_count
         - unpaid_amount
-        - panel_url
         - receipt
       properties:
         session_id:
@@ -714,15 +1510,6 @@ components:
           oneOf:
             - $ref: '#/components/schemas/Money'
             - type: 'null'
-        panel_url:
-          description: |
-            PRD: Responsibilities → Panel.
-
-            The session link: BarPay's panel for this session, to link to or
-            embed as a frame. It gives access to this session only. Only the
-            store app's origin set in the config file may embed it.
-          type: string
-          format: uri
         receipt:
           description: Set once the session has ended (`closed` or `closed_unpaid`); otherwise `null`.
           oneOf:
@@ -878,7 +1665,7 @@ components:
       type: object
       description: A reference to the member's saved PayPal. BarPay never exposes PayPal's token.
       additionalProperties: false
-      required: [status, saved_at, in_use_by_session_id]
+      required: [status, saved_at, consent_version, in_use_by_session_id]
       properties:
         status:
           type: string
@@ -886,6 +1673,9 @@ components:
         saved_at:
           type: string
           format: date-time
+        consent_version:
+          description: The version of the consent text the store app showed before linking (PRD Guarantees → Consent).
+          $ref: '#/components/schemas/ConsentVersion'
         in_use_by_session_id:
           description: A session that uses it and is not yet closed, which blocks deletion; otherwise `null`.
           oneOf:
@@ -894,8 +1684,14 @@ components:
     PaypalLinkRequest:
       type: object
       additionalProperties: false
-      required: [return_url]
+      required: [return_url, consent_version, state]
       properties:
+        state:
+          description: A value the store app binds to the member's browser session; echoed on the return.
+          $ref: '#/components/schemas/PaypalLinkState'
+        consent_version:
+          description: The version of the consent text the store app showed to the member and the member agreed to.
+          $ref: '#/components/schemas/ConsentVersion'
         return_url:
           description: Where BarPay sends the member back. Must be on the store app's origin set in the config file.
           type: string
@@ -907,7 +1703,7 @@ components:
       required: [link_url, expires_at]
       properties:
         link_url:
-          description: BarPay's link page. Open it as a full page.
+          description: A BarPay URL that redirects to PayPal. Open it as a full page, never embedded.
           type: string
           format: uri
         expires_at:
@@ -917,12 +1713,280 @@ components:
       type: string
       description: |
         The `paypal_link` query parameter on the return URL (PRD: UC2).
-        `linked`: PayPal was saved (an active session of the member is linked
-        if there is one). `cancelled`: the member went back or cancelled in
-        PayPal; nothing was saved. `failed`: PayPal did not approve, or saving
-        failed; nothing was saved. `expired`: the link page was no longer
-        valid; nothing was saved.
-      enum: [linked, cancelled, failed, expired]
+        `approved`: PayPal approved; `code` is present and nothing is saved
+        until `confirmPaypalLink`. `cancelled`: the member cancelled in
+        PayPal. `failed`: PayPal did not approve. `expired`: the link URL was
+        no longer valid. Nothing was saved in any case.
+      enum: [approved, cancelled, failed, expired]
+    PaypalLinkState:
+      type: string
+      description: The store app's own unguessable value, tied to the browser session that asked for the link.
+      minLength: 16
+      maxLength: 128
+      pattern: '^[A-Za-z0-9_.:-]+$'
+    ConsentVersion:
+      type: string
+      description: The store app's own identifier for a version of its consent text.
+      minLength: 1
+      maxLength: 64
+      pattern: '^[A-Za-z0-9_.:-]+$'
+    PaypalLinkCode:
+      type: string
+      description: A one-time code that works once and for 10 minutes.
+      pattern: '^plc_[A-Za-z0-9]{32,64}$'
+    PaypalLinkConfirmRequest:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code:
+          $ref: '#/components/schemas/PaypalLinkCode'
+    ExitToken:
+      type: object
+      additionalProperties: false
+      required: [token, expires_at]
+      properties:
+        token:
+          description: The value to encode in the QR. Opaque; works only at the exit gate.
+          type: string
+          minLength: 16
+          maxLength: 128
+        expires_at:
+          description: When this token stops working. For an active session the next one is issued then; for a closed session it is the end of the re-unlock window.
+          type: string
+          format: date-time
+    RatePoint:
+      type: object
+      description: |
+        PRD: Pricing model.
+
+        A published rate. `change` is the difference from the rate published
+        before it.
+      additionalProperties: false
+      required: [rate_per_hour, change, published_at]
+      properties:
+        rate_per_hour:
+          $ref: '#/components/schemas/Money'
+        change:
+          $ref: '#/components/schemas/SignedMoney'
+        published_at:
+          type: string
+          format: date-time
+    RateEvaluation:
+      type: object
+      additionalProperties: false
+      required: [rate, evaluated, fallback]
+      properties:
+        rate:
+          description: The rate published after this request.
+          $ref: '#/components/schemas/RatePoint'
+        evaluated:
+          description: '`true` when an evaluation ran for this request or one already running was joined; `false` when the request came sooner than the minimum interval and no evaluation ran.'
+          type: boolean
+        fallback:
+          description: |
+            Set when an evaluation ran but the rate was kept:
+            `ai_timeout` (no answer in time) or `ai_unreadable` (the answer
+            could not be read as a rate). Otherwise `null`.
+          oneOf:
+            - type: string
+              enum: [ai_timeout, ai_unreadable]
+            - type: 'null'
+    SignedMoney:
+      type: object
+      description: Like `Money`, but the value may be negative.
+      required: [value, currency]
+      additionalProperties: false
+      properties:
+        value:
+          type: integer
+          minimum: -100000000
+          maximum: 100000000
+        currency:
+          $ref: '#/components/schemas/Currency'
+    NextCursor:
+      description: Pass as `cursor` for the next page; `null` on the last page.
+      oneOf:
+        - type: string
+          maxLength: 256
+        - type: 'null'
+    AmountRecordedRequest:
+      type: object
+      additionalProperties: false
+      required: [amount_recorded]
+      properties:
+        amount_recorded:
+          description: The amount staff took. It may differ from the total.
+          $ref: '#/components/schemas/Money'
+    Settings:
+      type: object
+      description: |
+        PRD: Pricing model; UC7 alternative flow (staff change a setting).
+
+        Required: `floor` above 0 and below `ceiling`, `block_minutes` at
+        least 1, `pause_minutes` and `cap_per_visit` 0 or more (0 turns them
+        off).
+      additionalProperties: false
+      required: [floor, ceiling, block_minutes, pause_minutes, cap_per_visit, goal]
+      properties:
+        floor:
+          description: The lowest rate per hour.
+          $ref: '#/components/schemas/Money'
+        ceiling:
+          description: The highest rate per hour.
+          $ref: '#/components/schemas/Money'
+        block_minutes:
+          type: integer
+          minimum: 1
+          maximum: 240
+        pause_minutes:
+          type: integer
+          minimum: 0
+          maximum: 240
+        cap_per_visit:
+          description: The most cover charge one visit can reach; orders do not count toward it.
+          $ref: '#/components/schemas/Money'
+        goal:
+          description: 0 is "fill the room", 100 is "maximize revenue".
+          type: integer
+          minimum: 0
+          maximum: 100
+    StaffEvent:
+      type: object
+      additionalProperties: false
+      required: [label, phase]
+      properties:
+        label:
+          description: What happens, in plain English (e.g. "Live show").
+          type: string
+          minLength: 1
+          maxLength: 100
+        phase:
+          type: string
+          enum: [starts, ends]
+        recorded_at:
+          description: Set by BarPay in the response.
+          type: string
+          format: date-time
+          readOnly: true
+    Decision:
+      type: object
+      description: |
+        PRD: Pricing model → Explanation, Decision log, Fallback.
+      additionalProperties: false
+      required: [decided_at, trigger, inputs, proposal, reasoning, published, explanation, fallback]
+      properties:
+        decided_at:
+          type: string
+          format: date-time
+        trigger:
+          description: '`evaluation` (requested by the store app) or `range_change` (the owner moved the floor or ceiling).'
+          type: string
+          enum: [evaluation, range_change]
+        staff_id:
+          description: The staff member, for `range_change`.
+          type: string
+          maxLength: 64
+        inputs:
+          type: object
+          additionalProperties: false
+          required: [occupancy, liveliness, staff_events, goal]
+          properties:
+            occupancy:
+              description: Checked-in sessions divided by capacity.
+              type: number
+              minimum: 0
+            liveliness:
+              description: The latest liveliness signal, 0–1; `null` if none.
+              oneOf:
+                - type: number
+                  minimum: 0
+                  maximum: 1
+                - type: 'null'
+            staff_events:
+              type: array
+              items:
+                type: string
+                maxLength: 100
+            goal:
+              type: integer
+              minimum: 0
+              maximum: 100
+        proposal:
+          description: The AI's proposed rate before the guardrails; `null` on fallback or for `range_change`.
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        reasoning:
+          description: The AI's reasoning; `null` on fallback or for `range_change`.
+          oneOf:
+            - type: string
+              maxLength: 4000
+            - type: 'null'
+        published:
+          $ref: '#/components/schemas/RatePoint'
+        explanation:
+          description: The short reason for the published change, after clamping.
+          type: string
+          maxLength: 200
+        fallback:
+          oneOf:
+            - type: string
+              enum: [ai_timeout, ai_unreadable]
+            - type: 'null'
+    Alert:
+      type: object
+      description: 'PRD: Guarantees → Observability.'
+      additionalProperties: false
+      required: [id, kind, raised_at, message]
+      properties:
+        id:
+          type: string
+          pattern: '^alt_[A-Za-z0-9]{16,32}$'
+        kind:
+          type: string
+          enum:
+            - payment_failed
+            - unlock_failed
+            - register_requested
+            - late_order_rejected
+            - max_stay_reached
+            - notification_given_up
+            - deletion_failing
+            - currency_change_pending
+        raised_at:
+          type: string
+          format: date-time
+        session_id:
+          $ref: '#/components/schemas/SessionId'
+        member_id:
+          $ref: '#/components/schemas/MemberId'
+        message:
+          description: For staff, in English.
+          type: string
+          maxLength: 500
+    NotificationRecord:
+      type: object
+      additionalProperties: false
+      required: [event_id, type, status, attempts, created_at, last_attempt_at]
+      properties:
+        event_id:
+          type: string
+          pattern: '^evt_[A-Za-z0-9]{16,32}$'
+        type:
+          type: string
+        status:
+          type: string
+          enum: [delivered, retrying, given_up]
+        attempts:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        last_attempt_at:
+          type: string
+          format: date-time
     EventBase:
       type: object
       description: |
@@ -1184,11 +2248,19 @@ components:
                 - member_has_open_session
                 - idempotency_key_reused
                 - idempotency_key_in_progress
-                - pricing_not_ready
                 - saved_paypal_exists
                 - saved_paypal_not_found
                 - saved_paypal_in_use
                 - return_url_not_allowed
+                - link_code_invalid
+                - paypal_save_failed
+                - exit_token_unavailable
+                - session_not_linked
+                - session_not_payment_failed
+                - session_not_at_register
+                - retry_window_over
+                - invalid_settings
+                - gate_unavailable
             message:
               description: For developers; not shown to customers.
               type: string
