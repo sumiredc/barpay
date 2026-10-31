@@ -1356,6 +1356,9 @@ components:
       name: limit
       in: query
       required: false
+      description: |
+        A value that is not an integer from 1 to 100 is rejected with `400`
+        `invalid_request` and `details.field` `limit`.
       schema:
         type: integer
         minimum: 1
@@ -1365,7 +1368,16 @@ components:
       name: cursor
       in: query
       required: false
-      description: '`next_cursor` from the previous page.'
+      description: |
+        PRD: Responsibilities → Admin.
+
+        `next_cursor` from the previous page of the same operation, passed
+        unchanged; leave it out for the first page. It is opaque: do not
+        build or change one. A cursor that is malformed, comes from another
+        operation, or names nothing BarPay listed is rejected with `400`
+        `invalid_request` and `details.field` `cursor`. A page continues from
+        the last item of the previous one, so items added meanwhile do not
+        shift the pages or appear twice; they are on a new first page.
       schema:
         type: string
         maxLength: 256
