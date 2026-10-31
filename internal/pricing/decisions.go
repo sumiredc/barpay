@@ -76,7 +76,7 @@ func trimReason(reason string) string {
 }
 
 func unsafeInLine(r rune) bool {
-	return unicode.IsControl(r) || r == ' ' || r == ' ' || unicode.Is(unicode.Cf, r)
+	return unicode.IsControl(r) || r == '\u2028' || r == '\u2029' || unicode.Is(unicode.Cf, r)
 }
 
 // Decision is an entry of the decision log: the spec's Decision.
