@@ -45,7 +45,8 @@ func view(ctx context.Context, q store.Querier, s Session, now time.Time) (View,
 		rate, err = pricing.Current(ctx, q, s.Currency)
 	} else {
 		now = s.TotalFixedAt
-		// TODO(#19): an ended session from before a currency change finds no rate in its currency; show it from its stored receipt.
+		// TODO(#19): an ended session from before a currency change finds no rate in its
+		// currency; show it from its stored receipt.
 		rate, err = pricing.At(ctx, q, s.Currency, now)
 	}
 	if err != nil {

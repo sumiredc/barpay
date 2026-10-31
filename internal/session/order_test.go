@@ -250,7 +250,7 @@ func TestIntegerReadsTheExactValue(t *testing.T) {
 		}
 	}
 	for _, raw := range []string{"2.0000000000000001", "99.99999999999999999", "1.5", "0.5e0", "1e-1",
-		"1e100", "1e999999999", "9223372036854775808", `"2"`, "true", "null", "[2]"} {
+		"1e100", "1e999999999", "2." + strings.Repeat("0", 63), "9223372036854775808", `"2"`, "true", "null", "[2]"} {
 		if got, ok := integer(json.RawMessage(raw)); ok {
 			t.Errorf("%s: read as %d, want refused", raw, got)
 		}

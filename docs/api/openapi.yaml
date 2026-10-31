@@ -193,7 +193,8 @@ paths:
           description: |
             `currency_mismatch`: an amount is not in the store's currency.
             `amount_too_large`: with this order, the session's `total` would
-            be above the maximum of `Total`; the order is not recorded.
+            be above 9,000,000,000,000,000 (see `Total`); the order is not
+            recorded.
           content:
             application/json:
               schema:

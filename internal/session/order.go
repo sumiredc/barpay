@@ -338,8 +338,12 @@ func str(raw json.RawMessage) (string, bool) {
 // integer decodes a JSON number whose value is an integer, as the schema's type integer counts
 // one: 2, 2.0, 2e0 and 0.2e1 are all 2. The value is read exactly, so 2.0000000000000001 is a
 // fraction and refused, as is any other value. A number beyond int64 is refused; every bound it
-// is checked against is far inside.
+// is checked against is far inside. A number written with more than 64 characters is refused
+// too; no value within those bounds needs that many.
 func integer(raw json.RawMessage) (int64, bool) {
+	if len(raw) > 64 {
+		return 0, false
+	}
 	if n, err := strconv.ParseInt(string(raw), 10, 64); err == nil {
 		return n, true
 	}
