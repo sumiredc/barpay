@@ -64,8 +64,8 @@ func view(ctx context.Context, q store.Querier, s Session, now time.Time) (View,
 	v := View{
 		SessionID: s.ID,
 		State:     s.State,
-		// TODO(#18): paypal once the session is linked to the member's saved PayPal.
-		PaymentMethod:     "register",
+		// TODO(#18): linked once the session is linked to the member's saved PayPal.
+		PaymentMethod:     paymentMethod(false, s.State),
 		CheckedInAt:       httpapi.FormatTime(s.CheckedInAt),
 		RatePerHour:       httpapi.ToMoney(rate.Rate),
 		CoverChargeStatus: cc.Status,
@@ -82,6 +82,15 @@ func view(ctx context.Context, q store.Querier, s Session, now time.Time) (View,
 	}
 	// TODO(#19): unpaid_amount and the receipt, once checkout and its results are stored.
 	return v, nil
+}
+
+// paymentMethod is the spec's PaymentMethod of a session in state that is linked or not: once the
+// register is requested it is the register, linked or not (UC6 precondition and exception).
+func paymentMethod(linked bool, state State) string {
+	if linked && state != AtRegister {
+		return "paypal"
+	}
+	return "register"
 }
 
 // lookup shows the session with id as at the clock's time, from one state of the store.
