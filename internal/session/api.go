@@ -28,6 +28,7 @@ func (a API) Register(r *httpapi.Router) {
 	r.Store("POST /sessions/{session_id}/orders", http.HandlerFunc(a.reportOrder))
 	r.Store("POST /sessions/{session_id}/register-request", http.HandlerFunc(a.requestRegister))
 	r.Admin("POST /sessions/{session_id}/register-payment", http.HandlerFunc(a.recordRegisterPayment))
+	r.Admin("POST /sessions/{session_id}/mark-unpaid", http.HandlerFunc(a.markUnpaid))
 }
 
 // Error codes of the spec's Error that these operations return.
@@ -38,4 +39,5 @@ const (
 	codeCurrencyMismatch     httpapi.Code = "currency_mismatch"
 	codeAmountTooLarge       httpapi.Code = "amount_too_large"
 	codeMemberHasOpenSession httpapi.Code = "member_has_open_session"
+	codeSessionNotAtRegister httpapi.Code = "session_not_at_register"
 )

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -120,6 +121,46 @@ func (a API) recordRegisterPayment(w http.ResponseWriter, req *http.Request) {
 		a.Notify.Wake()
 		httpapi.WriteJSON(w, http.StatusOK, v)
 	}
+}
+
+// markUnpaid is staff closing a session waiting at the register whose customer left without
+// paying (the PRD's UC6 exception, UC7). The close, its receipt with the unpaid total, its
+// session.closed_unpaid notification and the staff member are stored in one transaction.
+// Nothing is charged.
+func (a API) markUnpaid(w http.ResponseWriter, req *http.Request) {
+	ctx, id := req.Context(), req.PathValue("session_id")
+	var v View
+	err := staff.TxNow(ctx, a.Store, a.Clock, staff.Change{Staff: httpapi.StaffID(req), Operation: "markUnpaid", Subject: id},
+		func(tx store.Querier, now time.Time) error {
+			s, err := get(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			if v, err = end(ctx, tx, s, markedUnpaid, now, settledUnpaid, nil); err != nil {
+				return err
+			}
+			return enqueueUnpaid(ctx, tx, now, v)
+		})
+	switch {
+	case errors.Is(err, errNotFound):
+		writeNotFound(w)
+	case errors.Is(err, errRefused):
+		httpapi.WriteError(w, http.StatusConflict, codeSessionNotAtRegister,
+			"The session is not waiting at the register, so it was not marked unpaid.", "")
+	case err != nil:
+		httpapi.WriteInternal(w)
+	default:
+		a.Notify.Wake()
+		httpapi.WriteJSON(w, http.StatusOK, v)
+	}
+}
+
+// enqueueUnpaid stores session.closed_unpaid for v, the session as closed unpaid at now.
+func enqueueUnpaid(ctx context.Context, tx store.Querier, now time.Time, v View) error {
+	_, err := notify.Enqueue(ctx, tx, now, notify.Event{
+		Type: notify.SessionClosedUnpaid, SubjectID: v.SessionID, Data: sessionData{Session: v},
+	})
+	return err
 }
 
 var amountFields = httpapi.Fields{"amount_recorded": httpapi.MoneyFields()}

@@ -17,6 +17,7 @@ type trigger string
 const (
 	registerRequested       trigger = "the register is requested"
 	registerPaymentRecorded trigger = "staff record a register payment"
+	markedUnpaid            trigger = "staff mark it unpaid"
 )
 
 // edge is the states a trigger moves a session from, and the state it moves it to.
@@ -30,6 +31,7 @@ type edge struct {
 var edges = map[trigger]edge{
 	registerRequested:       {from: []State{Active}, to: AtRegister},
 	registerPaymentRecorded: {from: []State{Active, AtRegister}, to: Closed},
+	markedUnpaid:            {from: []State{AtRegister}, to: ClosedUnpaid},
 }
 
 // errRefused is returned by move when the trigger does not apply to the session at that instant.
