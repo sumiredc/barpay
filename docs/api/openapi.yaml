@@ -57,8 +57,9 @@ paths:
 
         Starts a session at once and returns it. The returned session is never
         linked yet: for a member with a saved PayPal, linking is reported later
-        by `session.paypal_linked`, or `member.saved_paypal_deleted` if the
-        saved PayPal no longer works.
+        by `session.paypal_linked`, or `member.saved_paypal_deleted` if
+        PayPal no longer has the saved PayPal. The check tells only that
+        PayPal still has it, not that a charge will go through.
 
         Repeating the call with the same `Idempotency-Key` and the same body
         returns the original response.
@@ -525,6 +526,11 @@ paths:
           description: |
             `saved_paypal_exists`: the member already has a saved PayPal, or
             its deletion is still pending.
+            `paypal_account_already_linked`: PayPal returned a saved PayPal
+            that BarPay holds for another member, because the member approved
+            with a PayPal account already linked to that member. Nothing is
+            saved, the other member's saved PayPal is left as it is, and the
+            code cannot be used again.
           content:
             application/json:
               schema:
@@ -654,8 +660,11 @@ paths:
         `session_not_active`. Once the charge has been attempted, the response
         is kept under the key even if it is an error. The response is the session
         after the attempt (`closed` or `payment_failed`); the result is also
-        notified. The same `Idempotency-Key` returns the first result and
-        never charges again.
+        notified. While the outcome is unknown, the response is the session in
+        `checking_out`, and the result comes later by `session.closed` or
+        `session.payment_failed`. The same `Idempotency-Key` returns the first
+        response, including a `checking_out` one, and never waits or charges
+        again.
       security:
         - adminApiKey: []
       parameters:
@@ -663,7 +672,7 @@ paths:
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200':
-          description: The session after the checkout attempt.
+          description: The session after the checkout attempt, or in `checking_out` while its outcome is unknown.
           content:
             application/json:
               schema:
@@ -696,13 +705,17 @@ paths:
         PRD: UC7 exception; Guarantees → Charges only for this visit, Single
         payment.
 
-        Charges the total again with the saved PayPal as a new attempt. The
-        session moves to `checking_out` before PayPal is called, so a
-        concurrent request, even with another key, gets
-        `session_not_payment_failed`. The same `Idempotency-Key` returns the
-        first result and never charges again; once the charge has been
-        attempted, the response is kept under the key even if it is an
-        error.
+        Charges the total again with the saved PayPal as a new attempt. It
+        keeps the session's `invoice_id`, so it cannot succeed if an earlier
+        attempt did (Fixed constraints → Idempotency). The session moves to
+        `checking_out` before PayPal is called, so a concurrent request, even with another key, gets
+        `session_not_payment_failed`. While the outcome is unknown, the
+        response is the session in `checking_out`, and the result comes later
+        by `session.closed` or `session.payment_failed`. The same
+        `Idempotency-Key` returns the first response, including a
+        `checking_out` one, and never waits or charges again; once the charge
+        has been attempted, the response is kept under the key even if it is
+        an error.
       security:
         - adminApiKey: []
       parameters:
@@ -710,7 +723,7 @@ paths:
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200':
-          description: The session after the attempt (`closed` or `payment_failed`).
+          description: The session after the attempt (`closed` or `payment_failed`), or in `checking_out` while its outcome is unknown.
           content:
             application/json:
               schema:
@@ -725,6 +738,8 @@ paths:
           description: |
             `session_not_payment_failed`: the session is not PaymentFailed.
             `retry_window_over`: it is 3 days or more since checkout began.
+            `saved_paypal_not_found`: the member no longer has a saved PayPal
+            (PayPal no longer had it); settle outside BarPay instead.
             `idempotency_key_reused`, `idempotency_key_in_progress`: as for
             `createCheckin`.
           content:
@@ -1217,11 +1232,13 @@ webhooks:
   session.payment_failed:
     post:
       operationId: onSessionPaymentFailed
-      summary: The checkout charge failed
+      summary: The checkout charge failed or could not be confirmed
       description: |
         PRD: UC5; Responsibilities → Notifications.
 
-        The session stays open with `unpaid_amount` set.
+        The session stays open with `unpaid_amount` set. `data.reason` says
+        whether PayPal refused the charge or BarPay could not confirm its
+        outcome.
       security: []
       parameters:
         - $ref: '#/components/parameters/Signature'
@@ -1320,8 +1337,8 @@ webhooks:
       operationId: onMemberSavedPaypalDeleted
       summary: A member's saved PayPal was deleted
       description: |
-        PRD: UC9; UC1 exception (saved PayPal no longer works);
-        Responsibilities → Notifications.
+        PRD: UC9; UC1 exception and UC5 (PayPal no longer has the saved
+        PayPal); Responsibilities → Notifications.
 
         `data.reason` says why.
       security: []
@@ -1638,7 +1655,9 @@ components:
           type: integer
           minimum: 0
         unpaid_amount:
-          description: Set while `payment_failed` and for `closed_unpaid`; otherwise `null`.
+          description: |
+            The amount BarPay could not confirm as paid. Set while
+            `payment_failed` and for `closed_unpaid`; otherwise `null`.
           oneOf:
             - $ref: '#/components/schemas/Total'
             - type: 'null'
@@ -2094,6 +2113,7 @@ components:
           type: string
           enum:
             - payment_failed
+            - charge_unconfirmed
             - unlock_failed
             - register_requested
             - late_order_rejected
@@ -2264,8 +2284,16 @@ components:
             data:
               type: object
               additionalProperties: false
-              required: [session]
+              required: [session, reason]
               properties:
+                reason:
+                  description: |
+                    `refused`: PayPal refused or failed the charge.
+                    `unconfirmed`: BarPay could not confirm the outcome and
+                    raised a `charge_unconfirmed` alert; the charge may have
+                    gone through (PRD: UC5, UC7).
+                  type: string
+                  enum: [refused, unconfirmed]
                 session:
                   description: The session as of this event.
                   allOf:
@@ -2378,7 +2406,7 @@ components:
                   description: The member as of this event; `saved_paypal` is `null`.
                   $ref: '#/components/schemas/Member'
                 reason:
-                  description: '`member_request` (UC9) or `no_longer_valid` (UC1 exception).'
+                  description: '`member_request` (UC9) or `no_longer_valid` (PayPal no longer has it: UC1 exception, UC5).'
                   type: string
                   enum: [member_request, no_longer_valid]
     Error:
@@ -2406,6 +2434,7 @@ components:
                 - idempotency_key_reused
                 - idempotency_key_in_progress
                 - saved_paypal_exists
+                - paypal_account_already_linked
                 - saved_paypal_not_found
                 - saved_paypal_in_use
                 - return_url_not_allowed
