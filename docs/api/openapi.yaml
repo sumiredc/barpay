@@ -2027,9 +2027,10 @@ components:
               required: [occupancy, liveliness, staff_events, goal]
               properties:
                 occupancy:
-                  description: Checked-in sessions divided by capacity.
+                  description: Active sessions divided by capacity, at most 1.
                   type: number
                   minimum: 0
+                  maximum: 1
                 liveliness:
                   description: The latest liveliness signal, 0–1; `null` if none.
                   oneOf:

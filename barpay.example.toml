@@ -23,7 +23,7 @@ max_step = 300
 # Evaluations are at least this far apart.
 min_evaluation_interval = "1m"
 
-# Checked-in phones that make the room full.
+# Active sessions (checked-in phones) that make the room full.
 capacity = 40
 
 max_stay = "12h"           # default "12h"; must be shorter than 3 days
