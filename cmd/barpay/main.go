@@ -19,6 +19,7 @@ import (
 	"github.com/sumiredc/barpay/internal/clock"
 	"github.com/sumiredc/barpay/internal/config"
 	"github.com/sumiredc/barpay/internal/httpapi"
+	"github.com/sumiredc/barpay/internal/notify"
 	"github.com/sumiredc/barpay/internal/startup"
 	"github.com/sumiredc/barpay/internal/store"
 )
@@ -66,11 +67,22 @@ func serve(ctx context.Context, path string, stderr io.Writer, listening func(ne
 	// pending, cfg's currency, starting rate and starting settings are not the ones running.
 
 	router := httpapi.NewRouter(httpapi.Keys{Store: cfg.StoreAPIKey, Admin: cfg.AdminAPIKey, Edge: cfg.EdgeSharedSecret})
+	router.Admin("GET /notifications", notify.ListHandler(st, log))
 	srv := &http.Server{Handler: router, ReadHeaderTimeout: 10 * time.Second}
 	ln, err := net.Listen("tcp", cfg.ListenAddress)
 	if err != nil {
 		return fmt.Errorf("not started: %w", err)
 	}
+
+	notifications := notify.NewDispatcher(st, notify.Options{
+		URL: cfg.NotificationURL, Secret: cfg.NotificationSigningSecret, Clock: clk, Log: log,
+	})
+	dispatchCtx, stopDispatch := context.WithCancel(context.Background())
+	dispatched := make(chan struct{})
+	go func() { notifications.Run(dispatchCtx); close(dispatched) }()
+	// Stop sending before the store closes; an attempt cut off here is sent again at the next start.
+	defer func() { stopDispatch(); <-dispatched }()
+
 	log.Info("BarPay started", "address", ln.Addr().String(), "currency", state.Currency,
 		"currency_change_pending", state.CurrencyChangePending)
 	if listening != nil {
