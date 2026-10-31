@@ -46,3 +46,11 @@ jobs:
           fi
       - name: Check go.mod is tidy
         run: go mod tidy -diff
+      # The development tools stay out of the production build and reach BarPay only over HTTP.
+      # A failing go list fails the step too, so a broken build does not pass with nothing checked.
+      - name: Check the development tools are not in the server's build
+        run: |
+          deps=$(go list -deps ./cmd/barpay) || exit 1
+          if printf '%s\n' "$deps" | grep -F 'github.com/sumiredc/barpay/cmd/barpay-dev'; then exit 1; fi
+          dev_deps=$(go list -deps ./cmd/barpay-dev/...) || exit 1
+          if printf '%s\n' "$dev_deps" | grep -F 'github.com/sumiredc/barpay/internal/'; then exit 1; fi
