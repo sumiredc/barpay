@@ -132,6 +132,12 @@ func (r *Router) requireKey(z zone, next http.Handler) http.Handler {
 	})
 }
 
+// KeyName names the key a request to path p needs: "store", "admin" or "edge". A request that
+// reached a route added with Store, Admin or Edge came with that key.
+func KeyName(p string) string {
+	return map[zone]string{storeZone: "store", adminZone: "admin", edgeZone: "edge"}[zoneOf(p)]
+}
+
 func bearer(req *http.Request) (string, bool) {
 	scheme, token, ok := strings.Cut(req.Header.Get("Authorization"), " ")
 	if !ok || !strings.EqualFold(scheme, "Bearer") || token == "" {

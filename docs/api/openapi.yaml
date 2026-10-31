@@ -1331,14 +1331,35 @@ components:
       in: header
       required: true
       description: |
-        A unique key chosen by the store app for this request. BarPay keeps
-        a key for at least 24 hours after a successful response. The same key
-        with the same request returns the original response; with a different
-        request it is rejected with `idempotency_key_reused`. A request whose
-        key is still being processed is rejected with
-        `idempotency_key_in_progress`. After an error response returned
-        before anything changed, nothing is kept, so the same key can be sent
-        again.
+        A unique key chosen by the store app for this request. Keys belong to
+        the API key the request is sent with: the store API key and the admin
+        API key each have their own, so the same key under the other API key
+        is another key.
+
+        BarPay keeps the response to a key for 24 hours from the change it
+        answers, up to and including that instant; after that the key is
+        forgotten, and a request with it is a new request. The same key with
+        the same request returns the original response, its status and body
+        unchanged, without running the operation again. The same request is
+        the same method, path (with any query), `BarPay-Staff-Id` (for admin
+        operations) and body, byte for byte; with any other request (another
+        operation, another session, another staff member, another body) the
+        key is rejected with `idempotency_key_reused` and nothing runs, so one
+        staff member never gets the response to another's request. A
+        request whose key is still being processed is rejected with
+        `idempotency_key_in_progress`; nothing runs.
+
+        An error response returned after something changed (for example, a
+        charge that was attempted and failed) is kept and returned like a
+        success. After an error response returned before anything changed,
+        nothing is kept, so the same key can be sent again. A request cut off
+        by a restart of BarPay before it changed anything keeps nothing
+        either.
+
+        The key is checked after the API key and before the body. When it is
+        missing or malformed, the request is rejected with `400`
+        `invalid_request` and `details.field` `Idempotency-Key`, and nothing
+        changes.
       schema:
         type: string
         minLength: 1

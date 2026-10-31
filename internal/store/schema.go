@@ -113,6 +113,19 @@ var migrations = []string{
 		CHECK ((trigger = 'range_change') = (staff_id <> '')),
 		CHECK (trigger = 'evaluation' OR (inputs IS NULL AND proposal IS NULL AND reasoning IS NULL AND fallback IS NULL))
 	)`,
+	// The store app's Idempotency-Key (the spec's IdempotencyKey): the response kept for a key,
+	// written in the transaction of the change it answers. scope is the API key the request
+	// came with; request identifies the request the response answers.
+	`CREATE TABLE idempotency_keys (
+		scope   TEXT    NOT NULL CHECK (scope IN ('store', 'admin')),
+		key     TEXT    NOT NULL,
+		request BLOB    NOT NULL,
+		status  INTEGER NOT NULL,
+		body    BLOB    NOT NULL,
+		kept_at INTEGER NOT NULL, -- Unix nanoseconds
+		PRIMARY KEY (scope, key)
+	);
+	CREATE INDEX idempotency_keys_kept_at ON idempotency_keys (kept_at)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

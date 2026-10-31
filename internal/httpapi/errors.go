@@ -12,6 +12,9 @@ const (
 	CodeInvalidRequest  Code = "invalid_request"
 	CodeUnauthorized    Code = "unauthorized"
 	CodeInvalidSettings Code = "invalid_settings"
+
+	CodeIdempotencyKeyReused     Code = "idempotency_key_reused"
+	CodeIdempotencyKeyInProgress Code = "idempotency_key_in_progress"
 )
 
 type errorBody struct {
