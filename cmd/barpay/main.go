@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sumiredc/barpay/internal/alert"
 	"github.com/sumiredc/barpay/internal/clock"
 	"github.com/sumiredc/barpay/internal/config"
 	"github.com/sumiredc/barpay/internal/evaluation"
@@ -79,6 +80,7 @@ func serve(ctx context.Context, path string, stderr io.Writer, listening func(ne
 	})
 	router := httpapi.NewRouter(httpapi.Keys{Store: cfg.StoreAPIKey, Admin: cfg.AdminAPIKey, Edge: cfg.EdgeSharedSecret})
 	router.Admin("GET /notifications", notify.ListHandler(st, log))
+	alert.API{Store: st, Log: log}.Register(router)
 	httpapi.Pricing{Store: st, Clock: clk}.Register(router)
 	pp := paypal.New(paypal.Options{
 		BaseURL: paypal.SandboxURL, ClientID: cfg.PayPalClientID, ClientSecret: cfg.PayPalClientSecret, Clock: clk, Log: log,
