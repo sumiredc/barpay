@@ -999,7 +999,10 @@ paths:
         PRD: Pricing model → Signals; UC7.
 
         A signal for the next evaluations, such as a live show starting or
-        ending.
+        ending. A label stays an input to evaluations from its `starts`
+        until an `ends` with the same label (compared exactly).
+        `recorded_at` is set by BarPay; a request that sends it is rejected
+        with `400`.
       security:
         - adminApiKey: []
       parameters:

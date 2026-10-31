@@ -172,6 +172,15 @@ var migrations = []string{
 		CHECK ((settlement IN ('register', 'outside')) = (amount_recorded IS NOT NULL)),
 		CHECK ((settlement = 'unpaid') = (unpaid_amount IS NOT NULL))
 	)`,
+	// Staff events: the spec's StaffEvent, in recording order. A label's event is going on while
+	// its last row is 'starts' (the PRD's Pricing model, Signals).
+	`CREATE TABLE staff_events (
+		seq         INTEGER PRIMARY KEY, -- recording order
+		label       TEXT    NOT NULL CHECK (length(label) BETWEEN 1 AND 100),
+		phase       TEXT    NOT NULL CHECK (phase IN ('starts', 'ends')),
+		recorded_at INTEGER NOT NULL     -- Unix nanoseconds
+	);
+	CREATE INDEX staff_events_label ON staff_events (label, seq)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
