@@ -274,8 +274,11 @@ paths:
         PRD: UC3; Responsibilities → Panel.
 
         The published rates from `since`, oldest first, including the rate
-        in effect at `since`, up to the 1,000 most recent. Explanations are
-        not included; they are for the admin screen (`listDecisions`).
+        in effect at `since`, up to the 1,000 most recent. Only rates in the
+        store's current currency are returned: after a currency change the
+        history starts at the first rate after it, even when `since` is
+        earlier. Explanations are not included; they are for the admin
+        screen (`listDecisions`).
       parameters:
         - name: since
           in: query
@@ -1795,7 +1798,8 @@ components:
         PRD: Pricing model.
 
         A published rate. `change` is the difference from the rate published
-        before it.
+        before it, and 0 for the first rate in the store's currency (on the
+        first start, and after a currency change).
       additionalProperties: false
       required: [rate_per_hour, change, published_at]
       properties:

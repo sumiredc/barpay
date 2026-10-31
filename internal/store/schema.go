@@ -78,6 +78,25 @@ var migrations = []string{
 	);
 	INSERT INTO settings_changes (currency, floor, ceiling, block_minutes, pause_minutes, cap_per_visit, goal, at)
 		SELECT currency, floor, ceiling, block_minutes, pause_minutes, cap_per_visit, goal, updated_at FROM settings`,
+	// Published rates, oldest first; the last row is the rate published now. published_at never
+	// goes back from one row to the next. settings_seq is the settings change in effect when the
+	// rate was guarded.
+	`CREATE TABLE rates (
+		seq          INTEGER PRIMARY KEY,
+		currency     TEXT    NOT NULL,
+		rate         INTEGER NOT NULL CHECK (rate > 0), -- per hour
+		change       INTEGER NOT NULL,
+		published_at INTEGER NOT NULL, -- Unix nanoseconds
+		settings_seq INTEGER NOT NULL REFERENCES settings_changes (seq)
+	);
+	CREATE INDEX rates_published_at ON rates (published_at);
+	-- The max step BarPay runs with, kept for the starts that wait for a currency change: the
+	-- config file then holds the max step for the new currency.
+	CREATE TABLE max_step (
+		id       INTEGER PRIMARY KEY CHECK (id = 1),
+		currency TEXT    NOT NULL,
+		value    INTEGER NOT NULL CHECK (value > 0)
+	)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
