@@ -10,6 +10,7 @@ import (
 	"github.com/sumiredc/barpay/internal/clock"
 	"github.com/sumiredc/barpay/internal/config"
 	"github.com/sumiredc/barpay/internal/money"
+	"github.com/sumiredc/barpay/internal/pricing"
 	"github.com/sumiredc/barpay/internal/settings"
 	"github.com/sumiredc/barpay/internal/store"
 	"github.com/sumiredc/barpay/internal/store/storetest"
@@ -20,6 +21,7 @@ listen_address = ":8080"
 database_path = "barpay.db"
 currency = "CURRENCY"
 starting_rate = 1200
+max_step = 300
 min_evaluation_interval = "1m"
 capacity = 40
 store_app_origin = "https://store.example"
@@ -167,5 +169,94 @@ func TestPendingChangeRaisesAnAlertOnEveryStart(t *testing.T) {
 	}
 	if n := alertsOfKind(t, st, alert.CurrencyChangePending); n != 2 {
 		t.Errorf("%d currency_change_pending alerts after 2 pending starts, want 2", n)
+	}
+}
+
+func rateNow(t *testing.T, st *store.Store, cur money.Currency) pricing.Point {
+	t.Helper()
+	p, err := pricing.Current(context.Background(), st.Read(), cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func publishProposal(t *testing.T, st *store.Store, proposal money.Amount, maxStep money.Amount) {
+	t.Helper()
+	err := st.Tx(context.Background(), func(tx store.Querier) error {
+		_, err := pricing.PublishProposal(context.Background(), tx, proposal, maxStep, clk.Now())
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The PRD's Pricing model, First rate: the starting rate with change 0 on the first start; the
+// last published rate on every other start.
+func TestFirstStartPublishesTheStartingRate(t *testing.T) {
+	cfg := load(t, money.USD)
+	st := storetest.Open(t)
+	got := prepare(t, cfg, st, false)
+	if got.MaxStep != money.New(300, money.USD) {
+		t.Errorf("max step = %v, want the config file's 300 USD", got.MaxStep)
+	}
+	want := pricing.Point{Rate: money.New(1200, money.USD), Change: money.New(0, money.USD), PublishedAt: clk.Now()}
+	if p := rateNow(t, st, money.USD); p != want {
+		t.Errorf("rate after the first start = %+v, want %+v", p, want)
+	}
+
+	// A proposal far beyond the max step moves the rate by exactly the config file's max step.
+	publishProposal(t, st, money.New(99_999, money.USD), got.MaxStep)
+	st = storetest.Reopen(t, st)
+	prepare(t, cfg, st, false)
+	if p := rateNow(t, st, money.USD); p.Rate != money.New(1500, money.USD) || p.Change != money.New(300, money.USD) {
+		t.Errorf("rate after a restart = %+v; want the last published 1500 (+300)", p)
+	}
+	h, err := pricing.History(context.Background(), st.Read(), money.USD, clk.Now().Add(-time.Hour), pricing.MaxHistory)
+	if err != nil || len(h) != 2 {
+		t.Errorf("history after a restart = %+v, %v; want the two rates, no starting rate added", h, err)
+	}
+}
+
+// After the currency change, the starting rate is published again in the new currency with
+// change 0, and the history holds only the new currency's rates.
+func TestCurrencyChangePublishesTheStartingRate(t *testing.T) {
+	st := storetest.Open(t)
+	before := clk.Now().Add(-time.Hour)
+	prepare(t, load(t, money.USD), st, false)
+	publishProposal(t, st, money.New(1500, money.USD), money.New(300, money.USD))
+
+	jpyCfg := load(t, money.JPY)
+	st = storetest.Reopen(t, st)
+	got := prepare(t, jpyCfg, st, false)
+	want := pricing.Point{Rate: money.New(1200, money.JPY), Change: money.New(0, money.JPY), PublishedAt: clk.Now()}
+	if p := rateNow(t, st, money.JPY); p != want || got.MaxStep != money.New(300, money.JPY) {
+		t.Errorf("after the change: rate %+v, max step %v; want %+v and 300 JPY", p, got.MaxStep, want)
+	}
+	h, err := pricing.History(context.Background(), st.Read(), money.JPY, before, pricing.MaxHistory)
+	if err != nil || len(h) != 1 || h[0] != want {
+		t.Errorf("history since before the change = %+v, %v; want only %+v", h, err, want)
+	}
+}
+
+// While the change waits, the previous currency's rate and max step stay.
+func TestPendingCurrencyChangeKeepsRateAndMaxStep(t *testing.T) {
+	st := storetest.Open(t)
+	prepare(t, load(t, money.USD), st, false)
+	publishProposal(t, st, money.New(1500, money.USD), money.New(300, money.USD))
+
+	jpyCfg := load(t, money.JPY)
+	jpyCfg.MaxStep = money.New(50, money.JPY)
+	st = storetest.Reopen(t, st)
+	got := prepare(t, jpyCfg, st, true)
+	if got.MaxStep != money.New(300, money.USD) {
+		t.Errorf("max step while pending = %v, want the previous 300 USD", got.MaxStep)
+	}
+	if p := rateNow(t, st, money.USD); p.Rate != money.New(1500, money.USD) {
+		t.Errorf("rate while pending = %+v, want the last USD rate 1500", p)
+	}
+	if _, err := pricing.Current(context.Background(), st.Read(), money.JPY); err == nil {
+		t.Error("a JPY rate was published while the change is pending")
 	}
 }

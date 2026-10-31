@@ -14,6 +14,9 @@ const (
 	USD Currency = "USD"
 )
 
+// MaxValue is the spec's Money maximum, in the smallest unit.
+const MaxValue = 100_000_000
+
 // Known lists every currency in the API spec, whether or not BarPay can start with it.
 var Known = []Currency{JPY, USD}
 
@@ -74,4 +77,19 @@ func (a Amount) Cmp(b Amount) (int, error) {
 		return 1, nil
 	}
 	return 0, nil
+}
+
+// rateSteps are the PRD's Pricing model, Guardrails: every published rate, floor and ceiling is a
+// multiple of its currency's step.
+var rateSteps = map[Currency]int64{JPY: 10, USD: 5}
+
+// RateStep returns the rate step of c, or ok == false for a currency the spec does not list.
+func RateStep(c Currency) (step Amount, ok bool) {
+	v, ok := rateSteps[c]
+	return Amount{value: v, currency: c}, ok
+}
+
+// IsMultipleOf tells whether a is a whole number of steps, in step's currency.
+func (a Amount) IsMultipleOf(step Amount) bool {
+	return a.sameCurrency(step) == nil && step.value > 0 && a.value%step.value == 0
 }

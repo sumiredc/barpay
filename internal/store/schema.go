@@ -62,6 +62,57 @@ var migrations = []string{
 		CHECK ((status = 'retrying') = (next_attempt_at IS NOT NULL))
 	);
 	CREATE INDEX notifications_due ON notifications (next_attempt_at) WHERE status = 'retrying'`,
+	// Settings changes: every saved settings, kept so a session's cover charge can be computed
+	// with the settings in effect at each block (the PRD's Pricing model, Settings changes).
+	// at never goes back from one row to the next. The settings saved before this step are copied in.
+	`CREATE TABLE settings_changes (
+		seq           INTEGER PRIMARY KEY,
+		currency      TEXT    NOT NULL,
+		floor         INTEGER NOT NULL,
+		ceiling       INTEGER NOT NULL,
+		block_minutes INTEGER NOT NULL,
+		pause_minutes INTEGER NOT NULL,
+		cap_per_visit INTEGER NOT NULL,
+		goal          INTEGER NOT NULL,
+		at            INTEGER NOT NULL -- Unix nanoseconds
+	);
+	INSERT INTO settings_changes (currency, floor, ceiling, block_minutes, pause_minutes, cap_per_visit, goal, at)
+		SELECT currency, floor, ceiling, block_minutes, pause_minutes, cap_per_visit, goal, updated_at FROM settings`,
+	// Published rates, oldest first; the last row is the rate published now. published_at never
+	// goes back from one row to the next. settings_seq is the settings change in effect when the
+	// rate was guarded.
+	`CREATE TABLE rates (
+		seq          INTEGER PRIMARY KEY,
+		currency     TEXT    NOT NULL,
+		rate         INTEGER NOT NULL CHECK (rate > 0), -- per hour
+		change       INTEGER NOT NULL,
+		published_at INTEGER NOT NULL, -- Unix nanoseconds
+		settings_seq INTEGER NOT NULL REFERENCES settings_changes (seq)
+	);
+	CREATE INDEX rates_published_at ON rates (published_at);
+	-- The max step BarPay runs with, kept for the starts that wait for a currency change: the
+	-- config file then holds the max step for the new currency.
+	CREATE TABLE max_step (
+		id       INTEGER PRIMARY KEY CHECK (id = 1),
+		currency TEXT    NOT NULL,
+		value    INTEGER NOT NULL CHECK (value > 0)
+	)`,
+	// Decision log: the spec's Decision. published is the rates row; on a fallback it is the rate
+	// kept. inputs is the JSON of the spec's inputs, NULL for range_change, which has none.
+	`CREATE TABLE decisions (
+		seq         INTEGER PRIMARY KEY, -- decision order
+		decided_at  INTEGER NOT NULL,    -- Unix nanoseconds
+		trigger     TEXT    NOT NULL CHECK (trigger IN ('evaluation', 'range_change')),
+		staff_id    TEXT    NOT NULL,    -- '' for evaluation
+		inputs      TEXT,
+		proposal    INTEGER,             -- NULL on fallback and for range_change
+		reasoning   TEXT,                -- NULL on fallback and for range_change
+		rate_seq    INTEGER NOT NULL REFERENCES rates (seq),
+		explanation TEXT    NOT NULL CHECK (length(explanation) BETWEEN 1 AND 200),
+		fallback    TEXT    CHECK (fallback IN ('ai_timeout', 'ai_unreadable')),
+		CHECK ((trigger = 'range_change') = (staff_id <> '')),
+		CHECK (trigger = 'evaluation' OR (inputs IS NULL AND proposal IS NULL AND reasoning IS NULL AND fallback IS NULL))
+	)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

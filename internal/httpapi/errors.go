@@ -9,8 +9,9 @@ import (
 type Code string
 
 const (
-	CodeInvalidRequest Code = "invalid_request"
-	CodeUnauthorized   Code = "unauthorized"
+	CodeInvalidRequest  Code = "invalid_request"
+	CodeUnauthorized    Code = "unauthorized"
+	CodeInvalidSettings Code = "invalid_settings"
 )
 
 type errorBody struct {
@@ -37,4 +38,10 @@ func WriteError(w http.ResponseWriter, status int, code Code, message, field str
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// writeInternal answers a failure of BarPay itself. The spec defines no body for it, and the
+// cause stays out of the response, which reaches the store app's screens.
+func writeInternal(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusInternalServerError)
 }

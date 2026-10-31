@@ -11,7 +11,7 @@ import (
 
 // Limits from the API spec's Settings and Money schemas.
 const (
-	maxAmount       = 100_000_000
+	maxAmount       = money.MaxValue
 	maxBlockMinutes = 240
 	maxPauseMinutes = 240
 	maxGoal         = 100
@@ -47,9 +47,9 @@ func (es Errors) Error() string {
 	return "invalid settings: " + strings.Join(parts, "; ")
 }
 
-// Validate checks the conditions of the PRD's UC7 (floor and ceiling above 0, floor below
-// ceiling, block of at least 1 minute, pause and cap of 0 or more), the spec's ranges, and that
-// every amount is in s.Currency. It returns nil or Errors.
+// Validate checks the conditions of the PRD's UC7 (floor and ceiling above 0, multiples of the
+// rate step, floor below ceiling, block of at least 1 minute, pause and cap of 0 or more), the
+// spec's ranges, and that every amount is in s.Currency. It returns nil or Errors.
 func (s Settings) Validate() error {
 	var es Errors
 	add := func(field, format string, args ...any) {
@@ -69,8 +69,18 @@ func (s Settings) Validate() error {
 		return false
 	}
 
-	floorOK := amount("floor", s.Floor, 1)
-	ceilingOK := amount("ceiling", s.Ceiling, 1)
+	// A floor and ceiling on the rate step leave a multiple of it between them, so the
+	// guardrails can always round a rate without leaving the range.
+	onStep := func(field string, a money.Amount) bool {
+		step, ok := money.RateStep(s.Currency)
+		if !ok || a.IsMultipleOf(step) {
+			return true
+		}
+		add(field, "must be a multiple of the rate step (%d)", step.Value())
+		return false
+	}
+	floorOK := amount("floor", s.Floor, 1) && onStep("floor", s.Floor)
+	ceilingOK := amount("ceiling", s.Ceiling, 1) && onStep("ceiling", s.Ceiling)
 	if floorOK && ceilingOK && s.Floor.Value() >= s.Ceiling.Value() {
 		add("floor", "must be below the ceiling (%d)", s.Ceiling.Value())
 	}

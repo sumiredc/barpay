@@ -11,8 +11,14 @@ database_path = "barpay.db"
 # The store's currency. All amounts below are in it.
 currency = "USD"
 
-# Rate per hour published at start, before the first evaluation. Within settings.floor and settings.ceiling.
+# Rate per hour published on the first start and after a currency change, before the first
+# evaluation; other starts keep the rate last published. Within settings.floor and
+# settings.ceiling, and a multiple of the rate step (5 cents for USD).
 starting_rate = 1200
+
+# The most the rate per hour moves in one evaluation, in cents per hour (300 is $3.00/h).
+# At least the rate step and a multiple of it (5 cents for USD).
+max_step = 300
 
 # Evaluations are at least this far apart.
 min_evaluation_interval = "1m"
@@ -51,8 +57,8 @@ model = ""
 # Starting values of the settings, used on the first start and when a currency change is applied;
 # otherwise the values last saved through the admin API stay.
 [settings]
-floor = 600          # rate per hour; above 0 and below ceiling
-ceiling = 2400       # rate per hour
+floor = 600          # rate per hour; above 0, below ceiling, a multiple of 5 (the USD rate step)
+ceiling = 2400       # rate per hour; a multiple of 5
 block_minutes = 10   # default 10; 1 to 240
 pause_minutes = 30   # default 30; 0 to 240, 0 turns it off
 cap_per_visit = 3000 # default 3000; 0 for no cap

@@ -68,6 +68,7 @@ func serve(ctx context.Context, path string, stderr io.Writer, listening func(ne
 
 	router := httpapi.NewRouter(httpapi.Keys{Store: cfg.StoreAPIKey, Admin: cfg.AdminAPIKey, Edge: cfg.EdgeSharedSecret})
 	router.Admin("GET /notifications", notify.ListHandler(st, log))
+	httpapi.Pricing{Store: st, Clock: clk}.Register(router)
 	srv := &http.Server{Handler: router, ReadHeaderTimeout: 10 * time.Second}
 	ln, err := net.Listen("tcp", cfg.ListenAddress)
 	if err != nil {

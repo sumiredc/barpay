@@ -274,12 +274,19 @@ paths:
         PRD: UC3; Responsibilities → Panel.
 
         The published rates from `since`, oldest first, including the rate
-        in effect at `since`, up to the 1,000 most recent. Explanations are
-        not included; they are for the admin screen (`listDecisions`).
+        in effect at `since`, up to the 1,000 most recent. Only rates in the
+        store's current currency are returned: after a currency change the
+        history starts at the first rate after it, even when `since` is
+        earlier. Explanations are not included; they are for the admin
+        screen (`listDecisions`).
       parameters:
         - name: since
           in: query
           required: true
+          description: |
+            Must be from 1677-09-21T00:12:44Z to 2262-04-11T23:47:16Z; a
+            missing or malformed value, or one outside that range, is
+            rejected with `400` `invalid_request` and `details.field` `since`.
           schema:
             type: string
             format: date-time
@@ -906,8 +913,10 @@ paths:
         Guardrails, Settings changes.
 
         Replaces all settings. Block length, pause and cap apply to active
-        sessions from their next block; a new floor or ceiling moves the
-        published rate into range at once.
+        sessions from their next block. A new floor or ceiling that leaves
+        the published rate outside moves it to the nearer bound at once and
+        records a `range_change` decision with the staff member; one that
+        leaves it inside publishes no rate and records nothing.
       security:
         - adminApiKey: []
       parameters:
@@ -926,14 +935,27 @@ paths:
               schema:
                 $ref: '#/components/schemas/Settings'
         '400':
-          $ref: '#/components/responses/InvalidRequest'
+          description: |
+            `invalid_request`: the body does not fit the `Settings` schema
+            (a field missing, unknown or given twice, with names compared
+            case-sensitively; a value of the wrong type; or a value outside
+            the schema's `minimum`, `maximum` or `enum`, such as
+            `block_minutes` 0 or a negative amount), or `BarPay-Staff-Id`
+            is missing or malformed. `details.field` names the first bad
+            field by its path, such as `floor.value`. Nothing changes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '422':
           description: |
-            `invalid_settings`: the floor is not below the ceiling, a value
-            is below its minimum, or an amount is not in the store's
-            currency. Nothing changes.
+            `invalid_settings`: the body fits the schema but breaks a rule
+            the schema cannot state: `floor` is 0, `floor` is not below
+            `ceiling`, `floor` or `ceiling` is not a multiple of the rate
+            step, or an amount is not in the store's currency.
+            `details.field` names the first bad field. Nothing changes.
           content:
             application/json:
               schema:
@@ -1478,7 +1500,7 @@ components:
       enum: [paypal, register]
     CoverChargeStatus:
       type: string
-      description: '`running`, `paused` (an additional order paused it), `capped` (the cap per visit was reached) or `stopped` (the total is fixed).'
+      description: '`running`, `paused` (an additional order paused it), `capped` (the cap per visit was reached) or `stopped` (the total is fixed). When more than one applies, `stopped` wins, then `capped`, then `paused`.'
       enum: [running, paused, capped, stopped]
     CheckinRequest:
       type: object
@@ -1795,7 +1817,8 @@ components:
         PRD: Pricing model.
 
         A published rate. `change` is the difference from the rate published
-        before it.
+        before it, and 0 for the first rate in the store's currency (on the
+        first start, and after a currency change).
       additionalProperties: false
       required: [rate_per_hour, change, published_at]
       properties:
@@ -1857,9 +1880,10 @@ components:
       description: |
         PRD: Pricing model; UC7 alternative flow (staff change a setting).
 
-        Required: `floor` above 0 and below `ceiling`, `block_minutes` at
-        least 1, `pause_minutes` and `cap_per_visit` 0 or more (0 turns them
-        off).
+        Required: `floor` above 0 and below `ceiling`, `floor` and `ceiling`
+        multiples of the currency's rate step (USD: 5 cents, so that a rate
+        on the step always lies between them), `block_minutes` at least 1,
+        `pause_minutes` and `cap_per_visit` 0 or more (0 turns them off).
       additionalProperties: false
       required: [floor, ceiling, block_minutes, pause_minutes, cap_per_visit, goal]
       properties:
@@ -1922,30 +1946,33 @@ components:
           type: string
           maxLength: 64
         inputs:
-          type: object
-          additionalProperties: false
-          required: [occupancy, liveliness, staff_events, goal]
-          properties:
-            occupancy:
-              description: Checked-in sessions divided by capacity.
-              type: number
-              minimum: 0
-            liveliness:
-              description: The latest liveliness signal, 0–1; `null` if none.
-              oneOf:
-                - type: number
+          description: The signals and goal the evaluation used; `null` for `range_change`, which uses none.
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [occupancy, liveliness, staff_events, goal]
+              properties:
+                occupancy:
+                  description: Checked-in sessions divided by capacity.
+                  type: number
                   minimum: 0
-                  maximum: 1
-                - type: 'null'
-            staff_events:
-              type: array
-              items:
-                type: string
-                maxLength: 100
-            goal:
-              type: integer
-              minimum: 0
-              maximum: 100
+                liveliness:
+                  description: The latest liveliness signal, 0–1; `null` if none.
+                  oneOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 1
+                    - type: 'null'
+                staff_events:
+                  type: array
+                  items:
+                    type: string
+                    maxLength: 100
+                goal:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+            - type: 'null'
         proposal:
           description: The AI's proposed rate before the guardrails; `null` on fallback or for `range_change`.
           oneOf:
@@ -1960,7 +1987,9 @@ components:
         published:
           $ref: '#/components/schemas/RatePoint'
         explanation:
-          description: The short reason for the published change, after clamping.
+          description: |
+            The short reason for the published change, after clamping. For
+            `range_change`, BarPay writes it from the change; no AI takes part.
           type: string
           maxLength: 200
         fallback:
