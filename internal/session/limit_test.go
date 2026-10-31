@@ -188,15 +188,15 @@ func TestGetSessionAtThreeDaysShowsItClosedUnpaid(t *testing.T) {
 	}
 }
 
-// RunLimits closes, as soon as it starts, a session that reached its limit while BarPay was stopped.
-func TestRunLimitsClosesAtStart(t *testing.T) {
+// Run closes, as soon as it starts, a session that reached its limit while BarPay was stopped.
+func TestRunClosesAtStart(t *testing.T) {
 	f := newFixture(t)
 	v := f.atRegister(t)
 	f.restart(t)
 	f.clk.Set(limit)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { f.api.RunLimits(ctx, slog.New(slog.DiscardHandler)); close(done) }()
+	go func() { f.api.Run(ctx, slog.New(slog.DiscardHandler)); close(done) }()
 	defer func() { cancel(); <-done }()
 	give := time.Now().Add(5 * time.Second)
 	for f.state(t, v.SessionID) != ClosedUnpaid {

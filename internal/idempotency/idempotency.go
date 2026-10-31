@@ -146,6 +146,22 @@ func (c *Claim) Keep(ctx context.Context, tx store.Querier, at time.Time, status
 	return nil
 }
 
+// Replace changes the response kept for c's request to status and body, in tx. An operation that
+// kept a response once its change was stored, and then learned more within the same request
+// (a charge that PayPal answered), keeps what it returned instead; a request cut off between
+// the two leaves the first response kept.
+func (c *Claim) Replace(ctx context.Context, tx store.Querier, status int, body []byte) error {
+	res, err := tx.ExecContext(ctx, `UPDATE idempotency_keys SET status = ?, body = ? WHERE scope = ? AND key = ? AND request = ?`,
+		status, body, c.scope, c.key, c.request)
+	if err != nil {
+		return fmt.Errorf("idempotency: replace: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil || n != 1 {
+		return errors.New("idempotency: replace: no response is kept for this request")
+	}
+	return nil
+}
+
 // forgottenBefore is the one boundary of Retention: at now, a response kept before the returned
 // instant is forgotten, and one kept at it or later is returned, so a response is returned until
 // exactly Retention after it was kept.

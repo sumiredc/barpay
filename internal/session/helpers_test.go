@@ -1,19 +1,24 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/sumiredc/barpay/internal/clock"
+	"github.com/sumiredc/barpay/internal/gate"
 	"github.com/sumiredc/barpay/internal/httpapi"
 	"github.com/sumiredc/barpay/internal/idempotency"
 	"github.com/sumiredc/barpay/internal/money"
+	"github.com/sumiredc/barpay/internal/paypal/paypaltest"
 	"github.com/sumiredc/barpay/internal/pricing"
 	"github.com/sumiredc/barpay/internal/secret"
 	"github.com/sumiredc/barpay/internal/settings"
@@ -45,14 +50,68 @@ type waker struct{ n atomic.Int64 }
 
 func (w *waker) Wake() { w.n.Add(1) }
 
+// savedFake stands in for package member's saved PayPals: member ID → vault ID. It is kept in
+// the database in BarPay, so it survives a restart.
+type savedFake struct {
+	mu     sync.Mutex
+	vaults map[string]string
+	gone   []string
+}
+
+func (s *savedFake) VaultOf(_ context.Context, _ store.Querier, memberID string) (string, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.vaults[memberID]
+	return v, ok, nil
+}
+
+func (s *savedFake) Gone(_ context.Context, _ store.Querier, memberID, vaultID string, _ time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.vaults[memberID] == vaultID {
+		delete(s.vaults, memberID)
+	}
+	s.gone = append(s.gone, memberID)
+	return nil
+}
+
+// The config file's exit-gate durations in the fixture: its defaults (the PRD's UC3, UC5).
+const (
+	refresh  = 30 * time.Second
+	reunlock = 2 * time.Minute
+	maxStay  = 12 * time.Hour
+)
+
 // fixture is BarPay after its first start at t0, with the starting rate $12.00 per hour
-// published then, serving the session operations.
+// published then, serving the session operations, with a fake PayPal.
 type fixture struct {
 	st     *store.Store
 	clk    *clock.Fake
 	wake   *waker
+	pp     *paypaltest.Fake
+	saved  *savedFake
+	gate   *gate.Hub
+	log    *syncBuffer
 	api    API
 	router *httpapi.Router
+}
+
+// syncBuffer is a log destination safe for concurrent writes.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -69,19 +128,26 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fixture{st: st, clk: clock.NewFake(t0)}
+	f := &fixture{st: st, clk: clock.NewFake(t0), pp: paypaltest.New(), saved: &savedFake{vaults: map[string]string{}}, log: &syncBuffer{}}
 	f.build()
 	return f
 }
 
-// build makes every in-memory part again from f.st, as a restart does.
+// build makes every in-memory part again from f.st, as a restart does. PayPal is outside BarPay
+// and keeps what it holds.
 func (f *fixture) build() { f.buildWith(f.clk) }
 
 // buildWith is build with another clock.
 func (f *fixture) buildWith(clk clock.Clock) {
 	f.wake = &waker{}
 	r := httpapi.NewRouter(keys)
-	f.api = API{Store: f.st, Clock: clk, Keys: idempotency.New(f.st, clk), Notify: f.wake}
+	f.gate = gate.New()
+	f.api = API{
+		Store: f.st, Clock: clk, Keys: idempotency.New(f.st, clk), Notify: f.wake,
+		PayPal: f.pp, Saved: f.saved, Gate: f.gate,
+		ExitTokenRefresh: refresh, ReunlockWindow: reunlock, MaxStay: maxStay,
+		Log: slog.New(slog.NewTextHandler(f.log, nil)),
+	}
 	f.api.Register(r)
 	f.router = r
 }

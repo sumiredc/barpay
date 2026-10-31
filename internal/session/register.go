@@ -108,7 +108,7 @@ func (a API) recordRegisterPayment(w http.ResponseWriter, req *http.Request) {
 			if cur = s.Currency; amount.Currency() != cur {
 				return errCurrencyMismatch
 			}
-			if v, err = end(ctx, tx, s, registerPaymentRecorded, now, settledRegister, &amount); err != nil {
+			if v, err = end(ctx, tx, s, registerPaymentRecorded, now, settledRegister, proceeds{recorded: &amount}); err != nil {
 				return err
 			}
 			_, err = notify.Enqueue(ctx, tx, now, notify.Event{
@@ -149,7 +149,7 @@ func (a API) markUnpaid(w http.ResponseWriter, req *http.Request) {
 			if err != nil {
 				return err
 			}
-			if v, err = end(ctx, tx, s, markedUnpaid, now, settledUnpaid, nil); err != nil {
+			if v, err = end(ctx, tx, s, markedUnpaid, now, settledUnpaid, proceeds{}); err != nil {
 				return err
 			}
 			return enqueueUnpaid(ctx, tx, now, v)

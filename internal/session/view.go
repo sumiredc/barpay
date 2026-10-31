@@ -91,7 +91,11 @@ func compute(ctx context.Context, q store.Querier, s Session, now time.Time) (Vi
 	if !s.TotalFixedAt.IsZero() {
 		v.TotalFixedAt = httpapi.FormatTime(s.TotalFixedAt)
 	}
-	// TODO(#19): unpaid_amount while payment_failed, once checkout and its results are stored.
+	if s.State == PaymentFailed {
+		// What BarPay could not confirm as paid: the total it tried to charge.
+		unpaid := v.Total
+		v.UnpaidAmount = &unpaid
+	}
 	return v, nil
 }
 

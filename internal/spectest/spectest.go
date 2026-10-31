@@ -1,5 +1,6 @@
 // Package spectest checks, in tests, that what BarPay sends fits the API spec's schemas
-// (docs/api/openapi.yaml), read from the spec itself so a test cannot drift from it.
+// (docs/api/openapi.yaml, and edge.yaml for the edge device's API), read from the specs
+// themselves so a test cannot drift from them.
 package spectest
 
 import (
@@ -15,7 +16,10 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-const specURL = "file:///openapi.json"
+const (
+	specURL = "file:///openapi.json"
+	edgeURL = "file:///edge.json"
+)
 
 var (
 	once     sync.Once
@@ -27,55 +31,71 @@ var (
 )
 
 func load() {
+	compiler = jsonschema.NewCompiler()
+	compiler.DefaultDraft(jsonschema.Draft2020) // OpenAPI 3.1's dialect
+	compiler.AssertFormat()
+	if loadErr = add("openapi.yaml", specURL); loadErr == nil {
+		loadErr = add("edge.yaml", edgeURL)
+	}
+}
+
+// add reads the spec docs/api/file and adds it to the compiler as url.
+func add(file, url string) error {
 	_, here, _, _ := runtime.Caller(0)
-	raw, err := os.ReadFile(filepath.Join(filepath.Dir(here), "..", "..", "docs", "api", "openapi.yaml"))
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(here), "..", "..", "docs", "api", file))
 	if err != nil {
-		loadErr = err
-		return
+		return err
 	}
 	var doc any
-	if loadErr = yaml.Unmarshal(raw, &doc); loadErr != nil {
-		return
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return err
 	}
 	// Through JSON, so the validator gets the numbers and maps it expects.
 	j, err := json.Marshal(doc)
 	if err != nil {
-		loadErr = err
-		return
+		return err
 	}
 	spec, err := jsonschema.UnmarshalJSON(bytes.NewReader(j))
 	if err != nil {
-		loadErr = err
-		return
+		return err
 	}
-	compiler = jsonschema.NewCompiler()
-	compiler.DefaultDraft(jsonschema.Draft2020) // OpenAPI 3.1's dialect
-	compiler.AssertFormat()
-	loadErr = compiler.AddResource(specURL, spec)
+	return compiler.AddResource(url, spec)
 }
 
-func schema(name string) (*jsonschema.Schema, error) {
+func schema(url, name string) (*jsonschema.Schema, error) {
 	once.Do(load)
 	if loadErr != nil {
 		return nil, loadErr
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if s, ok := compiled[name]; ok {
+	ref := url + "#/components/schemas/" + name
+	if s, ok := compiled[ref]; ok {
 		return s, nil
 	}
-	s, err := compiler.Compile(specURL + "#/components/schemas/" + name)
+	s, err := compiler.Compile(ref)
 	if err != nil {
 		return nil, err
 	}
-	compiled[name] = s
+	compiled[ref] = s
 	return s, nil
 }
 
 // Valid fails t unless body is JSON that fits the spec's components/schemas/<name>.
 func Valid(t testing.TB, name string, body []byte) {
 	t.Helper()
-	s, err := schema(name)
+	valid(t, specURL, name, body)
+}
+
+// ValidEdge is Valid for the edge device's API (edge.yaml).
+func ValidEdge(t testing.TB, name string, body []byte) {
+	t.Helper()
+	valid(t, edgeURL, name, body)
+}
+
+func valid(t testing.TB, url, name string, body []byte) {
+	t.Helper()
+	s, err := schema(url, name)
 	if err != nil {
 		t.Fatalf("spec schema %s: %v", name, err)
 	}
