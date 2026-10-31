@@ -50,6 +50,9 @@ client_secret = ""
 url = ""
 signing_secret = ""
 
+# The local LLM that proposes the rate. address is the base URL of its OpenAI-compatible API
+# (BarPay posts to <address>/chat/completions), served by llama.cpp's server, Ollama, vLLM or
+# LM Studio: for example "http://127.0.0.1:11434/v1" for Ollama.
 [llm]
 address = ""
 model = ""

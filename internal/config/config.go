@@ -289,6 +289,21 @@ func (c *checker) notificationURL(v string) string {
 	return v
 }
 
+// llmAddress checks the local LLM's address: the base URL of its OpenAI-compatible API, to
+// which the client adds "/chat/completions". A query or fragment would end up before that path.
+func (c *checker) llmAddress(v string) string {
+	const key = "llm.address"
+	if c.text(key, v) == "" {
+		return v
+	}
+	u, err := url.Parse(v)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Opaque != "" ||
+		u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		c.add(key, "must be an http or https base URL without a query, such as http://127.0.0.1:11434/v1")
+	}
+	return v
+}
+
 func (c *checker) build(f *file, opts Options) *Config {
 	cfg := &Config{
 		ListenAddress: c.text("listen_address", f.ListenAddress),
@@ -305,7 +320,7 @@ func (c *checker) build(f *file, opts Options) *Config {
 		StoreAppOrigin:            c.text("store_app_origin", f.StoreAppOrigin),
 
 		MinEvaluationInterval: c.positive("min_evaluation_interval", f.MinEvaluationInterval),
-		LLMAddress:            c.text("llm.address", f.LLM.Address),
+		LLMAddress:            c.llmAddress(f.LLM.Address),
 		LLMModel:              c.text("llm.model", f.LLM.Model),
 
 		MaxStay:          c.positive("max_stay", f.MaxStay),
