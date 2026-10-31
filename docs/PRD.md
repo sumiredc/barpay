@@ -308,7 +308,7 @@ Staff act through the store app's admin screen, which calls BarPay's admin API.
 - **Exception**: starting floor not below starting ceiling, starting rate outside them, maximum stay of 3 days or more, starting settings that a change through the admin API would reject (UC7), missing credentials (PayPal, the store API key, the admin API key, the edge device's shared secret, the signing secret), two of the store API key, the admin API key and the edge device's shared secret being the same, or an unknown key in the file, a required value missing, or a value of the wrong form → BarPay does not start, and says why without showing any secret value.
 - **Exception**: the currency is JPY → BarPay does not start, and says JPY is not supported yet. JPY is planned in P1 (see [Priorities](#11-priorities)).
 - **Exception**: currency changed while sessions are open → BarPay starts with the previous currency, raises an alert, and applies the change at the first restart with no open session.
-- **Postcondition**: BarPay runs with the config file's values and publishes the starting rate; the settings hold the values last saved through the admin API, or the starting values on first start.
+- **Postcondition**: BarPay runs with the config file's values and publishes the starting rate; the settings hold the values last saved through the admin API, or the starting values on first start and on the start that applies a currency change (the previous currency's floor, ceiling and cap mean nothing in the new one).
 
 ### UC9 — Member deletes their saved PayPal
 

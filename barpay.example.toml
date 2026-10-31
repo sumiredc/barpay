@@ -46,7 +46,8 @@ signing_secret = ""
 address = ""
 model = ""
 
-# Starting values of the settings, used on the first start; afterwards the admin API changes them.
+# Starting values of the settings, used on the first start and when a currency change is applied;
+# otherwise the values last saved through the admin API stay.
 [settings]
 floor = 600          # rate per hour; above 0 and below ceiling
 ceiling = 2400       # rate per hour
