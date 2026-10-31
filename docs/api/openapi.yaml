@@ -1387,11 +1387,15 @@ components:
   responses:
     Acknowledged:
       description: |
-        Any 2xx acknowledges the notification. Anything else, or no answer
-        within 10 seconds, is retried 1 minute, 5 minutes, 30 minutes,
-        2 hours, 6 hours, 12 hours and 24 hours after the first attempt, then
-        given up. The same event may arrive more than once or out of order:
-        deduplicate by `id` and order by `sequence`.
+        Any 2xx acknowledges the notification. Anything else, including a
+        3xx (redirects are not followed), or no answer within 10 seconds, is
+        retried 1 minute, 5 minutes, 30 minutes, 2 hours, 6 hours, 12 hours
+        and 24 hours after the first attempt, then given up. Retry times that
+        pass before BarPay can send (for example while it is stopped) are
+        made up by one attempt; when the last one passed, that attempt is the
+        last. The
+        same event may arrive more than once or out of order: deduplicate by
+        `id` and order by `sequence`.
     InvalidRequest:
       description: |
         `invalid_request`: the body, a parameter or a header is missing or
