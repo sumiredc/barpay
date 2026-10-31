@@ -232,11 +232,23 @@ func TestKeysMustDiffer(t *testing.T) {
 func TestFloorMustBeBelowCeiling(t *testing.T) {
 	mustFail(t, with(t, "settings.floor", "floor = 2400"), "settings.floor")
 	mustFail(t, with(t, "settings.floor", "floor = 2401"), "settings.floor")
-	mustParse(t, edit(t, with(t, "settings.floor", "floor = 2399"), "starting_rate", "starting_rate = 2400"))
+	mustParse(t, edit(t, with(t, "settings.floor", "floor = 2395"), "starting_rate", "starting_rate = 2400"))
 }
 
 func TestStartingRateWithinFloorAndCeiling(t *testing.T) {
 	for rate, ok := range map[string]bool{"599": false, "600": true, "2400": true, "2401": false} {
+		data := with(t, "starting_rate", "starting_rate = "+rate)
+		if ok {
+			mustParse(t, data)
+		} else {
+			mustFail(t, data, "starting_rate")
+		}
+	}
+}
+
+// The starting rate is on the rate step (5 cents for USD), as every published rate is.
+func TestStartingRateOnTheRateStep(t *testing.T) {
+	for rate, ok := range map[string]bool{"1199": false, "1200": true, "1201": false, "1204": false, "1205": true} {
 		data := with(t, "starting_rate", "starting_rate = "+rate)
 		if ok {
 			mustParse(t, data)
@@ -257,6 +269,8 @@ func TestMaxStayShorterThanThreeDays(t *testing.T) {
 func TestStartingSettingsFollowUC7(t *testing.T) {
 	cases := []struct{ key, line string }{
 		{"settings.floor", "floor = 0"},
+		{"settings.floor", "floor = 601"},
+		{"settings.ceiling", "ceiling = 2399"},
 		{"settings.ceiling", "ceiling = 100000001"},
 		{"settings.block_minutes", "block_minutes = 0"},
 		{"settings.block_minutes", "block_minutes = 241"},

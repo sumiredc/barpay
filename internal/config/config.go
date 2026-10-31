@@ -348,8 +348,12 @@ func (c *checker) build(f *file, opts Options) *Config {
 		settingsOK = false
 	}
 	if c.required("starting_rate") && settingsOK {
-		if f.StartingRate < f.Settings.Floor || f.StartingRate > f.Settings.Ceiling {
+		step, _ := money.RateStep(cur)
+		switch {
+		case f.StartingRate < f.Settings.Floor || f.StartingRate > f.Settings.Ceiling:
 			c.add("starting_rate", "must be within settings.floor (%d) and settings.ceiling (%d)", f.Settings.Floor, f.Settings.Ceiling)
+		case !cfg.StartingRate.IsMultipleOf(step):
+			c.add("starting_rate", "must be a multiple of the rate step (%d)", step.Value())
 		}
 	}
 	return cfg

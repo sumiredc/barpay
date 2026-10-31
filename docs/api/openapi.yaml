@@ -1857,9 +1857,10 @@ components:
       description: |
         PRD: Pricing model; UC7 alternative flow (staff change a setting).
 
-        Required: `floor` above 0 and below `ceiling`, `block_minutes` at
-        least 1, `pause_minutes` and `cap_per_visit` 0 or more (0 turns them
-        off).
+        Required: `floor` above 0 and below `ceiling`, `floor` and `ceiling`
+        multiples of the currency's rate step (USD: 5 cents, so that a rate
+        on the step always lies between them), `block_minutes` at least 1,
+        `pause_minutes` and `cap_per_visit` 0 or more (0 turns them off).
       additionalProperties: false
       required: [floor, ceiling, block_minutes, pause_minutes, cap_per_visit, goal]
       properties:

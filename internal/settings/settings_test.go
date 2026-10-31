@@ -23,7 +23,7 @@ func valid() Settings {
 func TestValidSettingsPass(t *testing.T) {
 	ok := []func(*Settings){
 		func(*Settings) {},
-		func(s *Settings) { s.Floor, s.Ceiling = usd(1), usd(2) },
+		func(s *Settings) { s.Floor, s.Ceiling = usd(5), usd(10) },
 		func(s *Settings) { s.BlockMinutes = 1 },
 		func(s *Settings) { s.BlockMinutes = 240 },
 		func(s *Settings) { s.PauseMinutes = 0 },
@@ -54,6 +54,9 @@ func TestEachConditionIsChecked(t *testing.T) {
 		{"floor 0", func(s *Settings) { s.Floor = usd(0) }, "floor"},
 		{"ceiling 0", func(s *Settings) { s.Floor, s.Ceiling = usd(0), usd(0) }, "ceiling"},
 		{"ceiling above the spec's maximum", func(s *Settings) { s.Ceiling = usd(100_000_001) }, "ceiling"},
+		{"floor off the rate step", func(s *Settings) { s.Floor = usd(601) }, "floor"},
+		{"floor 1", func(s *Settings) { s.Floor = usd(1) }, "floor"},
+		{"ceiling off the rate step", func(s *Settings) { s.Ceiling = usd(2399) }, "ceiling"},
 		{"floor in another currency", func(s *Settings) { s.Floor = money.New(600, money.JPY) }, "floor"},
 		{"block 0", func(s *Settings) { s.BlockMinutes = 0 }, "block_minutes"},
 		{"block above 240", func(s *Settings) { s.BlockMinutes = 241 }, "block_minutes"},
