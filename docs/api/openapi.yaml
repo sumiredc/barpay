@@ -608,8 +608,14 @@ paths:
       description: |
         PRD: UC7; Responsibilities → Admin.
 
-        Newest check-in first. Filter by `state` to list, for example, the
-        sessions waiting at the register.
+        Newest check-in first, ended sessions included. Filter by `state` to
+        list, for example, the sessions waiting at the register. Each
+        session is what `getSession` returns for it at the same instant: its
+        total, cover charge and state come from the same computation, and a
+        session that reached the 3-day limit is closed unpaid before it is
+        listed, as `getSession` does. A session whose state changes while
+        the pages are read keeps its place by check-in and is listed on a
+        later page only if its state when that page is read matches.
       security:
         - adminApiKey: []
       parameters:
@@ -617,6 +623,12 @@ paths:
         - name: state
           in: query
           required: false
+          description: |
+            One or more `SessionState` values separated by commas, such as
+            `at_register,payment_failed`; leave it out to list every state.
+            Passed more than once, the states of all are listed. A value that
+            is empty or not a `SessionState` is rejected with `400`
+            `invalid_request` and `details.field` `state`.
           style: form
           explode: false
           schema:
@@ -1095,7 +1107,8 @@ paths:
       description: |
         PRD: Guarantees → Observability; UC3, UC4, UC5, UC6, UC8, UC9.
 
-        Newest first.
+        Newest first. Every alert BarPay raised is listed: an alert has no
+        acknowledged or resolved state.
       security:
         - adminApiKey: []
       parameters:
@@ -1480,9 +1493,16 @@ components:
         unchanged; leave it out for the first page. It is opaque: do not
         build or change one. A cursor that is malformed, comes from another
         operation, or names nothing BarPay listed is rejected with `400`
-        `invalid_request` and `details.field` `cursor`. A page continues from
-        the last item of the previous one, so items added meanwhile do not
-        shift the pages or appear twice; they are on a new first page.
+        `invalid_request` and `details.field` `cursor`.
+
+        Every list (`listSessions`, `listAlerts`, `listNotifications`,
+        `listDecisions`) is newest first in the order BarPay stored its
+        items (check-in, raising, storing, deciding). That order is the same
+        on every read, also among items stored at the same instant. A cursor
+        points at the last item of the previous page, not at a count of
+        items, and the page continues with the items stored before it. Items
+        added meanwhile therefore neither shift the pages nor appear twice
+        nor go missing; they are on a new first page.
       schema:
         type: string
         maxLength: 256
@@ -1969,7 +1989,11 @@ components:
         currency:
           $ref: '#/components/schemas/Currency'
     NextCursor:
-      description: Pass as `cursor` for the next page; `null` on the last page.
+      description: |
+        Pass as `cursor` for the next page; `null` on the last page. It
+        points at the last item of this page, so the next page holds the
+        items listed after it whatever was added since (see the `Cursor`
+        parameter).
       oneOf:
         - type: string
           maxLength: 256
