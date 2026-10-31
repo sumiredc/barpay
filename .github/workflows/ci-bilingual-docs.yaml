@@ -1,4 +1,4 @@
-name: Bilingual docs
+name: "[CI] Bilingual docs"
 
 on:
   pull_request:
