@@ -193,6 +193,9 @@ var migrations = []string{
 		id         INTEGER PRIMARY KEY CHECK (id = 1),
 		started_at INTEGER NOT NULL -- Unix nanoseconds
 	)`,
+	// When a session was linked to its member's saved PayPal (UC1, UC2); NULL while not linked.
+	`ALTER TABLE sessions ADD COLUMN paypal_linked_at INTEGER -- Unix nanoseconds
+		CHECK (paypal_linked_at IS NULL OR member_id IS NOT NULL)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

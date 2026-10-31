@@ -47,6 +47,8 @@ type Session struct {
 	// TotalFixedAt is when checkout began, the register was requested, or staff recorded a
 	// register payment; zero while active.
 	TotalFixedAt time.Time
+	// LinkedAt is when the session was linked to its member's saved PayPal; zero while not linked.
+	LinkedAt time.Time
 }
 
 // newID returns "ses_" and 26 random base32 characters (130 bits), which fit the spec's SessionId.
@@ -120,9 +122,9 @@ func get(ctx context.Context, q store.Querier, id string) (Session, error) {
 	var member sql.NullString
 	var state, cur string
 	var checkedIn int64
-	var fixed sql.NullInt64
-	err := q.QueryRowContext(ctx, `SELECT id, member_id, state, currency, checked_in_at, total_fixed_at
-		FROM sessions WHERE id = ?`, id).Scan(&s.ID, &member, &state, &cur, &checkedIn, &fixed)
+	var fixed, linked sql.NullInt64
+	err := q.QueryRowContext(ctx, `SELECT id, member_id, state, currency, checked_in_at, total_fixed_at, paypal_linked_at
+		FROM sessions WHERE id = ?`, id).Scan(&s.ID, &member, &state, &cur, &checkedIn, &fixed, &linked)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Session{}, errNotFound
 	}
@@ -133,6 +135,9 @@ func get(ctx context.Context, q store.Querier, id string) (Session, error) {
 	s.CheckedInAt = time.Unix(0, checkedIn).UTC()
 	if fixed.Valid {
 		s.TotalFixedAt = time.Unix(0, fixed.Int64).UTC()
+	}
+	if linked.Valid {
+		s.LinkedAt = time.Unix(0, linked.Int64).UTC()
 	}
 	return s, nil
 }
