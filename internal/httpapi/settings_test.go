@@ -47,8 +47,8 @@ func savedSettings(t *testing.T, st *store.Store) settings.Settings {
 
 func TestGetSettings(t *testing.T) {
 	w := send(pricingRouter(started(t)), http.MethodGet, "/v1/admin/settings", adminKey, "staff_1", "")
-	want := settingsJSON{Floor: moneyJSON{600, "USD"}, Ceiling: moneyJSON{2400, "USD"}, BlockMinutes: 10,
-		PauseMinutes: 30, CapPerVisit: moneyJSON{3000, "USD"}, Goal: 50}
+	want := settingsJSON{Floor: Money{600, "USD"}, Ceiling: Money{2400, "USD"}, BlockMinutes: 10,
+		PauseMinutes: 30, CapPerVisit: Money{3000, "USD"}, Goal: 50}
 	if w.Code != http.StatusOK || decode[settingsJSON](t, w) != want {
 		t.Errorf("GET settings: %d %s", w.Code, w.Body)
 	}
@@ -59,8 +59,8 @@ func TestGetSettings(t *testing.T) {
 func TestUpdateSettings(t *testing.T) {
 	st := started(t)
 	w := putSettings(pricingRouter(st), validBody)
-	want := settingsJSON{Floor: moneyJSON{1500, "USD"}, Ceiling: moneyJSON{2400, "USD"}, BlockMinutes: 15,
-		PauseMinutes: 0, CapPerVisit: moneyJSON{0, "USD"}, Goal: 90}
+	want := settingsJSON{Floor: Money{1500, "USD"}, Ceiling: Money{2400, "USD"}, BlockMinutes: 15,
+		PauseMinutes: 0, CapPerVisit: Money{0, "USD"}, Goal: 90}
 	if w.Code != http.StatusOK || decode[settingsJSON](t, w) != want {
 		t.Fatalf("PUT settings: %d %s", w.Code, w.Body)
 	}
