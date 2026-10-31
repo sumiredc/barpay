@@ -1511,6 +1511,24 @@ components:
           maximum: 100000000
         currency:
           $ref: '#/components/schemas/Currency'
+    Total:
+      type: object
+      description: |
+        A sum, or an amount that may stand for one: an order's amount, a
+        session's orders total, cover charge, total and unpaid amount, and
+        the amount staff record against a total. The same form as `Money`,
+        with a higher maximum, the largest integer a JSON reader keeps
+        exactly: the lines of one order can add up to more than `Money`'s
+        maximum, and so can a visit.
+      required: [value, currency]
+      additionalProperties: false
+      properties:
+        value:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        currency:
+          $ref: '#/components/schemas/Currency'
     SessionState:
       type: string
       description: |
@@ -1578,20 +1596,20 @@ components:
         cover_charge_status:
           $ref: '#/components/schemas/CoverChargeStatus'
         orders_total:
-          $ref: '#/components/schemas/Money'
+          $ref: '#/components/schemas/Total'
         cover_charge:
           description: The sum of the ended blocks' amounts so far.
-          $ref: '#/components/schemas/Money'
+          $ref: '#/components/schemas/Total'
         total:
           description: '`orders_total` + `cover_charge`.'
-          $ref: '#/components/schemas/Money'
+          $ref: '#/components/schemas/Total'
         order_count:
           type: integer
           minimum: 0
         unpaid_amount:
           description: Set while `payment_failed` and for `closed_unpaid`; otherwise `null`.
           oneOf:
-            - $ref: '#/components/schemas/Money'
+            - $ref: '#/components/schemas/Total'
             - type: 'null'
         receipt:
           description: Set once the session has ended (`closed` or `closed_unpaid`); otherwise `null`.
@@ -1623,11 +1641,11 @@ components:
           type: string
           enum: [paypal, register, outside, unpaid]
         orders_total:
-          $ref: '#/components/schemas/Money'
+          $ref: '#/components/schemas/Total'
         cover_charge:
-          $ref: '#/components/schemas/Money'
+          $ref: '#/components/schemas/Total'
         total:
-          $ref: '#/components/schemas/Money'
+          $ref: '#/components/schemas/Total'
         ended_at:
           type: string
           format: date-time
@@ -1657,7 +1675,7 @@ components:
             settlement:
               const: register
             amount_recorded:
-              $ref: '#/components/schemas/Money'
+              $ref: '#/components/schemas/Total'
       unevaluatedProperties: false
     OutsideReceipt:
       description: Staff settled a failed charge outside BarPay; nothing was charged through BarPay. `amount_recorded` may differ from `total`.
@@ -1669,7 +1687,7 @@ components:
             settlement:
               const: outside
             amount_recorded:
-              $ref: '#/components/schemas/Money'
+              $ref: '#/components/schemas/Total'
       unevaluatedProperties: false
     UnpaidReceipt:
       description: Closed as unpaid; nothing was collected through BarPay.
@@ -1681,7 +1699,7 @@ components:
             settlement:
               const: unpaid
             unpaid_amount:
-              $ref: '#/components/schemas/Money'
+              $ref: '#/components/schemas/Total'
       unevaluatedProperties: false
     OrderLine:
       type: object
@@ -1728,7 +1746,7 @@ components:
             $ref: '#/components/schemas/OrderLine'
         amount:
           description: The sum of `quantity` × `unit_price` over the lines.
-          $ref: '#/components/schemas/Money'
+          $ref: '#/components/schemas/Total'
         recorded_at:
           type: string
           format: date-time
@@ -1901,7 +1919,7 @@ components:
       properties:
         amount_recorded:
           description: The amount staff took. It may differ from the total.
-          $ref: '#/components/schemas/Money'
+          $ref: '#/components/schemas/Total'
     Settings:
       type: object
       description: |
@@ -2218,7 +2236,7 @@ components:
                         state:
                           const: payment_failed
                         unpaid_amount:
-                          $ref: '#/components/schemas/Money'
+                          $ref: '#/components/schemas/Total'
     SessionSettledOutsideEvent:
       allOf:
         - $ref: '#/components/schemas/EventBase'

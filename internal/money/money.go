@@ -17,6 +17,10 @@ const (
 // MaxValue is the spec's Money maximum, in the smallest unit.
 const MaxValue = 100_000_000
 
+// MaxTotal is the spec's Total maximum, for sums such as a session's total: the largest
+// integer a JSON reader keeps exactly.
+const MaxTotal = 1<<53 - 1
+
 // Known lists every currency in the API spec, whether or not BarPay can start with it.
 var Known = []Currency{JPY, USD}
 
