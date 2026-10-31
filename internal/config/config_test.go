@@ -33,6 +33,7 @@ listen_address = ":8080"
 database_path = "barpay.db"
 currency = "USD"
 starting_rate = 1200
+max_step = 300
 min_evaluation_interval = "1m"
 capacity = 40
 max_stay = "10h"
@@ -138,6 +139,7 @@ func TestEveryItemIsLoaded(t *testing.T) {
 		{"store app origin", cfg.StoreAppOrigin, "https://store.example"},
 		{"currency", cfg.Currency, money.USD},
 		{"starting rate", cfg.StartingRate, usd(1200)},
+		{"max step", cfg.MaxStep, usd(300)},
 		{"min evaluation interval", cfg.MinEvaluationInterval, time.Minute},
 		{"LLM address", cfg.LLMAddress, "http://llm.example:11434"},
 		{"LLM model", cfg.LLMModel, "pricing-model"},
@@ -258,6 +260,28 @@ func TestStartingRateOnTheRateStep(t *testing.T) {
 	}
 }
 
+// The max step is in cents per hour, at least one rate step (5) and a multiple of it.
+func TestMaxStep(t *testing.T) {
+	for v, ok := range map[string]bool{
+		"-5": false, "0": false, "4": false, "5": true, "6": false, "9": false, "10": true,
+		"99999995": true, "100000000": true, "100000005": false,
+	} {
+		data := with(t, "max_step", "max_step = "+v)
+		if ok {
+			if got := mustParse(t, data).MaxStep; got.Value() == 0 || got.Currency() != money.USD {
+				t.Errorf("max_step = %s read as %v", v, got)
+			}
+		} else {
+			mustFail(t, data, "max_step")
+		}
+	}
+	for _, line := range []string{`max_step = "300"`, `max_step = 1.5`} {
+		if _, ce := parse(t, with(t, "max_step", line)); ce == nil || !strings.Contains(ce.Error(), "max_step") {
+			t.Errorf("%s: Parse error = %v; want one naming max_step", line, ce)
+		}
+	}
+}
+
 func TestMaxStayShorterThanThreeDays(t *testing.T) {
 	mustParse(t, with(t, "max_stay", `max_stay = "71h59m59s"`))
 	mustFail(t, with(t, "max_stay", `max_stay = "72h"`), "max_stay")
@@ -364,7 +388,7 @@ func TestDatabasePathWithoutURISeparators(t *testing.T) {
 
 func TestOtherRequiredValues(t *testing.T) {
 	for _, key := range []string{"listen_address", "database_path", "store_app_origin", "notifications.url",
-		"llm.address", "llm.model", "min_evaluation_interval", "capacity", "starting_rate", "settings.floor", "settings.ceiling"} {
+		"llm.address", "llm.model", "min_evaluation_interval", "capacity", "starting_rate", "max_step", "settings.floor", "settings.ceiling"} {
 		t.Run(key, func(t *testing.T) { mustFail(t, with(t, key, ""), key) })
 	}
 	mustFail(t, with(t, "capacity", "capacity = 0"), "capacity")

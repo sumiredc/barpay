@@ -20,6 +20,7 @@ listen_address = ":8080"
 database_path = "barpay.db"
 currency = "CURRENCY"
 starting_rate = 1200
+max_step = 300
 min_evaluation_interval = "1m"
 capacity = 40
 store_app_origin = "https://store.example"

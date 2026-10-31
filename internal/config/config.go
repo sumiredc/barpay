@@ -57,6 +57,8 @@ type Config struct {
 	// StartingRate and StartingSettings are in this currency too.
 	Currency     money.Currency
 	StartingRate money.Amount // rate per hour
+	// MaxStep is the most the rate per hour moves in one evaluation (the PRD's Pricing model, Guardrails).
+	MaxStep money.Amount
 
 	MinEvaluationInterval time.Duration
 	LLMAddress            string
@@ -77,6 +79,7 @@ type file struct {
 	DatabasePath          string        `toml:"database_path"`
 	Currency              string        `toml:"currency"`
 	StartingRate          int64         `toml:"starting_rate"`
+	MaxStep               int64         `toml:"max_step"`
 	MinEvaluationInterval time.Duration `toml:"min_evaluation_interval"`
 	Capacity              int           `toml:"capacity"`
 	MaxStay               time.Duration `toml:"max_stay"`
@@ -356,7 +359,29 @@ func (c *checker) build(f *file, opts Options) *Config {
 			c.add("starting_rate", "must be a multiple of the rate step (%d)", step.Value())
 		}
 	}
+	cfg.MaxStep = c.maxStep(f.MaxStep, cur)
 	return cfg
+}
+
+const maxAmount = money.MaxValue
+
+// maxStep enforces the PRD's UC8 exception for the max step: at least one rate step, so the rate
+// can move, and a multiple of it, so a rate rounded to the step never moves further than this.
+func (c *checker) maxStep(v int64, cur money.Currency) money.Amount {
+	a := money.New(v, cur)
+	if !c.required("max_step") || cur == "" {
+		return a
+	}
+	step, _ := money.RateStep(cur)
+	switch {
+	case v < step.Value():
+		c.add("max_step", "must be at least the rate step (%d)", step.Value())
+	case v > maxAmount:
+		c.add("max_step", "must be at most %d", maxAmount)
+	case !a.IsMultipleOf(step):
+		c.add("max_step", "must be a multiple of the rate step (%d)", step.Value())
+	}
+	return a
 }
 
 // distinctKeys enforces the PRD's UC8 exception: with two equal keys, one would pass where the

@@ -15,6 +15,10 @@ currency = "USD"
 # settings.ceiling, and a multiple of the rate step (5 cents for USD).
 starting_rate = 1200
 
+# The most the rate per hour moves in one evaluation, in cents per hour (300 is $3.00/h).
+# At least the rate step and a multiple of it (5 cents for USD).
+max_step = 300
+
 # Evaluations are at least this far apart.
 min_evaluation_interval = "1m"
 
