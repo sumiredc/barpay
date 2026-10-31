@@ -1,0 +1,33 @@
+{{define "content"}}
+<h1>Notifications</h1>
+<h2>BarPay's notification log</h2>
+{{if .Data.Failed}}<div class="flash">BarPay did not answer; its log is not available right now.</div>{{end}}
+<div class="card scroll">
+<table>
+  <thead><tr><th>Created</th><th>Event</th><th>Type</th><th>Status</th><th>Attempts</th><th>Last attempt</th></tr></thead>
+  <tbody>
+  {{range .Data.Records}}
+    <tr><td>{{time .CreatedAt}}</td><td>{{.EventID}}</td><td>{{.Type}}</td><td><span class="pill">{{.Status}}</span></td><td>{{.Attempts}}</td><td>{{with .LastAttemptAt}}{{time .}}{{else}}—{{end}}</td></tr>
+  {{else}}
+    <tr><td colspan="6">No notifications.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{with .Data.Next}}<p><a class="button small secondary" href="{{.}}">Older notifications</a></p>{{end}}
+
+<h2>Received by this app</h2>
+<p class="muted">Each event once, however many times BarPay sent it. Newest first.</p>
+<div class="card scroll">
+<table>
+  <thead><tr><th>Received</th><th>Event</th><th>Type</th><th>Subject</th><th>Sequence</th><th>Applied</th></tr></thead>
+  <tbody>
+  {{range .Data.Received}}
+    <tr><td>{{time .ReceivedAt}}</td><td>{{.EventID}}</td><td>{{.Type}}</td><td>{{.Subject}}</td><td>{{.Sequence}}</td><td>{{.Note}}</td></tr>
+  {{else}}
+    <tr><td colspan="6">Nothing received yet.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}

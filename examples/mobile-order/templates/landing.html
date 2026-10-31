@@ -1,0 +1,51 @@
+{{define "content"}}
+<h1>Welcome to {{.StoreName}}</h1>
+<div class="card">
+  <p>Our cover charge moves with the room: it is a rate per hour, charged every few minutes while you stay, and capped per visit. You see the rate and your running total on your phone the whole time.</p>
+  {{with .Data.Rate}}
+    <div class="stat"><div class="label">Cover charge now</div><div class="big">{{money .RatePerHour}}/h</div></div>
+  {{else}}
+    <p class="muted">The current rate is not available right now.</p>
+  {{end}}
+</div>
+
+{{if .Data.InVisit}}
+  <div class="card">
+    <p>You are checked in.</p>
+    <div class="row"><a class="button" href="/panel">Go to my visit</a> <a class="button secondary" href="/menu">Order</a></div>
+  </div>
+{{else if .Data.EndedGuestVisit}}
+  <div class="card">
+    <p>Your visit has ended.</p>
+    <div class="row">
+      <a class="button secondary" href="/receipts/{{.Data.EndedGuestVisit}}">See receipt</a>
+      <form method="post" action="/visit/done"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="button" type="submit">Done (this receipt will no longer be shown)</button></form>
+    </div>
+    <p class="muted">As a guest, you can see this receipt only until you press Done. Save it now if you need it.</p>
+  </div>
+{{else if .Member}}
+  <div class="card">
+    <p>Logged in as <strong>{{.Member.Name}}</strong>.</p>
+    <form method="post" action="/checkin">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button class="button" type="submit">Check in</button>
+    </form>
+    <p class="muted">Members can link PayPal in <a href="/settings">Settings</a> and pay by walking out through the exit gate.</p>
+  </div>
+{{else}}
+  <div class="card">
+    <h2>Members</h2>
+    <p>Log in to check in, keep your receipts and pay by walking out with PayPal.</p>
+    <div class="row"><a class="button" href="/login">Log in</a> <a class="button secondary" href="/signup">Sign up</a></div>
+  </div>
+  <div class="card">
+    <h2>Guests</h2>
+    <p>No account needed. Guests pay at the register.</p>
+    <form method="post" action="/guest">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button class="button secondary" type="submit">Join as guest</button>
+    </form>
+  </div>
+{{end}}
+<p class="muted"><a href="/admin">Staff</a></p>
+{{end}}

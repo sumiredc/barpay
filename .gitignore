@@ -7,6 +7,13 @@
 barpay.toml
 barpay.db*
 
+# The sample app's config file (mobile-order.example.conf is the tracked sample) and data
+examples/mobile-order/mobile-order.conf
+examples/mobile-order/mobile-order-data.json
+examples/mobile-order/.mobile-order-*
+# The sample app built in place by go build
+examples/mobile-order/mobile-order
+
 # Local agent settings
 .claude/settings.local.json
 

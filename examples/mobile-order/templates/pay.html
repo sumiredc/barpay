@@ -1,0 +1,22 @@
+{{define "content"}}
+<h1>Pay</h1>
+<div class="card"><div class="stat"><div class="label">Running total</div><div class="big">{{money .Data.Total}}</div></div>
+<p class="muted">The cover charge keeps running until you pay.</p></div>
+
+{{if eq .Data.PaymentMethod "paypal"}}
+<div class="card">
+  <h2>Walk out with PayPal</h2>
+  <p>Show your exit QR at the gate. Your total is charged to your saved PayPal and the gate opens.</p>
+  <a class="button" href="/exit">Show exit QR</a>
+</div>
+{{end}}
+
+<div class="card">
+  <h2>Pay at the register</h2>
+  <p>Your total is fixed now and staff take your payment. This cannot be undone.</p>
+  <form method="post" action="/pay/register">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <button class="button {{if eq .Data.PaymentMethod "paypal"}}secondary{{end}}" type="submit">Pay at register</button>
+  </form>
+</div>
+{{end}}
