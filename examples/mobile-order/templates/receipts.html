@@ -1,0 +1,11 @@
+{{define "content"}}
+<h1>Receipts</h1>
+{{range .Data}}
+  <div class="card row" style="justify-content: space-between">
+    <div><strong>{{time .Session.CheckedInAt}}</strong> <span class="pill {{.Session.State}}">{{stateLabel .Session.State}}</span><br><span class="muted">Total {{money .Session.Total}}</span></div>
+    <a class="button small secondary" href="/receipts/{{.SessionID}}">{{if .Session.Receipt}}Receipt{{else}}Details{{end}}</a>
+  </div>
+{{else}}
+  <div class="card"><p>No visits yet.</p></div>
+{{end}}
+{{end}}
