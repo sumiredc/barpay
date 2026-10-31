@@ -13,7 +13,7 @@ info:
     use the admin API key and name the staff member acting.
 
     Behavior (pricing, state changes, exception handling) is defined in
-    `PRD.md`; each operation and webhook names the use case (UC) or the
+    `docs/PRD.md`; each operation and webhook names the use case (UC) or the
     Responsibilities rule it serves.
 
     The edge device's API (exit tokens scanned at the gate, liveliness
