@@ -81,7 +81,7 @@ func serve(ctx context.Context, path string, stderr io.Writer, listening func(ne
 	sessions.Register(router)
 	signals.API{Store: st, Clock: clk, Log: log}.Register(router)
 	ev := evaluation.New(evaluation.Options{
-		Store: st, Clock: clk, Model: llm.New(cfg.LLMAddress, cfg.LLMModel), MaxStep: state.MaxStep,
+		Store: st, Clock: clk, Model: llm.New(cfg.LLMAddress, cfg.LLMModel, cfg.LLMReasoningEffort), MaxStep: state.MaxStep,
 		MinInterval: cfg.MinEvaluationInterval, Capacity: cfg.Capacity, Log: log,
 	})
 	// Runs before the store closes: an evaluation whose requests have gone still stores its decision.

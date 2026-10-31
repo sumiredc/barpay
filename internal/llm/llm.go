@@ -30,18 +30,21 @@ const maxResponseBytes = 1 << 20
 
 // Client calls one model at one address. It is safe for concurrent use.
 type Client struct {
-	url   string
-	model string
-	http  *http.Client
+	url             string
+	model           string
+	reasoningEffort string
+	http            *http.Client
 }
 
 // New returns a Client for the model at address, the API's base URL such as
-// "http://127.0.0.1:11434/v1". It sets no time limit: the caller's context does. It follows no
-// redirect: the prompt goes only to the configured address, and a 3xx is an answer that is not
-// a completion.
-func New(address, model string) *Client {
+// "http://127.0.0.1:11434/v1". reasoningEffort is sent as the request's reasoning_effort, as the
+// server spells it, such as "none" to turn off a model's thinking before it answers; when it is
+// empty the request has no such field, for a server or model that does not know it. It sets no
+// time limit: the caller's context does. It follows no redirect: the prompt goes only to the
+// configured address, and a 3xx is an answer that is not a completion.
+func New(address, model, reasoningEffort string) *Client {
 	h := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return &Client{url: strings.TrimSuffix(address, "/") + "/chat/completions", model: model, http: h}
+	return &Client{url: strings.TrimSuffix(address, "/") + "/chat/completions", model: model, reasoningEffort: reasoningEffort, http: h}
 }
 
 type request struct {
@@ -50,6 +53,8 @@ type request struct {
 	// Temperature 0 asks for the same answer to the same messages, as far as the server can give one.
 	Temperature float64 `json:"temperature"`
 	Stream      bool    `json:"stream"`
+	// ReasoningEffort is how much the model may reason before it answers.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 type response struct {
@@ -62,7 +67,7 @@ type response struct {
 
 // Chat sends messages and returns the content of the first choice.
 func (c *Client) Chat(ctx context.Context, messages []Message) (string, error) {
-	body, err := json.Marshal(request{Model: c.model, Messages: messages})
+	body, err := json.Marshal(request{Model: c.model, Messages: messages, ReasoningEffort: c.reasoningEffort})
 	if err != nil {
 		return "", fmt.Errorf("llm: %w", err)
 	}

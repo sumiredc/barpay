@@ -57,6 +57,7 @@ signing_secret = "SECRET-signing-3d88"
 [llm]
 address = "http://llm.example:11434"
 model = "pricing-model"
+reasoning_effort = "low"
 
 [settings]
 floor = 600
@@ -143,6 +144,7 @@ func TestEveryItemIsLoaded(t *testing.T) {
 		{"min evaluation interval", cfg.MinEvaluationInterval, time.Minute},
 		{"LLM address", cfg.LLMAddress, "http://llm.example:11434"},
 		{"LLM model", cfg.LLMModel, "pricing-model"},
+		{"LLM reasoning effort", cfg.LLMReasoningEffort, "low"},
 		{"capacity", cfg.Capacity, 40},
 		{"max stay", cfg.MaxStay, 10 * time.Hour},
 		{"re-unlock window", cfg.ReunlockWindow, 90 * time.Second},
@@ -389,6 +391,19 @@ func TestLLMAddress(t *testing.T) {
 	for _, u := range []string{"127.0.0.1:11434", "llm.example/v1", "ftp://llm.example", "http:///v1",
 		"http:llm.example", "http://llm.example/v1?key=1", "http://llm.example/v1?", "http://llm.example/v1#x"} {
 		t.Run(u, func(t *testing.T) { mustFail(t, with(t, "llm.address", `address = "`+u+`"`), "llm.address") })
+	}
+}
+
+// llm.reasoning_effort may be left out, and is passed through as written: servers spell it differently.
+func TestLLMReasoningEffortIsOptional(t *testing.T) {
+	if cfg := mustParse(t, with(t, "llm.reasoning_effort", "")); cfg.LLMReasoningEffort != "" {
+		t.Errorf("absent: LLMReasoningEffort = %q, want empty", cfg.LLMReasoningEffort)
+	}
+	if cfg := mustParse(t, with(t, "llm.reasoning_effort", `reasoning_effort = ""`)); cfg.LLMReasoningEffort != "" {
+		t.Errorf("empty: LLMReasoningEffort = %q, want empty", cfg.LLMReasoningEffort)
+	}
+	if cfg := mustParse(t, with(t, "llm.reasoning_effort", `reasoning_effort = "Max-2"`)); cfg.LLMReasoningEffort != "Max-2" {
+		t.Errorf("LLMReasoningEffort = %q, want Max-2", cfg.LLMReasoningEffort)
 	}
 }
 

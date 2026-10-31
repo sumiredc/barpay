@@ -20,7 +20,8 @@ func server(t *testing.T, h http.HandlerFunc) *httptest.Server {
 }
 
 // The request is the OpenAI-compatible chat completion: the model, the messages in order,
-// temperature 0 and no streaming, posted to <address>/chat/completions.
+// temperature 0 and no streaming, posted to <address>/chat/completions. Without a reasoning effort
+// configured, the request has no reasoning_effort field.
 func TestChatSendsAChatCompletionRequest(t *testing.T) {
 	var got map[string]any
 	var path, contentType string
@@ -31,7 +32,7 @@ func TestChatSendsAChatCompletionRequest(t *testing.T) {
 		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"hello"}}]}`)
 	})
 	for _, address := range []string{s.URL + "/v1", s.URL + "/v1/"} {
-		out, err := New(address, "m-1").Chat(context.Background(), []Message{{"system", "s"}, {"user", "u"}})
+		out, err := New(address, "m-1", "").Chat(context.Background(), []Message{{"system", "s"}, {"user", "u"}})
 		if err != nil || out != "hello" {
 			t.Fatalf("%s: %q, %v", address, out, err)
 		}
@@ -42,6 +43,23 @@ func TestChatSendsAChatCompletionRequest(t *testing.T) {
 		if b, _ := json.Marshal(got); string(b) != want {
 			t.Errorf("body = %s, want %s", b, want)
 		}
+	}
+}
+
+// A configured reasoning effort is sent as reasoning_effort, as configured.
+func TestChatSendsTheReasoningEffort(t *testing.T) {
+	var got map[string]any
+	s := server(t, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &got)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"hello"}}]}`)
+	})
+	if _, err := New(s.URL, "m-1", "none").Chat(context.Background(), []Message{{"user", "u"}}); err != nil {
+		t.Fatal(err)
+	}
+	want := `{"messages":[{"content":"u","role":"user"}],"model":"m-1","reasoning_effort":"none","stream":false,"temperature":0}`
+	if b, _ := json.Marshal(got); string(b) != want {
+		t.Errorf("body = %s, want %s", b, want)
 	}
 }
 
@@ -67,7 +85,7 @@ func TestChatUnreadableAnswers(t *testing.T) {
 				w.WriteHeader(tc.status)
 				_, _ = io.WriteString(w, tc.body)
 			})
-			out, err := New(s.URL, "m").Chat(context.Background(), nil)
+			out, err := New(s.URL, "m", "").Chat(context.Background(), nil)
 			if !errors.Is(err, ErrUnreadable) {
 				t.Errorf("%q, %v; want ErrUnreadable", out, err)
 			}
@@ -76,7 +94,7 @@ func TestChatUnreadableAnswers(t *testing.T) {
 	s := server(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":""}}]}`)
 	})
-	if out, err := New(s.URL, "m").Chat(context.Background(), nil); err != nil || out != "" {
+	if out, err := New(s.URL, "m", "").Chat(context.Background(), nil); err != nil || out != "" {
 		t.Errorf("empty content: %q, %v", out, err)
 	}
 }
@@ -92,7 +110,7 @@ func TestChatDoesNotFollowRedirects(t *testing.T) {
 		}
 		http.Redirect(w, r, "/elsewhere", http.StatusTemporaryRedirect)
 	})
-	if out, err := New(s.URL, "m").Chat(context.Background(), nil); !errors.Is(err, ErrUnreadable) || followed {
+	if out, err := New(s.URL, "m", "").Chat(context.Background(), nil); !errors.Is(err, ErrUnreadable) || followed {
 		t.Errorf("%q, %v, followed %v; want ErrUnreadable without following", out, err, followed)
 	}
 }
@@ -104,14 +122,14 @@ func TestChatNoAnswer(t *testing.T) {
 	defer close(release) // before the server's cleanup, which waits for this handler
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	_, err := New(s.URL, "m").Chat(ctx, nil)
+	_, err := New(s.URL, "m", "").Chat(ctx, nil)
 	if err == nil || errors.Is(err, ErrUnreadable) || !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("hung server: %v; want the deadline, not ErrUnreadable", err)
 	}
 
 	closed := httptest.NewServer(http.NotFoundHandler())
 	closed.Close()
-	if _, err := New(closed.URL, "m").Chat(context.Background(), nil); err == nil || errors.Is(err, ErrUnreadable) {
+	if _, err := New(closed.URL, "m", "").Chat(context.Background(), nil); err == nil || errors.Is(err, ErrUnreadable) {
 		t.Errorf("nothing listening: %v; want an error that is not ErrUnreadable", err)
 	}
 }
