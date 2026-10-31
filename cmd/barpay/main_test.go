@@ -123,20 +123,22 @@ func TestStartsServesAndStops(t *testing.T) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("request without a key: status = %d, want 401", resp.StatusCode)
 	}
-	req, _ := http.NewRequest(http.MethodGet, "http://"+a.String()+"/v1/admin/notifications", nil)
-	req.Header.Set("Authorization", "Bearer k-admin")
-	req.Header.Set("BarPay-Staff-Id", "staff_1")
-	resp, err = http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("listNotifications: status = %d, want 200", resp.StatusCode)
+	for _, list := range []string{"notifications", "alerts", "sessions"} {
+		req, _ := http.NewRequest(http.MethodGet, "http://"+a.String()+"/v1/admin/"+list, nil)
+		req.Header.Set("Authorization", "Bearer k-admin")
+		req.Header.Set("BarPay-Staff-Id", "staff_1")
+		resp, err = http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("GET /v1/admin/%s: status = %d, want 200", list, resp.StatusCode)
+		}
 	}
 
 	// The starting rate is published at start and read with the store API key.
-	req, _ = http.NewRequest(http.MethodGet, "http://"+a.String()+"/v1/rate", nil)
+	req, _ := http.NewRequest(http.MethodGet, "http://"+a.String()+"/v1/rate", nil)
 	req.Header.Set("Authorization", "Bearer k-store")
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
