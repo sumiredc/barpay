@@ -348,9 +348,11 @@ paths:
         5 minutes). BarPay runs at most one evaluation at a time and at most
         one per minimum interval: a request that arrives while one is running
         waits for it and gets its result (`evaluated: true`); a request
-        sooner than the minimum interval after the last one returns the
-        current rate with `evaluated: false`. The admin screen's "evaluate
-        now" uses this operation too.
+        sooner than the minimum interval after the last one started (one
+        that fell back included) returns the current rate with
+        `evaluated: false`; one exactly the minimum interval after it is
+        evaluated. The admin screen's "evaluate now" uses this operation
+        too.
         If the AI does not answer in time or its answer cannot be read, the
         rate stays as it was and `fallback` says why. The call answers within
         30 seconds.
@@ -1912,13 +1914,14 @@ components:
           description: The rate published after this request.
           $ref: '#/components/schemas/RatePoint'
         evaluated:
-          description: '`true` when an evaluation ran for this request or one already running was joined; `false` when the request came sooner than the minimum interval and no evaluation ran.'
+          description: '`true` when an evaluation ran for this request or one already running was joined; `false` when the request came sooner than the minimum interval after the last evaluation started (one that fell back included) and no evaluation ran.'
           type: boolean
         fallback:
           description: |
             Set when an evaluation ran but the rate was kept:
-            `ai_timeout` (no answer in time) or `ai_unreadable` (the answer
-            could not be read as a rate). Otherwise `null`.
+            `ai_timeout` (no answer in time, including an AI that cannot be
+            reached) or `ai_unreadable` (the answer could not be read as a
+            rate, including an HTTP error from the AI). Otherwise `null`.
           oneOf:
             - type: string
               enum: [ai_timeout, ai_unreadable]
@@ -2068,6 +2071,12 @@ components:
           type: string
           maxLength: 200
         fallback:
+          description: |
+            Set when the evaluation kept the rate: `ai_timeout` (no answer
+            in time, including an AI that cannot be reached) or
+            `ai_unreadable` (the answer could not be read as a rate,
+            including an HTTP error from the AI). `null` otherwise and for
+            `range_change`.
           oneOf:
             - type: string
               enum: [ai_timeout, ai_unreadable]
