@@ -61,7 +61,7 @@ func serve(ctx context.Context, path string, stderr io.Writer, listening func(ne
 		return fmt.Errorf("not started: %w", err)
 	}
 	defer st.Close()
-	state, err := startup.Prepare(ctx, cfg, st, startup.NoSessions{}, clk)
+	state, err := startup.Prepare(ctx, cfg, st, session.OpenSessions{}, clk)
 	if err != nil {
 		return fmt.Errorf("not started: %w", err)
 	}

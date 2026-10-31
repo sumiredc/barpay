@@ -77,6 +77,19 @@ func insert(ctx context.Context, tx store.Querier, s Session) error {
 	return nil
 }
 
+// OpenSessions answers, for startup, whether any session has not ended.
+type OpenSessions struct{}
+
+// AnyOpen tells whether any session has not ended, reading through q.
+func (OpenSessions) AnyOpen(ctx context.Context, q store.Querier) (bool, error) {
+	var open bool
+	err := q.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM sessions WHERE state NOT IN `+endedStates+`)`).Scan(&open)
+	if err != nil {
+		return false, fmt.Errorf("session: any open: %w", err)
+	}
+	return open, nil
+}
+
 // get returns the session with id, or errNotFound.
 func get(ctx context.Context, q store.Querier, id string) (Session, error) {
 	var s Session
