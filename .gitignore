@@ -3,6 +3,10 @@
 .env.*
 !.env.example
 
+# BarPay's config file (barpay.example.toml is the tracked sample) and database
+barpay.toml
+barpay.db*
+
 # Local agent settings
 .claude/settings.local.json
 

@@ -1,0 +1,56 @@
+# BarPay config file (docs/PRD.md, UC8). Copy it to barpay.toml, which git ignores, and fill in
+# every empty value. BarPay reads it once at start; restart to apply a change.
+#
+# Amounts are integers in the currency's smallest unit: cents for USD (1200 is $12.00).
+# Durations are written like "30s", "2m" or "12h", except the settings' minutes below.
+# A key marked "default" may be left out; every other key is required.
+
+listen_address = ":8080"
+database_path = "barpay.db"
+
+# The store's currency. All amounts below are in it.
+currency = "USD"
+
+# Rate per hour published at start, before the first evaluation. Within settings.floor and settings.ceiling.
+starting_rate = 1200
+
+# Evaluations are at least this far apart.
+min_evaluation_interval = "1m"
+
+# Checked-in phones that make the room full.
+capacity = 40
+
+max_stay = "12h"           # default "12h"; must be shorter than 3 days
+reunlock_window = "2m"     # default "2m"
+exit_token_refresh = "30s" # default "30s"
+
+# The store app's origin: the only place BarPay returns members to after linking PayPal.
+store_app_origin = ""
+
+# Each key must differ from the other two.
+[keys]
+store_api_key = ""
+admin_api_key = ""
+edge_shared_secret = ""
+
+# The store's PayPal REST credentials.
+[paypal]
+client_id = ""
+client_secret = ""
+
+[notifications]
+url = ""
+signing_secret = ""
+
+[llm]
+address = ""
+model = ""
+
+# Starting values of the settings, used on the first start; afterwards the admin API changes them.
+[settings]
+floor = 600          # rate per hour; above 0 and below ceiling
+ceiling = 2400       # rate per hour
+block_minutes = 10   # default 10; 1 to 240
+pause_minutes = 30   # default 30; 0 to 240, 0 turns it off
+cap_per_visit = 3000 # default 3000; 0 for no cap
+goal = 50            # 0 "fill the room" to 100 "maximize revenue"
