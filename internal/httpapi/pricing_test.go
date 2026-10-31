@@ -73,9 +73,9 @@ func pricingRouter(st *store.Store) *Router {
 var storeAuth = "Bearer " + keys.Store.Reveal()
 
 type ratePoint struct {
-	RatePerHour moneyJSON `json:"rate_per_hour"`
-	Change      moneyJSON `json:"change"`
-	PublishedAt string    `json:"published_at"`
+	RatePerHour Money  `json:"rate_per_hour"`
+	Change      Money  `json:"change"`
+	PublishedAt string `json:"published_at"`
 }
 
 func decode[T any](t *testing.T, w *httptest.ResponseRecorder) T {
@@ -96,7 +96,7 @@ func TestGetRateReturnsThePublishedRate(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", w.Code, w.Body)
 	}
-	want := ratePoint{RatePerHour: moneyJSON{1400, "USD"}, Change: moneyJSON{200, "USD"}, PublishedAt: "2026-10-31T18:01:00Z"}
+	want := ratePoint{RatePerHour: Money{1400, "USD"}, Change: Money{200, "USD"}, PublishedAt: "2026-10-31T18:01:00Z"}
 	if got := decode[ratePoint](t, w); got != want {
 		t.Errorf("rate = %+v, want %+v", got, want)
 	}

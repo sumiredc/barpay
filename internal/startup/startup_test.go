@@ -2,6 +2,8 @@ package startup
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -9,8 +11,11 @@ import (
 	"github.com/sumiredc/barpay/internal/alert"
 	"github.com/sumiredc/barpay/internal/clock"
 	"github.com/sumiredc/barpay/internal/config"
+	"github.com/sumiredc/barpay/internal/httpapi"
+	"github.com/sumiredc/barpay/internal/idempotency"
 	"github.com/sumiredc/barpay/internal/money"
 	"github.com/sumiredc/barpay/internal/pricing"
+	"github.com/sumiredc/barpay/internal/session"
 	"github.com/sumiredc/barpay/internal/settings"
 	"github.com/sumiredc/barpay/internal/store"
 	"github.com/sumiredc/barpay/internal/store/storetest"
@@ -260,3 +265,48 @@ func TestPendingCurrencyChangeKeepsRateAndMaxStep(t *testing.T) {
 		t.Error("a JPY rate was published while the change is pending")
 	}
 }
+
+// UC8's currency exception with the sessions BarPay stores: a checked-in session keeps the
+// previous currency at a restart; once it has ended, the next restart applies the change.
+func TestCurrencyChangeWaitsForAStoredOpenSession(t *testing.T) {
+	ctx := context.Background()
+	st := storetest.Open(t)
+	usdCfg := load(t, money.USD)
+	if _, err := Prepare(ctx, usdCfg, st, session.OpenSessions{}, clk); err != nil {
+		t.Fatal(err)
+	}
+	r := httpapi.NewRouter(httpapi.Keys{Store: usdCfg.StoreAPIKey, Admin: usdCfg.AdminAPIKey, Edge: usdCfg.EdgeSharedSecret})
+	session.API{Store: st, Clock: clk, Keys: idempotency.New(st, clk), Notify: noWake{}}.Register(r)
+	req := httptest.NewRequest(http.MethodPost, "/v1/checkins", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer "+usdCfg.StoreAPIKey.Reveal())
+	req.Header.Set("Idempotency-Key", "key-1")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("check-in: %d %s", w.Code, w.Body)
+	}
+
+	jpyCfg := load(t, money.JPY)
+	st = storetest.Reopen(t, st)
+	got, err := Prepare(ctx, jpyCfg, st, session.OpenSessions{}, clk)
+	if err != nil || got.Currency != money.USD || !got.CurrencyChangePending {
+		t.Fatalf("with a session open: %+v, %v; want USD, change pending", got, err)
+	}
+
+	err = st.Tx(ctx, func(tx store.Querier) error {
+		_, err := tx.ExecContext(ctx, "UPDATE sessions SET state = 'closed', total_fixed_at = checked_in_at")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st = storetest.Reopen(t, st)
+	got, err = Prepare(ctx, jpyCfg, st, session.OpenSessions{}, clk)
+	if err != nil || got.Currency != money.JPY || got.CurrencyChangePending {
+		t.Errorf("after the session ended: %+v, %v; want JPY", got, err)
+	}
+}
+
+type noWake struct{}
+
+func (noWake) Wake() {}

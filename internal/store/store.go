@@ -60,6 +60,18 @@ func (s *Store) Close() error {
 // Read runs reads outside a transaction. Anything that writes uses Tx.
 func (s *Store) Read() Querier { return s.db }
 
+// View runs fn's reads in one read-only transaction, so they all see the database as one
+// commit left it, even when writes commit between them. It does not take the write lock, so
+// it neither waits for writes nor holds them up.
+func (s *Store) View(ctx context.Context, fn func(Querier) error) error {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return fmt.Errorf("store: begin read: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	return fn(tx)
+}
+
 // Tx runs fn in one transaction: it commits if fn returns nil, and rolls back otherwise,
 // including when fn panics (the panic then continues).
 func (s *Store) Tx(ctx context.Context, fn func(Querier) error) (err error) {

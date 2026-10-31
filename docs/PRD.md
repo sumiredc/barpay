@@ -191,6 +191,7 @@ Linking PayPal is optional and moves no money: it saves a member's PayPal for th
 - **The store's own PayPal**: BarPay calls PayPal with the store's REST credentials and keeps them as secrets.
 - **Approval for saved PayPal**: in production, saving PayPal for merchant-initiated charges needs PayPal's approval for reference transactions. It does not block the sandbox.
 - **Currency**: each store picks JPY or USD; all amounts in that store use it. JPY has no decimal places. JPY in the sandbox depends on [Open question 3](#12-open-questions).
+- **Clock**: BarPay assumes its server's clock never steps back; keep it synchronized by adjusting it gradually (slewing), never by stepping it. Every amount and time limit is computed from the instants BarPay stored (check-in, orders, published rates, settings changes), so a clock set back could give a rate or an order a time before a block that has already ended and change that block's amount, which the [Pricing model](#4-pricing-model), Blocks forbids.
 - **Hardware**: Raspberry Pi 5, a USB QR reader that acts as a keyboard, a SwitchBot Lock over BLE. The lock needs its MAC address, key ID and encryption key, read from environment variables.
 - **AI**: the pricing agent runs on a local LLM that the BarPay backend reaches over the network; there is no per-call cost.
 - **Secrets**: PayPal credentials, the store API key, the admin API key, the notification signing secret, the edge device's shared secret and the SwitchBot keys never enter the public repository.
@@ -259,10 +260,12 @@ Staff act through the store app's admin screen, which calls BarPay's admin API.
 
 - **Precondition**: the session is active.
 - **Main flow**: the customer orders in the store app; the store app sends BarPay the order lines and amounts. BarPay adds them to the session. From the second order of the visit, the cover charge pauses as in the [Pricing model](#4-pricing-model).
-- **Exception**: the session is not active (at the register, checking out, payment failed, closed, closed unpaid, unknown) → rejected and raised as an alert; anything already served is collected by the store outside BarPay.
+- **Exception**: the session is not active (at the register, checking out, payment failed, closed, closed unpaid) → rejected and raised as an alert; anything already served is collected by the store outside BarPay.
+- **Exception**: no session has the ID → rejected; no alert is raised, since there is no customer for staff to see to, and requests with made-up IDs cannot fill the alerts.
 - **Exception**: the same order is reported twice (same order ID) → recorded once, and the pause is not restarted; this holds even after the session is no longer active.
 - **Exception**: an order ID already recorded comes with different lines → rejected; the recorded order stays as it was.
 - **Exception**: an amount is negative or in another currency → rejected.
+- **Exception**: with the order, the running total would be above 9,000,000,000,000,000 in the currency's smallest unit, which leaves room under the largest total BarPay holds (the API spec's `Total`) for the cover charge that accrues afterwards → rejected; nothing is recorded.
 - **Postcondition**: the running total includes the order.
 
 ### UC5 — Customer checks out at the exit gate

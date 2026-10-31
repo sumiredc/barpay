@@ -85,7 +85,7 @@ paths:
           description: |
             `member_has_open_session`: the member already has a session that
             is not closed. `idempotency_key_reused`: the key was used with a
-            different body. `idempotency_key_in_progress`: a request with the
+            different request. `idempotency_key_in_progress`: a request with the
             same key is still being processed; retry shortly.
           content:
             application/json:
@@ -106,6 +106,12 @@ paths:
         session has ended, its receipt. Use it to draw the panel, to confirm
         a result and to recover missed notifications. The rate over the visit
         comes from `getRateHistory` with `since` set to `checked_in_at`.
+
+        The values come from one consistent state, computed at the instant
+        of the request, or at `total_fixed_at` once the total is fixed:
+        `rate_per_hour`, `cover_charge` and `total` agree even when a rate is
+        published during the request, and a session whose total is fixed
+        shows the same values at every later request.
       responses:
         '200':
           description: The session.
@@ -131,7 +137,15 @@ paths:
         Adds an order to the session's running total. `order_id` is the dedup
         key within the session: reporting the same order again records it
         once, does not restart the pause, and returns `200` with the order as
-        first recorded, even after the session is no longer active.
+        first recorded, even after the session is no longer active. The same
+        order has the same lines in the same order, each with the same name,
+        quantity and unit price.
+
+        A request is checked in this order, and the first failure is
+        returned: the body (`400`), the session (`404`), an `order_id`
+        already recorded (`200`, or `409` `order_conflict`), the currency
+        (`422` `currency_mismatch`), the session's state (`409`
+        `session_not_active`), the total (`422` `amount_too_large`).
       requestBody:
         required: true
         content:
@@ -156,13 +170,21 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
-          $ref: '#/components/responses/SessionNotFound'
+          description: |
+            `session_not_found`: no session has this ID. Nothing is recorded,
+            and no alert is raised: there is no customer for staff to see to.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '409':
           description: |
             `session_not_active`: the session is at the register, checking
-            out, payment failed or ended; the order is not recorded and an
-            alert is raised. `order_conflict`: the `order_id` was already
-            recorded with different lines.
+            out, payment failed or ended; the order is not recorded and a
+            `late_order_rejected` alert is raised for the session, once for
+            each such report, a resend included.
+            `order_conflict`: the `order_id` was already recorded with
+            different lines; the recorded order stays as it was.
           content:
             application/json:
               schema:
@@ -170,6 +192,9 @@ paths:
         '422':
           description: |
             `currency_mismatch`: an amount is not in the store's currency.
+            `amount_too_large`: with this order, the session's `total` would
+            be above 9,000,000,000,000,000 (see `Total`); the order is not
+            recorded.
           content:
             application/json:
               schema:
@@ -1331,14 +1356,35 @@ components:
       in: header
       required: true
       description: |
-        A unique key chosen by the store app for this request. BarPay keeps
-        a key for at least 24 hours after a successful response. The same key
-        with the same request returns the original response; with a different
-        request it is rejected with `idempotency_key_reused`. A request whose
-        key is still being processed is rejected with
-        `idempotency_key_in_progress`. After an error response returned
-        before anything changed, nothing is kept, so the same key can be sent
-        again.
+        A unique key chosen by the store app for this request. Keys belong to
+        the API key the request is sent with: the store API key and the admin
+        API key each have their own, so the same key under the other API key
+        is another key.
+
+        BarPay keeps the response to a key for 24 hours from the change it
+        answers, up to and including that instant; after that the key is
+        forgotten, and a request with it is a new request. The same key with
+        the same request returns the original response, its status and body
+        unchanged, without running the operation again. The same request is
+        the same method, path (with any query), `BarPay-Staff-Id` (for admin
+        operations) and body, byte for byte; with any other request (another
+        operation, another session, another staff member, another body) the
+        key is rejected with `idempotency_key_reused` and nothing runs, so one
+        staff member never gets the response to another's request. A
+        request whose key is still being processed is rejected with
+        `idempotency_key_in_progress`; nothing runs.
+
+        An error response returned after something changed (for example, a
+        charge that was attempted and failed) is kept and returned like a
+        success. After an error response returned before anything changed,
+        nothing is kept, so the same key can be sent again. A request cut off
+        by a restart of BarPay before it changed anything keeps nothing
+        either.
+
+        The key is checked after the API key and before the body. When it is
+        missing or malformed, the request is rejected with `400`
+        `invalid_request` and `details.field` `Idempotency-Key`, and nothing
+        changes.
       schema:
         type: string
         minLength: 1
@@ -1484,6 +1530,27 @@ components:
           maximum: 100000000
         currency:
           $ref: '#/components/schemas/Currency'
+    Total:
+      type: object
+      description: |
+        A sum, or an amount that may stand for one: an order's amount, a
+        session's orders total, cover charge, total and unpaid amount, and
+        the amount staff record against a total. The same form as `Money`,
+        with a higher maximum, the largest integer a JSON reader keeps
+        exactly: the lines of one order can add up to more than `Money`'s
+        maximum, and so can a visit. BarPay rejects an order that would
+        bring a session's `total` above 9,000,000,000,000,000 (`reportOrder`,
+        `amount_too_large`), which leaves room under this maximum for the
+        cover charge that accrues afterwards.
+      required: [value, currency]
+      additionalProperties: false
+      properties:
+        value:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        currency:
+          $ref: '#/components/schemas/Currency'
     SessionState:
       type: string
       description: |
@@ -1551,20 +1618,20 @@ components:
         cover_charge_status:
           $ref: '#/components/schemas/CoverChargeStatus'
         orders_total:
-          $ref: '#/components/schemas/Money'
+          $ref: '#/components/schemas/Total'
         cover_charge:
           description: The sum of the ended blocks' amounts so far.
-          $ref: '#/components/schemas/Money'
+          $ref: '#/components/schemas/Total'
         total:
           description: '`orders_total` + `cover_charge`.'
-          $ref: '#/components/schemas/Money'
+          $ref: '#/components/schemas/Total'
         order_count:
           type: integer
           minimum: 0
         unpaid_amount:
           description: Set while `payment_failed` and for `closed_unpaid`; otherwise `null`.
           oneOf:
-            - $ref: '#/components/schemas/Money'
+            - $ref: '#/components/schemas/Total'
             - type: 'null'
         receipt:
           description: Set once the session has ended (`closed` or `closed_unpaid`); otherwise `null`.
@@ -1596,11 +1663,11 @@ components:
           type: string
           enum: [paypal, register, outside, unpaid]
         orders_total:
-          $ref: '#/components/schemas/Money'
+          $ref: '#/components/schemas/Total'
         cover_charge:
-          $ref: '#/components/schemas/Money'
+          $ref: '#/components/schemas/Total'
         total:
-          $ref: '#/components/schemas/Money'
+          $ref: '#/components/schemas/Total'
         ended_at:
           type: string
           format: date-time
@@ -1630,7 +1697,7 @@ components:
             settlement:
               const: register
             amount_recorded:
-              $ref: '#/components/schemas/Money'
+              $ref: '#/components/schemas/Total'
       unevaluatedProperties: false
     OutsideReceipt:
       description: Staff settled a failed charge outside BarPay; nothing was charged through BarPay. `amount_recorded` may differ from `total`.
@@ -1642,7 +1709,7 @@ components:
             settlement:
               const: outside
             amount_recorded:
-              $ref: '#/components/schemas/Money'
+              $ref: '#/components/schemas/Total'
       unevaluatedProperties: false
     UnpaidReceipt:
       description: Closed as unpaid; nothing was collected through BarPay.
@@ -1654,7 +1721,7 @@ components:
             settlement:
               const: unpaid
             unpaid_amount:
-              $ref: '#/components/schemas/Money'
+              $ref: '#/components/schemas/Total'
       unevaluatedProperties: false
     OrderLine:
       type: object
@@ -1701,7 +1768,7 @@ components:
             $ref: '#/components/schemas/OrderLine'
         amount:
           description: The sum of `quantity` × `unit_price` over the lines.
-          $ref: '#/components/schemas/Money'
+          $ref: '#/components/schemas/Total'
         recorded_at:
           type: string
           format: date-time
@@ -1874,7 +1941,7 @@ components:
       properties:
         amount_recorded:
           description: The amount staff took. It may differ from the total.
-          $ref: '#/components/schemas/Money'
+          $ref: '#/components/schemas/Total'
     Settings:
       type: object
       description: |
@@ -2191,7 +2258,7 @@ components:
                         state:
                           const: payment_failed
                         unpaid_amount:
-                          $ref: '#/components/schemas/Money'
+                          $ref: '#/components/schemas/Total'
     SessionSettledOutsideEvent:
       allOf:
         - $ref: '#/components/schemas/EventBase'
@@ -2317,6 +2384,7 @@ components:
                 - session_not_active
                 - order_conflict
                 - currency_mismatch
+                - amount_too_large
                 - member_has_open_session
                 - idempotency_key_reused
                 - idempotency_key_in_progress

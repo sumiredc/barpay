@@ -191,3 +191,21 @@ func TestMaxStepIsKept(t *testing.T) {
 		t.Errorf("LoadMaxStep after restart = %v, %v, %v; want 250 USD", m, ok, err)
 	}
 }
+
+// At is the last rate published at or before the instant: a rate published exactly then counts.
+func TestAtIsTheRateInEffect(t *testing.T) {
+	st := started(t, 1200)
+	propose(t, st, 1500, t0.Add(time.Minute))
+	at := func(d time.Duration) (money.Amount, error) {
+		p, err := At(context.Background(), st.Read(), money.USD, t0.Add(d))
+		return p.Rate, err
+	}
+	if _, err := at(-time.Nanosecond); !errors.Is(err, ErrNoRate) {
+		t.Errorf("before the first rate: err = %v, want ErrNoRate", err)
+	}
+	for d, want := range map[time.Duration]int64{0: 1200, time.Minute - time.Nanosecond: 1200, time.Minute: 1500, time.Hour: 1500} {
+		if got, err := at(d); err != nil || got != usd(want) {
+			t.Errorf("at t0+%v: %v, %v; want %d", d, got, err, want)
+		}
+	}
+}

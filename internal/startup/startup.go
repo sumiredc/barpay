@@ -20,12 +20,6 @@ type OpenSessions interface {
 	AnyOpen(ctx context.Context, q store.Querier) (bool, error)
 }
 
-// NoSessions is OpenSessions while sessions are not stored yet: none can be open.
-// TODO(#16): replace with the session store once check-ins are stored.
-type NoSessions struct{}
-
-func (NoSessions) AnyOpen(context.Context, store.Querier) (bool, error) { return false, nil }
-
 // State is what BarPay runs with after Prepare. Build every later part from it, not from the
 // config file's Currency, StartingRate, MaxStep or StartingSettings, which are in the file's currency.
 type State struct {

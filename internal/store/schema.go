@@ -113,6 +113,47 @@ var migrations = []string{
 		CHECK ((trigger = 'range_change') = (staff_id <> '')),
 		CHECK (trigger = 'evaluation' OR (inputs IS NULL AND proposal IS NULL AND reasoning IS NULL AND fallback IS NULL))
 	)`,
+	// The store app's Idempotency-Key (the spec's IdempotencyKey): the response kept for a key,
+	// written in the transaction of the change it answers. scope is the API key the request
+	// came with; request identifies the request the response answers.
+	`CREATE TABLE idempotency_keys (
+		scope   TEXT    NOT NULL CHECK (scope IN ('store', 'admin')),
+		key     TEXT    NOT NULL,
+		request BLOB    NOT NULL,
+		status  INTEGER NOT NULL,
+		body    BLOB    NOT NULL,
+		kept_at INTEGER NOT NULL, -- Unix nanoseconds
+		PRIMARY KEY (scope, key)
+	);
+	CREATE INDEX idempotency_keys_kept_at ON idempotency_keys (kept_at)`,
+	// Sessions: the spec's Session as stored. state lists the spec's SessionState. A member has at
+	// most one session that has not ended (UC1), held by the unique index rather than by a check
+	// in code, so two check-ins at once cannot both start one.
+	`CREATE TABLE sessions (
+		seq            INTEGER PRIMARY KEY, -- check-in order
+		id             TEXT    NOT NULL UNIQUE,
+		member_id      TEXT,                -- NULL for a guest
+		state          TEXT    NOT NULL CHECK (state IN ('active', 'checking_out', 'at_register',
+			'payment_failed', 'closed', 'closed_unpaid')),
+		currency       TEXT    NOT NULL,
+		checked_in_at  INTEGER NOT NULL,    -- Unix nanoseconds, like every instant below
+		total_fixed_at INTEGER,             -- NULL while active
+		CHECK ((state = 'active') = (total_fixed_at IS NULL))
+	);
+	CREATE UNIQUE INDEX sessions_one_open_per_member ON sessions (member_id)
+		WHERE member_id IS NOT NULL AND state NOT IN ('closed', 'closed_unpaid');
+	CREATE INDEX sessions_state ON sessions (state)`,
+	// Orders: the spec's Order as first recorded. order_id is unique within its session, so the
+	// same order reported twice is recorded once (UC4).
+	`CREATE TABLE orders (
+		seq         INTEGER PRIMARY KEY, -- recording order
+		session_id  TEXT    NOT NULL REFERENCES sessions (id),
+		order_id    TEXT    NOT NULL,
+		lines       TEXT    NOT NULL,    -- JSON of the spec's OrderLine array, as returned
+		amount      INTEGER NOT NULL CHECK (amount >= 0),
+		recorded_at INTEGER NOT NULL,    -- Unix nanoseconds
+		UNIQUE (session_id, order_id)
+	)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
