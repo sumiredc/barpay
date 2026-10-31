@@ -1,6 +1,6 @@
 ---
 name: external-side-effects
-description: How BarPay code that changes something outside itself must be written and tested — PayPal calls (save, charge, delete a saved PayPal), signed notifications to the store app, and the session state changes that start them. Covers treating "unknown" as its own outcome, storing intent and idempotency keys before the call, checking PayPal's status before a retry, making notifications safe to resend, storing a result before the next side effect, deciding every state change of a session in one place when several entry points act at once, the store app's `Idempotency-Key`, merging concurrent rate-evaluation requests, and the fake services that prove all of it. Use when writing, changing, or reviewing code that calls PayPal, sends or retries a notification, unlocks the gate, or moves a session through checkout, register, retry, settle, or unpaid, handles a request's `Idempotency-Key`, or handles concurrent rate-evaluation requests.
+description: How BarPay code that changes something outside itself must be written and tested — PayPal calls (save, charge, delete a saved PayPal), signed notifications to the store app, and the session state changes that start them. Covers treating "unknown" as its own outcome, storing intent and idempotency keys before the call, resolving an unknown outcome by resending with the same stored keys, making notifications safe to resend, storing a result before the next side effect, deciding every state change of a session in one place when several entry points act at once, the store app's `Idempotency-Key`, merging concurrent rate-evaluation requests, and the fake services that prove all of it. Use when writing, changing, or reviewing code that calls PayPal, sends or retries a notification, unlocks the gate, or moves a session through checkout, register, retry, settle, or unpaid, handles a request's `Idempotency-Key`, or handles concurrent rate-evaluation requests.
 ---
 
 # external-side-effects — calls that change something outside BarPay
@@ -19,7 +19,7 @@ A timeout, a dropped connection, or a crash between sending and reading the repl
 
 - **Model "unknown" in the type the call returns.** A function that returns only `error` or `nil` forces the caller to pick one of the two wrong readings. Broken in BarPay: a timed-out capture read as a failure moves the session to PaymentFailed, staff retry it, and the customer is charged twice.
 - **An absent error is not success.** Success is what the other side said: PayPal's status `COMPLETED` with a capture ID, a notification acknowledged by the store app. A response with no error but no capture ID, an unexpected status, or a body that does not parse is "unknown" or "failed", decided from what was actually returned. Broken in BarPay: the gate unlocks and the receipt shows a capture ID that does not exist, so the visit was never paid.
-- **The gate waits for the outcome.** While a charge is unknown, the session stays in checking out and the gate stays locked; nothing downstream runs until the status check settles it, as the PRD's Use cases, Customer checks out at the exit gate says. Broken in BarPay: a customer walks out on a charge that later turns out declined, and the store has no way to collect.
+- **The gate waits for the outcome.** While a charge is unknown, the session stays in checking out and the gate stays locked; nothing downstream runs until a resend with the same keys settles it or BarPay hands the session to staff, as the PRD's Use cases, Customer checks out at the exit gate says. Broken in BarPay: a customer walks out on a charge that later turns out declined, and the store has no way to collect.
 
 ```mermaid
 stateDiagram-v2
@@ -28,24 +28,24 @@ stateDiagram-v2
   Called --> Succeeded: other side confirmed
   Called --> Failed: other side refused
   Called --> Unknown: no readable answer
-  Unknown --> Succeeded: status check finds it done
-  Unknown --> Failed: PayPal reports it failed
-  Unknown --> Called: PayPal has no record, retry with the same key
+  Unknown --> Called: within the resend window, resend with the same stored keys
+  Unknown --> Staff: a charge past the window, or DUPLICATE_INVOICE_ID with no capture recorded
   Succeeded --> [*]: result stored, next side effect may start
   Failed --> [*]
+  Staff --> [*]: PaymentFailed, charge_unconfirmed alert
 ```
 
-Read: every path out of "unknown" goes through a status check; there is no edge from "unknown" straight to a new call with a new key.
+Read: every path out of "unknown" is a resend with the same stored `PayPal-Request-Id` (and, for a charge, `invoice_id`) or a hand-off to staff; there is no status lookup and no edge from "unknown" to a call with a new key. The window and the hand-off are the PRD's Fixed constraints, Idempotency.
 
 ---
 
 ## Store first, then call PayPal
 
-For a call whose result PayPal can be asked about later, store the intent and its idempotency key before sending it, and before any retry ask PayPal for the state of that key.
-A key that exists only in memory is gone after a crash or restart, and the code can then neither ask PayPal what happened nor repeat the call safely. Broken in BarPay: after a restart in the middle of a capture, BarPay sends a second capture with a fresh key and the member pays twice.
+For every PayPal call, store the intent and its idempotency keys (and when the attempt was first sent) before sending it, and resolve an unknown outcome by resending with those stored keys.
+A key that exists only in memory is gone after a crash or restart, and the code can then not repeat the call safely. Broken in BarPay: after a restart in the middle of a capture, BarPay sends a second capture with a fresh key and the member pays twice.
 
-- **Which retries reuse a key and which start a new one is the PRD's Fixed constraints, Idempotency.** It decides what the key is derived from and which kind of retry is a new attempt. Write the derivation in one function and use it everywhere; do not invent a key per call site. Broken in BarPay: a network retry with a new key charges twice; a staff retry that reuses the old key gets PayPal's stored failure back and can never succeed.
-- **Check status before retrying, every time the outcome is unknown.** The retry decision comes from PayPal's answer, not from a counter or a timer. Broken in BarPay: a capture that PayPal completed late is charged again by the retry.
+- **Which retries reuse a key and which start a new one is the PRD's Fixed constraints, Idempotency.** It decides what the key is derived from and which kind of retry is a new attempt. Write the derivation in one function and use it everywhere; do not invent a key per call site. Broken in BarPay: a network retry with a new key charges twice; a staff retry that reuses the old key counts its resend window from the earlier attempt's first send, which may already be over.
+- **Resend, do not look up, every time the outcome is unknown.** Send the same request with the same stored `PayPal-Request-Id` and `invoice_id`, only within the resend window, and stop and hand the session to staff when the PRD's Fixed constraints, Idempotency says to; a lost or refused charge leaves no order ID to look up. Broken in BarPay: a resend with a new `PayPal-Request-Id` or `invoice_id` charges a capture that PayPal completed late a second time, or a resend past the window gets `DUPLICATE_INVOICE_ID` and the session is marked paid with no capture ID on the receipt.
 - **Saving and deleting a saved PayPal follow the same rule as charging.** A save whose answer was lost can leave a vault entry the member does not know about; a delete whose answer was lost can leave a saved PayPal BarPay thinks is gone. Broken in BarPay: a member who deleted their saved PayPal is still chargeable, or a member is told linking failed while PayPal holds a saved PayPal for them.
 
 ---
@@ -104,7 +104,8 @@ The failures above happen only in timing and partial outcomes that the real serv
 
 | Situation to reproduce | What the test asserts |
 |---|---|
-| The charge succeeds but the reply never arrives | BarPay checks the status, finds the capture, closes the session with that capture ID, and PayPal saw exactly one capture |
+| The charge succeeds but the reply never arrives | BarPay resends with the same `PayPal-Request-Id` and `invoice_id`, gets the same capture back, closes the session with that capture ID, and PayPal saw exactly one capture |
+| No answer until the resend window ends, or a resend gets `DUPLICATE_INVOICE_ID` with no capture recorded | BarPay sends nothing more; the session is PaymentFailed with a `charge_unconfirmed` alert; the fake clock is checked on both sides of the window's end |
 | The same call is made twice at the same time | PayPal saw one call per key; one session transition happened; both callers got the same result |
 | Another operation arrives during a charge (staff close, register request, late order, maximum stay) | The second operation is rejected or has no effect (maximum stay), as the PRD's Guarantees, Single payment and Use cases say; the total charged equals the receipt |
 | The same `Idempotency-Key` is sent again, after success and while still running | The repeat gets the first response or is rejected as in progress, as the `IdempotencyKey` parameter says; no second PayPal attempt |
