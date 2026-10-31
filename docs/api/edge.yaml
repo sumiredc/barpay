@@ -1,0 +1,41 @@
+openapi: 3.1.0
+info:
+  title: BarPay edge device API
+  version: 0.1.0
+  summary: The calls the edge device makes to BarPay.
+  description: |
+    The calls the edge device at the exit gate makes to BarPay: exit tokens
+    scanned at the gate and liveliness signals. The development tools that
+    stand in for the hardware (virtual exit gate, signal simulator) use the
+    same calls with the same shared secret.
+
+    This API is not part of the store app's contract (`openapi.yaml`): the
+    edge device and the development tools live in the BarPay repository and
+    change with it. Every call needs the edge device's shared secret; the
+    store API key and the admin API key are rejected here, and the shared
+    secret is rejected everywhere else.
+
+    Behavior is defined in `docs/PRD.md`.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: /v1/edge
+    description: Relative to the BarPay deployment's base URL. A deployment serves one store.
+security:
+  - edgeSharedSecret: []
+
+paths: {}
+
+components:
+  securitySchemes:
+    edgeSharedSecret:
+      type: http
+      scheme: bearer
+      description: |
+        PRD: Fixed constraints → Secrets, Working without hardware; Guarantees
+        → Access.
+
+        The edge device's shared secret from the config file, sent as
+        `Authorization: Bearer <secret>`. It differs from the store API key
+        and the admin API key, and passes only under `/v1/edge`.
