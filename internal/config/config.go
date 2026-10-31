@@ -63,6 +63,8 @@ type Config struct {
 	MinEvaluationInterval time.Duration
 	LLMAddress            string
 	LLMModel              string
+	// LLMReasoningEffort is sent as the request's reasoning_effort; empty sends none.
+	LLMReasoningEffort string
 
 	Capacity         int
 	MaxStay          time.Duration
@@ -101,8 +103,9 @@ type file struct {
 		SigningSecret secret.Value `toml:"signing_secret"`
 	} `toml:"notifications"`
 	LLM struct {
-		Address string `toml:"address"`
-		Model   string `toml:"model"`
+		Address         string `toml:"address"`
+		Model           string `toml:"model"`
+		ReasoningEffort string `toml:"reasoning_effort"`
 	} `toml:"llm"`
 	Settings struct {
 		Floor        int64 `toml:"floor"`
@@ -322,6 +325,7 @@ func (c *checker) build(f *file, opts Options) *Config {
 		MinEvaluationInterval: c.positive("min_evaluation_interval", f.MinEvaluationInterval),
 		LLMAddress:            c.llmAddress(f.LLM.Address),
 		LLMModel:              c.text("llm.model", f.LLM.Model),
+		LLMReasoningEffort:    f.LLM.ReasoningEffort,
 
 		MaxStay:          c.positive("max_stay", f.MaxStay),
 		ReunlockWindow:   c.positive("reunlock_window", f.ReunlockWindow),
