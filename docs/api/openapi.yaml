@@ -629,6 +629,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -674,6 +676,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -814,6 +818,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -882,6 +888,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Settings'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
     put:
@@ -1330,7 +1338,10 @@ components:
 
         The store app's ID of the staff member acting, as authenticated by
         the store app. BarPay records it with every change it makes and
-        trusts it as sent.
+        trusts it as sent. Checked after the admin API key: when it is
+        missing or malformed, the request is rejected with `400`
+        `invalid_request` and `details.field` `BarPay-Staff-Id`, and nothing
+        changes.
       schema:
         type: string
         minLength: 1

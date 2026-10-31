@@ -27,10 +27,19 @@ func testRouter(called map[string]bool) *Router {
 	return r
 }
 
+// do sends a GET with a valid staff ID, so admin routes are decided by the key alone.
 func do(r http.Handler, path, auth string) *httptest.ResponseRecorder {
+	return doStaff(r, path, auth, []string{"staff_1"})
+}
+
+// doStaff sends the BarPay-Staff-Id values given, none if staffIDs is nil.
+func doStaff(r http.Handler, path, auth string, staffIDs []string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	if auth != "" {
 		req.Header.Set("Authorization", auth)
+	}
+	for _, id := range staffIDs {
+		req.Header.Add("BarPay-Staff-Id", id)
 	}
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)

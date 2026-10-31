@@ -2,12 +2,14 @@
 package httpapi
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"path"
 	"strings"
 
 	"github.com/sumiredc/barpay/internal/secret"
+	"github.com/sumiredc/barpay/internal/staff"
 )
 
 // Path prefixes: the spec's servers (openapi.yaml, edge.yaml).
@@ -78,9 +80,34 @@ func (r *Router) add(z zone, prefix, pattern string, h http.Handler) {
 	if zoneOf(routePath(full)) != z {
 		panic(fmt.Sprintf("httpapi: %q is outside %s", full, prefix))
 	}
+	if z == adminZone {
+		h = requireStaff(h)
+	}
 	// The zone is checked again on the route, so the handler never runs without its key
 	// even if ServeHTTP's check and the mux ever disagree about a path.
 	r.mux.Handle(full, r.requireKey(z, h))
+}
+
+type staffKey struct{}
+
+// requireStaff refuses an admin request whose staff ID is missing or malformed. It runs after
+// the key check, so a caller without the admin API key learns nothing about the header.
+func requireStaff(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		id, err := staff.ParseID(req.Header.Get(staff.Header))
+		if err != nil {
+			WriteError(w, http.StatusBadRequest, CodeInvalidRequest,
+				staff.Header+" must be 1 to 64 letters, digits, '_' or '-'.", staff.Header)
+			return
+		}
+		next.ServeHTTP(w, req.WithContext(context.WithValue(req.Context(), staffKey{}, id)))
+	})
+}
+
+// StaffID is the staff member acting on an admin request. It is set on every route added with Admin.
+func StaffID(req *http.Request) staff.ID {
+	id, _ := req.Context().Value(staffKey{}).(staff.ID)
+	return id
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {

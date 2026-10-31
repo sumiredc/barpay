@@ -33,6 +33,15 @@ var migrations = []string{
 		member_id  TEXT    NOT NULL, -- '' when not about a member
 		message    TEXT    NOT NULL CHECK (length(message) BETWEEN 1 AND 500)
 	)`,
+	// Staff actions: who made each change through the admin API, written with the change.
+	`CREATE TABLE staff_actions (
+		seq       INTEGER PRIMARY KEY,
+		staff_id  TEXT    NOT NULL,
+		operation TEXT    NOT NULL, -- the spec's operationId
+		subject   TEXT    NOT NULL, -- a session ID, or a name such as 'settings'
+		at        INTEGER NOT NULL  -- Unix nanoseconds
+	);
+	CREATE INDEX staff_actions_subject ON staff_actions (subject, seq)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
