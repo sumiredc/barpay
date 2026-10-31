@@ -1,6 +1,6 @@
 // Package paypal calls PayPal's REST API with the store's credentials (the PRD's Fixed
 // constraints, The store's own PayPal): the setup tokens and saved PayPals (vault payment tokens)
-// of linking, checking and deleting a member's saved PayPal.
+// of linking, checking and deleting a member's saved PayPal, and the checkout charge with it.
 //
 // Every call that changes something in PayPal takes the PayPal-Request-Id its caller stored
 // before calling, and says whether PayPal did it, refused it, or gave no readable answer
@@ -8,7 +8,11 @@
 // Idempotency).
 package paypal
 
-import "context"
+import (
+	"context"
+
+	"github.com/sumiredc/barpay/internal/money"
+)
 
 // Outcome is what a call that changes something in PayPal came to.
 type Outcome int
@@ -58,6 +62,35 @@ type SetupToken struct {
 	ApproveURL string
 }
 
+// Charge is one send of the checkout charge: the total, charged with a saved PayPal (the PRD's
+// Payment model). RequestID and InvoiceID are stored before it is sent.
+type Charge struct {
+	RequestID string
+	InvoiceID string
+	VaultID   string
+	Amount    money.Amount
+}
+
+// Refusal is why PayPal answered that it did not charge.
+type Refusal int
+
+const (
+	// Refused: PayPal refused or failed the charge (such as TRANSACTION_REFUSED or
+	// INSTRUMENT_DECLINED). It does not use up the invoice_id, so a staff retry can still succeed.
+	Refused Refusal = iota + 1
+	// NotSaved: PayPal no longer has the saved PayPal (403 PERMISSION_DENIED).
+	NotSaved
+	// DuplicateInvoice: a charge with this invoice_id already succeeded (422 DUPLICATE_INVOICE_ID).
+	DuplicateInvoice
+)
+
+// Charged is what a charge came to: the capture ID when Succeeded, why when Failed.
+type Charged struct {
+	Outcome   Outcome
+	CaptureID string
+	Refusal   Refusal
+}
+
 // Client is PayPal as BarPay uses it. Tests use a fake that can be told to misbehave.
 type Client interface {
 	// CreateSetupToken makes a setup token for saving PayPal for merchant-initiated charges.
@@ -73,4 +106,7 @@ type Client interface {
 	// DeletePaymentToken deletes the saved PayPal with vaultID. Succeeded also when PayPal no
 	// longer had it.
 	DeletePaymentToken(ctx context.Context, requestID, vaultID string) Outcome
+	// Charge charges c.Amount with the saved PayPal c.VaultID as an order with intent CAPTURE.
+	// Sent again with the same RequestID, it returns the first charge if that one succeeded.
+	Charge(ctx context.Context, c Charge) Charged
 }

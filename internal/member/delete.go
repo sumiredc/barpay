@@ -153,7 +153,7 @@ func (a API) confirmed(ctx context.Context, d deletion) error {
 			return err
 		}
 		done = true
-		return a.removeSaved(ctx, tx, d.memberID, d.vaultID, reasonMemberRequest, now)
+		return removeSaved(ctx, tx, d.memberID, d.vaultID, reasonMemberRequest, now)
 	})
 	if done {
 		a.Notify.Wake()
@@ -163,7 +163,7 @@ func (a API) confirmed(ctx context.Context, d deletion) error {
 
 // removeSaved removes memberID's saved PayPal vaultID and stores member.saved_paypal_deleted
 // for reason, inside tx.
-func (a API) removeSaved(ctx context.Context, tx store.Querier, memberID, vaultID, reason string, now time.Time) error {
+func removeSaved(ctx context.Context, tx store.Querier, memberID, vaultID, reason string, now time.Time) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM saved_paypals WHERE member_id = ? AND vault_id = ?`, memberID, vaultID); err != nil {
 		return fmt.Errorf("member: remove saved PayPal: %w", err)
 	}

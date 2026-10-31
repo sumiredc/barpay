@@ -106,7 +106,7 @@ func (a API) check(ctx context.Context, c check) (bool, error) {
 		}
 		stored = true
 		if p == paypal.Gone {
-			return a.removeSaved(ctx, tx, c.memberID, c.vaultID, reasonNoLongerValid, ended)
+			return removeSaved(ctx, tx, c.memberID, c.vaultID, reasonNoLongerValid, ended)
 		}
 		var err error
 		linked, err = session.Link(ctx, tx, c.sessionID, ended)

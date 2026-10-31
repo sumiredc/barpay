@@ -19,6 +19,11 @@ const (
 	registerPaymentRecorded trigger = "staff record a register payment"
 	markedUnpaid            trigger = "staff mark it unpaid"
 	unpaidLimit             trigger = "the 3-day limit is reached"
+	checkout                trigger = "the exit QR is scanned, staff close it or the maximum stay is reached"
+	charged                 trigger = "the full total is charged"
+	chargeFailed            trigger = "the charge failed or could not be confirmed"
+	retried                 trigger = "staff retry the charge"
+	outsideSettled          trigger = "staff settle it outside BarPay"
 )
 
 // edge is the states a trigger moves a session from, and the state it moves it to.
@@ -34,7 +39,16 @@ var edges = map[trigger]edge{
 	registerPaymentRecorded: {from: []State{Active, AtRegister}, to: Closed},
 	markedUnpaid:            {from: []State{AtRegister}, to: ClosedUnpaid},
 	unpaidLimit:             {from: limitedStates, to: ClosedUnpaid},
+	checkout:                {from: []State{Active}, to: CheckingOut},
+	charged:                 {from: []State{CheckingOut}, to: Closed},
+	chargeFailed:            {from: []State{CheckingOut}, to: PaymentFailed},
+	retried:                 {from: []State{PaymentFailed}, to: CheckingOut},
+	outsideSettled:          {from: []State{PaymentFailed}, to: Closed},
 }
+
+// needsLink are the triggers that charge the session's saved PayPal from active: only a session
+// linked to it is checked out (UC5 precondition).
+var needsLink = []trigger{checkout}
 
 // errRefused is returned by move when the trigger does not apply to the session at that instant.
 var errRefused = errors.New("session: the session's state does not allow this")
@@ -44,10 +58,17 @@ var errRefused = errors.New("session: the session's state does not allow this")
 // that close is stored.
 var errPastLimit = fmt.Errorf("%w: the session reached its 3-day limit", errRefused)
 
-// judge tells whether t moves s at now: nil if it does, errPastLimit or errRefused if not.
+// errNotLinked is the errRefused of a trigger in needsLink for a session that is not linked.
+var errNotLinked = fmt.Errorf("%w: the session has no PayPal linked", errRefused)
+
+// judge tells whether t moves s at now: nil if it does, errPastLimit, errNotLinked or errRefused
+// if not.
 func judge(s Session, t trigger, now time.Time) error {
 	if !slices.Contains(edges[t].from, s.State) {
 		return errRefused
+	}
+	if slices.Contains(needsLink, t) && s.LinkedAt.IsZero() {
+		return errNotLinked
 	}
 	switch past := pastLimit(s, now); {
 	case past && t != unpaidLimit:

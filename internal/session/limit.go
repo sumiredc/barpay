@@ -17,8 +17,9 @@ import (
 const unpaidAfter = 3 * 24 * time.Hour
 
 // limitedStates are the states the 3-day limit applies to: the session is closed as unpaid
-// when it is reached in one of them (the PRD's state diagram in Use cases).
-var limitedStates = []State{AtRegister}
+// when it is reached in one of them (the PRD's state diagram in Use cases). It does not apply
+// while checking out: a charge whose outcome is not known yet may still succeed (UC7 exception).
+var limitedStates = []State{AtRegister, PaymentFailed}
 
 // unpaidLimitReached tells whether, at now, the 3-day limit of a session whose total was fixed at
 // fixedAt has been reached. It is reached at exactly 3 days: from that instant the session is
@@ -30,17 +31,25 @@ func pastLimit(s Session, now time.Time) bool {
 	return slices.Contains(limitedStates, s.State) && unpaidLimitReached(s.TotalFixedAt, now)
 }
 
-// limitPoll is how often RunLimits looks for sessions that reached their limit.
-const limitPoll = time.Second
+// poll is how often Run looks for what fell due. It only wakes the loop: what is due is decided
+// from the stored times.
+const poll = time.Second
 
-// RunLimits closes the sessions that reached their 3-day limit when it starts and every
-// second, until ctx ends.
-func (a API) RunLimits(ctx context.Context, log *slog.Logger) {
-	tick := time.NewTicker(limitPoll)
+// Run, when it starts and every second until ctx ends, closes the sessions that reached their
+// 3-day limit, sends again the charges whose outcome is unknown, and checks out or raises an
+// alert for the sessions at the maximum stay.
+func (a API) Run(ctx context.Context, log *slog.Logger) {
+	tick := time.NewTicker(poll)
 	defer tick.Stop()
 	for {
 		if _, err := a.CloseDue(ctx); err != nil && ctx.Err() == nil {
 			log.Error("sessions past their limit not closed", "error", err)
+		}
+		if _, err := a.ChargeDue(ctx); err != nil && ctx.Err() == nil {
+			log.Error("charges not sent again", "error", err)
+		}
+		if _, err := a.MaxStayDue(ctx); err != nil && ctx.Err() == nil {
+			log.Error("sessions at the maximum stay not handled", "error", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -101,7 +110,7 @@ func (a API) CloseDue(ctx context.Context) (int, error) {
 
 // closeIfDue closes the session with id as unpaid if it reached its 3-day limit, before an
 // operation on it or a lookup, so from that instant the session is shown and treated as ended
-// even when RunLimits has not reached it yet.
+// even when Run has not reached it yet.
 func (a API) closeIfDue(ctx context.Context, id string) error {
 	closed, err := a.closeDue(ctx, id)
 	if closed {
@@ -124,7 +133,7 @@ func (a API) closeDue(ctx context.Context, id string) (bool, error) {
 		if err != nil {
 			return err
 		}
-		v, err := end(ctx, tx, s, unpaidLimit, now, settledUnpaid, nil)
+		v, err := end(ctx, tx, s, unpaidLimit, now, settledUnpaid, proceeds{})
 		if errors.Is(err, errRefused) {
 			return nil
 		}

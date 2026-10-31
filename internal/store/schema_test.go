@@ -95,3 +95,47 @@ func TestSettingsChangesStartFromSavedSettings(t *testing.T) {
 		t.Errorf("settings_changes = %d rows, floor %d, at %d; want the saved settings at 42", n, floor, at)
 	}
 }
+
+const insertUnconfirmed = `INSERT INTO alerts (id, kind, raised_at, session_id, member_id, message)
+	VALUES ('alt_2', 'charge_unconfirmed', 43, 'ses_1', '', 'm')`
+
+// Alerts raised before charge_unconfirmed was added keep their order and content when the table
+// is made again, and the new kind can then be stored.
+func TestAlertsKeepTheirRowsWhenChargeUnconfirmedIsAdded(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "barpay.db")
+	all := migrations
+	i := slices.IndexFunc(all, func(m string) bool { return strings.Contains(m, "CREATE TABLE alerts_new") })
+	withMigrations(t, all[:i])
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.Read().ExecContext(ctx, `INSERT INTO alerts (seq, id, kind, raised_at, session_id, member_id, message)
+		VALUES (7, 'alt_1', 'payment_failed', 42, 'ses_1', '', 'm')`)
+	if _, before := s.Read().ExecContext(ctx, insertUnconfirmed); before == nil {
+		t.Error("charge_unconfirmed was stored before the step that adds it")
+	}
+	_ = s.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	withMigrations(t, all)
+	s, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var seq, at int
+	var id, kind string
+	if err := s.Read().QueryRowContext(ctx, "SELECT seq, id, kind, raised_at FROM alerts").Scan(&seq, &id, &kind, &at); err != nil {
+		t.Fatal(err)
+	}
+	if seq != 7 || id != "alt_1" || kind != "payment_failed" || at != 42 {
+		t.Errorf("alert %d %s %s %d; want the one stored before", seq, id, kind, at)
+	}
+	if _, err := s.Read().ExecContext(ctx, insertUnconfirmed); err != nil {
+		t.Errorf("charge_unconfirmed: %v", err)
+	}
+}

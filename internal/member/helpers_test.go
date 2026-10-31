@@ -3,6 +3,7 @@ package member
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/sumiredc/barpay/internal/clock"
+	"github.com/sumiredc/barpay/internal/gate"
 	"github.com/sumiredc/barpay/internal/httpapi"
 	"github.com/sumiredc/barpay/internal/idempotency"
 	"github.com/sumiredc/barpay/internal/money"
@@ -50,12 +52,13 @@ func (w *waker) Wake() { w.n.Add(1) }
 // fixture is BarPay after its first start at t0, serving the session and member operations, with
 // a fake PayPal.
 type fixture struct {
-	st     *store.Store
-	clk    *clock.Fake
-	pp     *paypaltest.Fake
-	wake   *waker
-	api    API
-	router *httpapi.Router
+	st       *store.Store
+	clk      *clock.Fake
+	pp       *paypaltest.Fake
+	wake     *waker
+	api      API
+	sessions session.API
+	router   *httpapi.Router
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -86,7 +89,12 @@ func newFixture(t *testing.T) *fixture {
 func (f *fixture) build() {
 	f.wake = &waker{}
 	r := httpapi.NewRouter(keys)
-	session.API{Store: f.st, Clock: f.clk, Keys: idempotency.New(f.st, f.clk), Notify: f.wake}.Register(r)
+	f.sessions = session.API{
+		Store: f.st, Clock: f.clk, Keys: idempotency.New(f.st, f.clk), Notify: f.wake, PayPal: f.pp, Saved: Saved{},
+		Gate: gate.New(), ExitTokenRefresh: 30 * time.Second, ReunlockWindow: 2 * time.Minute, MaxStay: 12 * time.Hour,
+		Log: slog.New(slog.DiscardHandler),
+	}
+	f.sessions.Register(r)
 	f.api = API{Store: f.st, Clock: f.clk, PayPal: f.pp, Notify: f.wake, PublicURL: publicURL, StoreAppOrigin: origin}
 	f.api.Register(r)
 	f.router = r
@@ -270,7 +278,8 @@ func (f *fixture) lookup(t *testing.T, id string) sessionView {
 	return decodeSession(t, w.Body.Bytes())
 }
 
-// setState moves a session to state directly in the store, standing in for checkout (#19).
+// setState moves a session to state directly in the store, for states an unlinked session never
+// reaches through the API: checkout needs a link.
 func (f *fixture) setState(t *testing.T, id, state string) {
 	t.Helper()
 	err := f.st.Tx(context.Background(), func(tx store.Querier) error {

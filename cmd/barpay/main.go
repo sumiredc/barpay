@@ -19,6 +19,7 @@ import (
 	"github.com/sumiredc/barpay/internal/clock"
 	"github.com/sumiredc/barpay/internal/config"
 	"github.com/sumiredc/barpay/internal/evaluation"
+	"github.com/sumiredc/barpay/internal/gate"
 	"github.com/sumiredc/barpay/internal/httpapi"
 	"github.com/sumiredc/barpay/internal/idempotency"
 	"github.com/sumiredc/barpay/internal/llm"
@@ -79,13 +80,17 @@ func serve(ctx context.Context, path string, stderr io.Writer, listening func(ne
 	router := httpapi.NewRouter(httpapi.Keys{Store: cfg.StoreAPIKey, Admin: cfg.AdminAPIKey, Edge: cfg.EdgeSharedSecret})
 	router.Admin("GET /notifications", notify.ListHandler(st, log))
 	httpapi.Pricing{Store: st, Clock: clk}.Register(router)
-	sessions := session.API{Store: st, Clock: clk, Keys: idempotency.New(st, clk), Notify: notifications}
+	pp := paypal.New(paypal.Options{
+		BaseURL: paypal.SandboxURL, ClientID: cfg.PayPalClientID, ClientSecret: cfg.PayPalClientSecret, Clock: clk, Log: log,
+	})
+	sessions := session.API{
+		Store: st, Clock: clk, Keys: idempotency.New(st, clk), Notify: notifications,
+		PayPal: pp, Saved: member.Saved{}, Gate: gate.New(),
+		ExitTokenRefresh: cfg.ExitTokenRefresh, ReunlockWindow: cfg.ReunlockWindow, MaxStay: cfg.MaxStay, Log: log,
+	}
 	sessions.Register(router)
 	members := member.API{
-		Store: st, Clock: clk, Notify: notifications, PublicURL: cfg.PublicURL, StoreAppOrigin: cfg.StoreAppOrigin,
-		PayPal: paypal.New(paypal.Options{
-			BaseURL: paypal.SandboxURL, ClientID: cfg.PayPalClientID, ClientSecret: cfg.PayPalClientSecret, Clock: clk, Log: log,
-		}),
+		Store: st, Clock: clk, Notify: notifications, PublicURL: cfg.PublicURL, StoreAppOrigin: cfg.StoreAppOrigin, PayPal: pp,
 	}
 	members.Register(router)
 	signals.API{Store: st, Clock: clk, Log: log}.Register(router)
@@ -110,8 +115,8 @@ func serve(ctx context.Context, path string, stderr io.Writer, listening func(ne
 
 	limitsCtx, stopLimits := context.WithCancel(context.Background())
 	limitsDone := make(chan struct{})
-	go func() { sessions.RunLimits(limitsCtx, log); close(limitsDone) }()
-	// Stop closing sessions before the store closes; one cut off here is closed at the next start.
+	go func() { sessions.Run(limitsCtx, log); close(limitsDone) }()
+	// Stop before the store closes; what was cut off here is due again at the next start.
 	defer func() { stopLimits(); <-limitsDone }()
 
 	membersCtx, stopMembers := context.WithCancel(context.Background())
