@@ -9,8 +9,9 @@ import (
 type Code string
 
 const (
-	CodeInvalidRequest Code = "invalid_request"
-	CodeUnauthorized   Code = "unauthorized"
+	CodeInvalidRequest  Code = "invalid_request"
+	CodeUnauthorized    Code = "unauthorized"
+	CodeInvalidSettings Code = "invalid_settings"
 )
 
 type errorBody struct {

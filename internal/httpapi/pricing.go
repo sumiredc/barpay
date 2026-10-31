@@ -6,21 +6,26 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/sumiredc/barpay/internal/clock"
 	"github.com/sumiredc/barpay/internal/money"
 	"github.com/sumiredc/barpay/internal/pricing"
 	"github.com/sumiredc/barpay/internal/settings"
 	"github.com/sumiredc/barpay/internal/store"
 )
 
-// Pricing serves the published rate (getRate, getRateHistory).
+// Pricing serves the published rate (getRate, getRateHistory) and the settings (getSettings,
+// updateSettings).
 type Pricing struct {
 	Store *store.Store
+	Clock clock.Clock
 }
 
 // Register adds Pricing's operations to r.
 func (p Pricing) Register(r *Router) {
 	r.Store("GET /rate", http.HandlerFunc(p.getRate))
 	r.Store("GET /rate/history", http.HandlerFunc(p.getRateHistory))
+	r.Admin("GET /settings", http.HandlerFunc(p.getSettings))
+	r.Admin("PUT /settings", http.HandlerFunc(p.updateSettings))
 }
 
 type moneyJSON struct {

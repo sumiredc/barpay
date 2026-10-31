@@ -909,8 +909,10 @@ paths:
         Guardrails, Settings changes.
 
         Replaces all settings. Block length, pause and cap apply to active
-        sessions from their next block; a new floor or ceiling moves the
-        published rate into range at once.
+        sessions from their next block. A new floor or ceiling that leaves
+        the published rate outside moves it to the nearer bound at once and
+        records a `range_change` decision with the staff member; one that
+        leaves it inside publishes no rate and records nothing.
       security:
         - adminApiKey: []
       parameters:
@@ -929,14 +931,27 @@ paths:
               schema:
                 $ref: '#/components/schemas/Settings'
         '400':
-          $ref: '#/components/responses/InvalidRequest'
+          description: |
+            `invalid_request`: the body does not fit the `Settings` schema
+            (a field missing, unknown or given twice, with names compared
+            case-sensitively; a value of the wrong type; or a value outside
+            the schema's `minimum`, `maximum` or `enum`, such as
+            `block_minutes` 0 or a negative amount), or `BarPay-Staff-Id`
+            is missing or malformed. `details.field` names the first bad
+            field by its path, such as `floor.value`. Nothing changes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '422':
           description: |
-            `invalid_settings`: the floor is not below the ceiling, a value
-            is below its minimum, or an amount is not in the store's
-            currency. Nothing changes.
+            `invalid_settings`: the body fits the schema but breaks a rule
+            the schema cannot state: `floor` is 0, `floor` is not below
+            `ceiling`, `floor` or `ceiling` is not a multiple of the rate
+            step, or an amount is not in the store's currency.
+            `details.field` names the first bad field. Nothing changes.
           content:
             application/json:
               schema:

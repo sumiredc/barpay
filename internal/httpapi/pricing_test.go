@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sumiredc/barpay/internal/clock"
 	"github.com/sumiredc/barpay/internal/money"
 	"github.com/sumiredc/barpay/internal/pricing"
 	"github.com/sumiredc/barpay/internal/settings"
@@ -65,7 +66,7 @@ func publish(t *testing.T, st *store.Store, proposals []int64, from time.Time) {
 
 func pricingRouter(st *store.Store) *Router {
 	r := NewRouter(keys)
-	Pricing{Store: st}.Register(r)
+	Pricing{Store: st, Clock: clock.NewFake(t0.Add(time.Hour))}.Register(r)
 	return r
 }
 
