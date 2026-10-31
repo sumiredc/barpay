@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"sync"
 
+	"github.com/sumiredc/barpay/internal/money"
 	"github.com/sumiredc/barpay/internal/paypal"
 )
 
@@ -20,6 +21,7 @@ const (
 	CreatePaymentToken Op = "create_payment_token"
 	CheckPaymentToken  Op = "check_payment_token"
 	DeletePaymentToken Op = "delete_payment_token"
+	Charge             Op = "charge"
 )
 
 // Fault is how the fake misbehaves on one call.
@@ -32,7 +34,8 @@ const (
 	NoAnswer
 	// LostAnswer does the work and gives no answer, as a timeout after PayPal did it.
 	LostAnswer
-	// Refuse does nothing and answers with a refusal.
+	// Refuse does nothing and answers with a refusal; for a charge, one that does not use up the
+	// invoice_id, as the sandbox's mock INSTRUMENT_DECLINED.
 	Refuse
 )
 
@@ -44,6 +47,17 @@ type Call struct {
 	Op        Op
 	RequestID string // the PayPal-Request-Id; empty for reads
 	ID        string // the setup token or vault ID the call was about
+	// InvoiceID and Amount are a charge's.
+	InvoiceID string
+	Amount    money.Amount
+}
+
+// Capture is a charge PayPal made.
+type Capture struct {
+	ID        string
+	InvoiceID string
+	VaultID   string
+	Amount    money.Amount
 }
 
 type setupToken struct {
@@ -68,12 +82,14 @@ type Fake struct {
 	setups  map[string]*setupToken
 	vaults  map[string]string // vault ID → payer
 	results map[string]any    // PayPal-Request-Id → first successful result
+	broke   map[string]bool   // payers with nothing to pay with
+	capts   []Capture
 	n       int
 }
 
 // New returns a Fake that holds nothing.
 func New() *Fake {
-	return &Fake{faults: map[Op][]Fault{}, setups: map[string]*setupToken{}, vaults: map[string]string{}, results: map[string]any{}}
+	return &Fake{faults: map[Op][]Fault{}, setups: map[string]*setupToken{}, vaults: map[string]string{}, results: map[string]any{}, broke: map[string]bool{}}
 }
 
 var _ paypal.Client = (*Fake)(nil)
@@ -83,6 +99,13 @@ func (f *Fake) Next(op Op, faults ...Fault) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.faults[op] = append(f.faults[op], faults...)
+}
+
+// Clear drops the faults still waiting for op, so its next calls behave.
+func (f *Fake) Clear(op Op) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.faults, op)
 }
 
 // Calls returns the calls received so far of op, or of every op when op is empty.
@@ -132,11 +155,37 @@ func (f *Fake) Vaults() map[string]string {
 	return out
 }
 
+// Vault is PayPal holding a new saved PayPal of the buyer with PayPal account payer, as linking
+// leaves it, and returns its vault ID.
+func (f *Fake) Vault(payer string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	v := f.newID("VT-")
+	f.vaults[v] = payer
+	return v
+}
+
 // Revoke is the buyer cancelling the saved PayPal with vaultID in their PayPal account.
 func (f *Fake) Revoke(vaultID string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	delete(f.vaults, vaultID)
+}
+
+// Broke makes the buyer with PayPal account payer have nothing to pay with (true) or have it again
+// (false): while broke, a charge with their saved PayPal is refused (TRANSACTION_REFUSED), and the
+// refusal is neither remembered under its PayPal-Request-Id nor uses up the invoice_id.
+func (f *Fake) Broke(payer string, broke bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.broke[payer] = broke
+}
+
+// Captures returns the charges PayPal made, in order.
+func (f *Fake) Captures() []Capture {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]Capture(nil), f.capts...)
 }
 
 // SetupTokenOf returns the setup token ID in an approve URL the fake made.
@@ -262,4 +311,44 @@ func (f *Fake) DeletePaymentToken(_ context.Context, requestID, vaultID string) 
 	}
 	delete(f.vaults, vaultID)
 	return paypal.Succeeded
+}
+
+func (f *Fake) Charge(_ context.Context, c paypal.Charge) paypal.Charged {
+	fault := f.begin(Call{Op: Charge, RequestID: c.RequestID, ID: c.VaultID, InvoiceID: c.InvoiceID, Amount: c.Amount})
+	defer f.mu.Unlock()
+	switch fault {
+	case NoAnswer:
+		return paypal.Charged{Outcome: paypal.Unknown}
+	case Refuse:
+		return paypal.Charged{Outcome: paypal.Failed, Refusal: paypal.Refused}
+	}
+	got, ok := f.results[c.RequestID].(paypal.Charged)
+	if !ok {
+		payer, held := f.vaults[c.VaultID]
+		switch {
+		case !held:
+			return paypal.Charged{Outcome: paypal.Failed, Refusal: paypal.NotSaved}
+		case f.invoiced(c.InvoiceID):
+			return paypal.Charged{Outcome: paypal.Failed, Refusal: paypal.DuplicateInvoice}
+		case f.broke[payer]:
+			return paypal.Charged{Outcome: paypal.Failed, Refusal: paypal.Refused}
+		}
+		got = paypal.Charged{Outcome: paypal.Succeeded, CaptureID: f.newID("CAP-")}
+		f.capts = append(f.capts, Capture{ID: got.CaptureID, InvoiceID: c.InvoiceID, VaultID: c.VaultID, Amount: c.Amount})
+		f.results[c.RequestID] = got
+	}
+	if fault == LostAnswer {
+		return paypal.Charged{Outcome: paypal.Unknown}
+	}
+	return got
+}
+
+// invoiced tells whether a charge with invoiceID succeeded; f.mu is held.
+func (f *Fake) invoiced(invoiceID string) bool {
+	for _, c := range f.capts {
+		if c.InvoiceID == invoiceID {
+			return true
+		}
+	}
+	return false
 }
