@@ -33,6 +33,10 @@ exit_token_refresh = "30s" # default "30s"
 # The store app's origin: the only place BarPay returns members to after linking PayPal.
 store_app_origin = ""
 
+# BarPay's own URL as the member's browser and PayPal reach it: link URLs and PayPal's return
+# point here. https, or http to a loopback IP address such as http://127.0.0.1:8080.
+public_url = ""
+
 # Each key must differ from the other two.
 [keys]
 store_api_key = ""

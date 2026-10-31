@@ -47,6 +47,7 @@ func writeConfig(t *testing.T, dir, notificationURL string) string {
 		{`listen_address = ":8080"`, `listen_address = "127.0.0.1:0"`},
 		{`database_path = "barpay.db"`, `database_path = "` + filepath.Join(dir, "barpay.db") + `"`},
 		{`store_app_origin = ""`, `store_app_origin = "https://store.example"`},
+		{`public_url = ""`, `public_url = "http://127.0.0.1:8080"`},
 		{`store_api_key = ""`, `store_api_key = "k-store"`},
 		{`admin_api_key = ""`, `admin_api_key = "k-admin"`},
 		{`edge_shared_secret = ""`, `edge_shared_secret = "k-edge"`},
