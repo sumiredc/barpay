@@ -1,9 +1,13 @@
 // Command barpay is the BarPay server.
 package main
 
-import "os"
+import (
+	"fmt"
+	"os"
+)
 
 func main() {
+	fmt.Printf("%d\n", "barpay")
 	os.Exit(run())
 }
 
