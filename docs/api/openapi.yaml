@@ -722,7 +722,7 @@ paths:
         '409':
           description: |
             `session_not_payment_failed`: the session is not PaymentFailed.
-            `retry_window_over`: 3 days have passed since checkout began.
+            `retry_window_over`: it is 3 days or more since checkout began.
             `idempotency_key_reused`, `idempotency_key_in_progress`: as for
             `createCheckin`.
           content:
@@ -744,7 +744,9 @@ paths:
         total if it is not fixed yet, records the amount taken and closes the
         session; `session.settled_outside` follows. Nothing is charged
         through BarPay. If a retry after a lost response gets `409`, read the
-        session: it may already be closed by the first request.
+        session: it may already be closed by the first request. From exactly
+        3 days after the register was requested, a session waiting there is
+        closed as unpaid (PRD: UC6), so the request gets `409`.
       security:
         - adminApiKey: []
       parameters:
@@ -843,7 +845,9 @@ paths:
 
         For a session waiting at the register whose customer left without
         paying. Records the unpaid total and closes the session;
-        `session.closed_unpaid` follows. Nothing is charged.
+        `session.closed_unpaid` follows. Nothing is charged. From exactly 3
+        days after the register was requested, BarPay has closed the session
+        as unpaid itself (PRD: UC6), so the request gets `409`.
       security:
         - adminApiKey: []
       parameters:
@@ -1563,7 +1567,7 @@ components:
       enum: [active, checking_out, at_register, payment_failed, closed, closed_unpaid]
     PaymentMethod:
       type: string
-      description: '`paypal` when the session is linked to the member''s saved PayPal and the register was not requested; otherwise `register`.'
+      description: '`paypal` when the session is linked to the member''s saved PayPal and the register was neither requested nor paid at; otherwise `register`.'
       enum: [paypal, register]
     CoverChargeStatus:
       type: string
@@ -1609,7 +1613,7 @@ components:
           type: string
           format: date-time
         total_fixed_at:
-          description: When the final total was fixed (checkout began or the register was requested); absent while active.
+          description: When the final total was fixed (checkout began, the register was requested, or staff recorded a register payment); absent while active.
           type: string
           format: date-time
         rate_per_hour:

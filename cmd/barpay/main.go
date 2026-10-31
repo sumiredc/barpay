@@ -74,7 +74,8 @@ func serve(ctx context.Context, path string, stderr io.Writer, listening func(ne
 	router := httpapi.NewRouter(httpapi.Keys{Store: cfg.StoreAPIKey, Admin: cfg.AdminAPIKey, Edge: cfg.EdgeSharedSecret})
 	router.Admin("GET /notifications", notify.ListHandler(st, log))
 	httpapi.Pricing{Store: st, Clock: clk}.Register(router)
-	session.API{Store: st, Clock: clk, Keys: idempotency.New(st, clk), Notify: notifications}.Register(router)
+	sessions := session.API{Store: st, Clock: clk, Keys: idempotency.New(st, clk), Notify: notifications}
+	sessions.Register(router)
 	srv := &http.Server{Handler: router, ReadHeaderTimeout: 10 * time.Second}
 	ln, err := net.Listen("tcp", cfg.ListenAddress)
 	if err != nil {
@@ -86,6 +87,12 @@ func serve(ctx context.Context, path string, stderr io.Writer, listening func(ne
 	go func() { notifications.Run(dispatchCtx); close(dispatched) }()
 	// Stop sending before the store closes; an attempt cut off here is sent again at the next start.
 	defer func() { stopDispatch(); <-dispatched }()
+
+	limitsCtx, stopLimits := context.WithCancel(context.Background())
+	limitsDone := make(chan struct{})
+	go func() { sessions.RunLimits(limitsCtx, log); close(limitsDone) }()
+	// Stop closing sessions before the store closes; one cut off here is closed at the next start.
+	defer func() { stopLimits(); <-limitsDone }()
 
 	log.Info("BarPay started", "address", ln.Addr().String(), "currency", state.Currency,
 		"currency_change_pending", state.CurrencyChangePending)

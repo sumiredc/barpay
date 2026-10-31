@@ -44,7 +44,8 @@ type Session struct {
 	State       State
 	Currency    money.Currency
 	CheckedInAt time.Time
-	// TotalFixedAt is when checkout began or the register was requested; zero while active.
+	// TotalFixedAt is when checkout began, the register was requested, or staff recorded a
+	// register payment; zero while active.
 	TotalFixedAt time.Time
 }
 

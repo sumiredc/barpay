@@ -12,7 +12,8 @@ import (
 // Waker is told when a notification was stored, so it is sent at once (notify.Dispatcher).
 type Waker interface{ Wake() }
 
-// API serves the session operations of the store API: createCheckin, getSession and reportOrder.
+// API serves the session operations of the store API (createCheckin, getSession, reportOrder,
+// requestRegister) and of the admin API.
 type API struct {
 	Store  *store.Store
 	Clock  clock.Clock
@@ -25,6 +26,9 @@ func (a API) Register(r *httpapi.Router) {
 	r.Store("POST /checkins", a.Keys.Require(http.HandlerFunc(a.createCheckin)))
 	r.Store("GET /sessions/{session_id}", http.HandlerFunc(a.getSession))
 	r.Store("POST /sessions/{session_id}/orders", http.HandlerFunc(a.reportOrder))
+	r.Store("POST /sessions/{session_id}/register-request", http.HandlerFunc(a.requestRegister))
+	r.Admin("POST /sessions/{session_id}/register-payment", http.HandlerFunc(a.recordRegisterPayment))
+	r.Admin("POST /sessions/{session_id}/mark-unpaid", http.HandlerFunc(a.markUnpaid))
 }
 
 // Error codes of the spec's Error that these operations return.
@@ -35,4 +39,5 @@ const (
 	codeCurrencyMismatch     httpapi.Code = "currency_mismatch"
 	codeAmountTooLarge       httpapi.Code = "amount_too_large"
 	codeMemberHasOpenSession httpapi.Code = "member_has_open_session"
+	codeSessionNotAtRegister httpapi.Code = "session_not_at_register"
 )

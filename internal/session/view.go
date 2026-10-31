@@ -33,8 +33,22 @@ type View struct {
 // view shows s at now, reading through q. q must give every read the same state (a transaction),
 // so the rate, the cover charge and the total it shows agree. A session whose total is fixed is
 // shown as at that instant, so what it shows no longer changes with time: the amount checkout
-// charges or staff collect is the amount the panel showed.
+// charges or staff collect is the amount the panel showed. An ended session is shown from its
+// receipt, which holds what it showed when it ended.
 func view(ctx context.Context, q store.Querier, s Session, now time.Time) (View, error) {
+	if s.State.ended() {
+		r, err := getReceipt(ctx, q, s.ID)
+		if err != nil {
+			return View{}, err
+		}
+		return fromReceipt(s, r), nil
+	}
+	return compute(ctx, q, s, now)
+}
+
+// compute is view of a session that has not ended, from its orders, the rates and the settings.
+// A session that has not ended never spans a currency change, which waits until none is open.
+func compute(ctx context.Context, q store.Querier, s Session, now time.Time) (View, error) {
 	times, ordersTotal, err := orders(ctx, q, s.ID)
 	if err != nil {
 		return View{}, err
@@ -45,8 +59,6 @@ func view(ctx context.Context, q store.Querier, s Session, now time.Time) (View,
 		rate, err = pricing.Current(ctx, q, s.Currency)
 	} else {
 		now = s.TotalFixedAt
-		// TODO(#19): an ended session from before a currency change finds no rate in its
-		// currency; show it from its stored receipt.
 		rate, err = pricing.At(ctx, q, s.Currency, now)
 	}
 	if err != nil {
@@ -64,8 +76,8 @@ func view(ctx context.Context, q store.Querier, s Session, now time.Time) (View,
 	v := View{
 		SessionID: s.ID,
 		State:     s.State,
-		// TODO(#18): paypal once the session is linked to the member's saved PayPal.
-		PaymentMethod:     "register",
+		// TODO(#18): linked once the session is linked to the member's saved PayPal.
+		PaymentMethod:     paymentMethod(false, s.State),
 		CheckedInAt:       httpapi.FormatTime(s.CheckedInAt),
 		RatePerHour:       httpapi.ToMoney(rate.Rate),
 		CoverChargeStatus: cc.Status,
@@ -80,24 +92,46 @@ func view(ctx context.Context, q store.Querier, s Session, now time.Time) (View,
 	if !s.TotalFixedAt.IsZero() {
 		v.TotalFixedAt = httpapi.FormatTime(s.TotalFixedAt)
 	}
-	// TODO(#19): unpaid_amount and the receipt, once checkout and its results are stored.
+	// TODO(#19): unpaid_amount while payment_failed, once checkout and its results are stored.
 	return v, nil
+}
+
+// paymentMethod is the spec's PaymentMethod of a session in state that is linked or not: once the
+// register is requested it is the register, linked or not (UC6 precondition and exception).
+func paymentMethod(linked bool, state State) string {
+	if linked && state != AtRegister {
+		return "paypal"
+	}
+	return "register"
 }
 
 // lookup shows the session with id as at the clock's time, from one state of the store.
 // That state may predate a rate or an order committed at the same moment near a block end;
-// it decides only what the panel shows, never an amount that is charged.
+// it decides only what the panel shows, never an amount that is charged. A session that reached
+// its 3-day limit is closed first, so it is shown as ended from that instant.
 func (a API) lookup(ctx context.Context, id string) (View, error) {
-	var v View
-	err := a.Store.View(ctx, func(q store.Querier) error {
+	v, due, err := a.read(ctx, id)
+	if err == nil && due {
+		if err = a.closeIfDue(ctx, id); err == nil {
+			v, _, err = a.read(ctx, id)
+		}
+	}
+	return v, err
+}
+
+// read is lookup without closing: it also tells whether the session reached its 3-day limit.
+func (a API) read(ctx context.Context, id string) (v View, due bool, err error) {
+	err = a.Store.View(ctx, func(q store.Querier) error {
 		s, err := get(ctx, q, id)
 		if err != nil {
 			return err
 		}
-		v, err = view(ctx, q, s, a.Clock.Now())
+		now := a.Clock.Now()
+		due = pastLimit(s, now)
+		v, err = view(ctx, q, s, now)
 		return err
 	})
-	return v, err
+	return v, due, err
 }
 
 // getSession is the lookup of the PRD's Responsibilities, Lookup and Panel, and Guarantees,

@@ -51,6 +51,7 @@ type fixture struct {
 	st     *store.Store
 	clk    *clock.Fake
 	wake   *waker
+	api    API
 	router *httpapi.Router
 }
 
@@ -80,7 +81,8 @@ func (f *fixture) build() { f.buildWith(f.clk) }
 func (f *fixture) buildWith(clk clock.Clock) {
 	f.wake = &waker{}
 	r := httpapi.NewRouter(keys)
-	API{Store: f.st, Clock: clk, Keys: idempotency.New(f.st, clk), Notify: f.wake}.Register(r)
+	f.api = API{Store: f.st, Clock: clk, Keys: idempotency.New(f.st, clk), Notify: f.wake}
+	f.api.Register(r)
 	f.router = r
 }
 
@@ -93,6 +95,8 @@ func (f *fixture) restart(t *testing.T) {
 
 type call struct {
 	method, path, auth, key, body string
+	// staff is the BarPay-Staff-Id sent: "staff_1" when empty, none when noAuth.
+	staff string
 }
 
 func (f *fixture) do(c call) *httptest.ResponseRecorder {
@@ -103,7 +107,13 @@ func (f *fixture) do(c call) *httptest.ResponseRecorder {
 	if c.auth != noAuth {
 		req.Header.Set("Authorization", c.auth)
 	}
-	req.Header.Set("BarPay-Staff-Id", "staff_1")
+	switch c.staff {
+	case "":
+		req.Header.Set("BarPay-Staff-Id", "staff_1")
+	case noAuth:
+	default:
+		req.Header.Set("BarPay-Staff-Id", c.staff)
+	}
 	if c.key != "" {
 		req.Header.Set("Idempotency-Key", c.key)
 	}
