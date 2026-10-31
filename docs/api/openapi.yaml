@@ -283,6 +283,10 @@ paths:
         - name: since
           in: query
           required: true
+          description: |
+            Must be from 1677-09-21T00:12:44Z to 2262-04-11T23:47:16Z; a
+            missing or malformed value, or one outside that range, is
+            rejected with `400` `invalid_request` and `details.field` `since`.
           schema:
             type: string
             format: date-time
