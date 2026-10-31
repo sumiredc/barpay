@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"os"
@@ -109,6 +110,22 @@ func TestStartsServesAndStops(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("listNotifications: status = %d, want 200", resp.StatusCode)
+	}
+
+	// The starting rate is published at start and read with the store API key.
+	req, _ = http.NewRequest(http.MethodGet, "http://"+a.String()+"/v1/rate", nil)
+	req.Header.Set("Authorization", "Bearer k-store")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rate struct {
+		RatePerHour struct{ Value int64 } `json:"rate_per_hour"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&rate)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || err != nil || rate.RatePerHour.Value != 1200 {
+		t.Errorf("GET /v1/rate: status %d, rate %+v, %v; want 200 with the sample's starting rate 1200", resp.StatusCode, rate, err)
 	}
 
 	cancel()
