@@ -29,27 +29,21 @@ The repository is public and read in English; the Japanese copy is for the autho
 
 ## Check after editing
 
-List the headings of both files (outside code blocks) and confirm they match one to one, in the same order. Set `f` to the English file:
+Run the check; CI runs the same script on every pull request and push to main:
 
 ```sh
-f=PRD.md; h() { awk '/^```/{c=!c} !c && /^#/' "$1"; }; paste -d'|' <(h "$f") <(h "${f%.md}.ja.md")
+scripts/check-bilingual-docs.sh
 ```
 
-The heading check does not catch the pointer lines, UI strings or meaning drift; read the changed passages side by side too.
-
-Then confirm every non-exempt `.md` has its pair:
-
-```sh
-git ls-files --cached --others --exclude-standard '*.md' | grep -v '\.ja\.md$' | grep -v -E '^(\.claude/|\.github/|mock/)|(^|/)(CLAUDE|AGENTS|CHANGELOG)\.md$' | while read f; do [ -f "${f%.md}.ja.md" ] || echo "missing: ${f%.md}.ja.md"; done
-```
+It fails when a tracked non-exempt `.md` has no `.ja.md` (or a `.ja.md` has no `.md`), or when a pair's headings outside code blocks differ in count or in level at any position. It does not compare wording, pointer lines or UI strings, so read the changed passages side by side too.
 
 ## Exceptions
 
-These files are not translated:
+These files are not translated. The list of exempt paths in `scripts/check-bilingual-docs.sh` matches this one; change both together.
 
-- Files read by agents, not people: `CLAUDE.md`, `AGENTS.md`, and everything under `.claude/` (including this skill).
-- Templates under `.github/` (issue and PR templates).
+- Files read by agents, not people: `CLAUDE.md` and `AGENTS.md` in any directory, and everything under `.claude/` (including this skill).
+- Everything under `.github/` (issue and PR templates).
 - Everything under `mock/` (the throwaway HTML/CSS/JS prototype; it should not contain `.md` files).
-- Vendored or generated Markdown (e.g. under `node_modules/`, a tool-generated `CHANGELOG.md`).
-- `LICENSE` and other legal texts.
+- Vendored or generated Markdown: anything under `node_modules/`, and `CHANGELOG.md`.
+- `LICENSE`, which is not Markdown and so never reaches the script.
 - `*.ja.md` files themselves — never create `<name>.ja.ja.md`.
