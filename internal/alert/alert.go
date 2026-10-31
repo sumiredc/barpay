@@ -21,6 +21,7 @@ type Kind string
 
 const (
 	PaymentFailed         Kind = "payment_failed"
+	ChargeUnconfirmed     Kind = "charge_unconfirmed"
 	UnlockFailed          Kind = "unlock_failed"
 	RegisterRequested     Kind = "register_requested"
 	LateOrderRejected     Kind = "late_order_rejected"
@@ -32,7 +33,7 @@ const (
 
 // Kinds is the spec's enum. The alerts table's CHECK constraint lists the same values.
 var Kinds = []Kind{
-	PaymentFailed, UnlockFailed, RegisterRequested, LateOrderRejected,
+	PaymentFailed, ChargeUnconfirmed, UnlockFailed, RegisterRequested, LateOrderRejected,
 	MaxStayReached, NotificationGivenUp, DeletionFailing, CurrencyChangePending,
 }
 

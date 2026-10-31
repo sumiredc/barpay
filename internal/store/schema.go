@@ -248,6 +248,68 @@ var migrations = []string{
 		session_id TEXT    PRIMARY KEY REFERENCES sessions (id),
 		next_at    INTEGER NOT NULL
 	)`,
+	// Checkout charges (UC5, UC7): each attempt to charge a session's saved PayPal, stored with its
+	// PayPal-Request-Id, invoice_id and first send before it is sent (the PRD's Fixed constraints,
+	// Idempotency). outcome is NULL while unknown, and next_at is then when it is sent again.
+	// A session has at most one attempt whose outcome is unknown and at most one that succeeded.
+	`CREATE TABLE charges (
+		session_id    TEXT    NOT NULL REFERENCES sessions (id),
+		attempt       INTEGER NOT NULL CHECK (attempt >= 1),
+		request_id    TEXT    NOT NULL UNIQUE,
+		invoice_id    TEXT    NOT NULL,
+		vault_id      TEXT    NOT NULL,
+		amount        INTEGER NOT NULL CHECK (amount > 0),
+		first_sent_at INTEGER NOT NULL, -- Unix nanoseconds, like every instant below
+		next_at       INTEGER,
+		outcome       TEXT    CHECK (outcome IN ('succeeded', 'refused', 'not_saved', 'unconfirmed')),
+		capture_id    TEXT,
+		ended_at      INTEGER,
+		PRIMARY KEY (session_id, attempt),
+		CHECK ((outcome IS NULL) = (next_at IS NOT NULL)),
+		CHECK ((outcome IS NULL) = (ended_at IS NULL)),
+		CHECK ((outcome IS 'succeeded') = (capture_id IS NOT NULL))
+	);
+	CREATE UNIQUE INDEX charges_one_unknown ON charges (session_id) WHERE outcome IS NULL;
+	CREATE UNIQUE INDEX charges_one_success ON charges (session_id) WHERE outcome = 'succeeded';
+	CREATE INDEX charges_due ON charges (next_at) WHERE outcome IS NULL;
+	-- The capture of a session checked out through BarPay; NULL when its total was 0.
+	ALTER TABLE receipts ADD COLUMN paypal_capture_id TEXT CHECK (paypal_capture_id IS NULL OR settlement = 'paypal');
+	-- Unlocks of the exit gate: after a scan, or by hand (unlockGate), and what the edge device
+	-- reported of each. session_id is NULL for an unlock by hand not given one.
+	CREATE TABLE gate_unlocks (
+		id           TEXT    PRIMARY KEY,
+		session_id   TEXT    REFERENCES sessions (id),
+		source       TEXT    NOT NULL CHECK (source IN ('scan', 'staff')),
+		requested_at INTEGER NOT NULL,
+		result       TEXT    CHECK (result IN ('unlocked', 'failed')),
+		reported_at  INTEGER,
+		CHECK ((result IS NULL) = (reported_at IS NULL)),
+		CHECK (source = 'staff' OR session_id IS NOT NULL)
+	);
+	-- The key exit tokens are made with: one random key, written the first time a token is needed.
+	CREATE TABLE exit_token_key (
+		id  INTEGER PRIMARY KEY CHECK (id = 1),
+		key BLOB    NOT NULL CHECK (length(key) = 32)
+	)`,
+	// Alerts get the kind charge_unconfirmed (the spec's Alert). SQLite cannot change a CHECK
+	// constraint, so the table is made again with every row. max_stay_reached is raised once per
+	// session (UC3), held by a unique index.
+	`CREATE TABLE alerts_new (
+		seq        INTEGER PRIMARY KEY, -- raising order
+		id         TEXT    NOT NULL UNIQUE,
+		kind       TEXT    NOT NULL CHECK (kind IN ('payment_failed', 'charge_unconfirmed', 'unlock_failed',
+			'register_requested', 'late_order_rejected', 'max_stay_reached',
+			'notification_given_up', 'deletion_failing', 'currency_change_pending')),
+		raised_at  INTEGER NOT NULL, -- Unix nanoseconds
+		session_id TEXT    NOT NULL, -- '' when not about a session
+		member_id  TEXT    NOT NULL, -- '' when not about a member
+		message    TEXT    NOT NULL CHECK (length(message) BETWEEN 1 AND 500)
+	);
+	INSERT INTO alerts_new (seq, id, kind, raised_at, session_id, member_id, message)
+		SELECT seq, id, kind, raised_at, session_id, member_id, message FROM alerts;
+	DROP TABLE alerts;
+	ALTER TABLE alerts_new RENAME TO alerts;
+	CREATE UNIQUE INDEX alerts_max_stay_once ON alerts (session_id) WHERE kind = 'max_stay_reached'`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
