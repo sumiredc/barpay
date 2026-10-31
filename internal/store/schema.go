@@ -97,6 +97,22 @@ var migrations = []string{
 		currency TEXT    NOT NULL,
 		value    INTEGER NOT NULL CHECK (value > 0)
 	)`,
+	// Decision log: the spec's Decision. published is the rates row; on a fallback it is the rate
+	// kept. inputs is the JSON of the spec's inputs, NULL for range_change, which has none.
+	`CREATE TABLE decisions (
+		seq         INTEGER PRIMARY KEY, -- decision order
+		decided_at  INTEGER NOT NULL,    -- Unix nanoseconds
+		trigger     TEXT    NOT NULL CHECK (trigger IN ('evaluation', 'range_change')),
+		staff_id    TEXT    NOT NULL,    -- '' for evaluation
+		inputs      TEXT,
+		proposal    INTEGER,             -- NULL on fallback and for range_change
+		reasoning   TEXT,                -- NULL on fallback and for range_change
+		rate_seq    INTEGER NOT NULL REFERENCES rates (seq),
+		explanation TEXT    NOT NULL CHECK (length(explanation) BETWEEN 1 AND 200),
+		fallback    TEXT    CHECK (fallback IN ('ai_timeout', 'ai_unreadable')),
+		CHECK ((trigger = 'range_change') = (staff_id <> '')),
+		CHECK (trigger = 'evaluation' OR (inputs IS NULL AND proposal IS NULL AND reasoning IS NULL AND fallback IS NULL))
+	)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

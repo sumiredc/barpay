@@ -1927,30 +1927,33 @@ components:
           type: string
           maxLength: 64
         inputs:
-          type: object
-          additionalProperties: false
-          required: [occupancy, liveliness, staff_events, goal]
-          properties:
-            occupancy:
-              description: Checked-in sessions divided by capacity.
-              type: number
-              minimum: 0
-            liveliness:
-              description: The latest liveliness signal, 0–1; `null` if none.
-              oneOf:
-                - type: number
+          description: The signals and goal the evaluation used; `null` for `range_change`, which uses none.
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [occupancy, liveliness, staff_events, goal]
+              properties:
+                occupancy:
+                  description: Checked-in sessions divided by capacity.
+                  type: number
                   minimum: 0
-                  maximum: 1
-                - type: 'null'
-            staff_events:
-              type: array
-              items:
-                type: string
-                maxLength: 100
-            goal:
-              type: integer
-              minimum: 0
-              maximum: 100
+                liveliness:
+                  description: The latest liveliness signal, 0–1; `null` if none.
+                  oneOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 1
+                    - type: 'null'
+                staff_events:
+                  type: array
+                  items:
+                    type: string
+                    maxLength: 100
+                goal:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+            - type: 'null'
         proposal:
           description: The AI's proposed rate before the guardrails; `null` on fallback or for `range_change`.
           oneOf:
@@ -1965,7 +1968,9 @@ components:
         published:
           $ref: '#/components/schemas/RatePoint'
         explanation:
-          description: The short reason for the published change, after clamping.
+          description: |
+            The short reason for the published change, after clamping. For
+            `range_change`, BarPay writes it from the change; no AI takes part.
           type: string
           maxLength: 200
         fallback:
