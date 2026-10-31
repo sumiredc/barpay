@@ -83,7 +83,13 @@ func (k *Keeper) Require(next http.Handler) http.Handler {
 			httpapi.WriteError(w, http.StatusBadRequest, httpapi.CodeInvalidRequest, "The body cannot be read or is too large.", "")
 			return
 		}
-		c := &Claim{slot: slot{scope: httpapi.KeyName(req.URL.Path), key: values[0]}, request: fingerprint(req, body)}
+		c := &Claim{slot: slot{scope: httpapi.KeyName(req.URL.Path), key: values[0]}}
+		// Only admin requests name a staff member; on other routes the header means nothing.
+		staffID := ""
+		if c.scope == "admin" {
+			staffID = req.Header.Get(staff.Header)
+		}
+		c.request = fingerprint(req, staffID, body)
 		if !k.hold(c.slot) {
 			httpapi.WriteError(w, http.StatusConflict, httpapi.CodeIdempotencyKeyInProgress,
 				"A request with this Idempotency-Key is still being processed; send it again shortly.", "")
@@ -181,12 +187,12 @@ func (k *Keeper) release(s slot) {
 }
 
 // fingerprint identifies a request: its method, its path with the query, the staff member it
-// names, and its body, byte for byte. The same key with another operation, another session,
-// another staff member or another body is another request, so one staff member never gets the
-// response kept for another's request.
-func fingerprint(req *http.Request, body []byte) []byte {
+// names (staffID, empty outside the admin API), and its body, byte for byte. The same key with
+// another operation, another session, another staff member or another body is another request,
+// so one staff member never gets the response kept for another's request.
+func fingerprint(req *http.Request, staffID string, body []byte) []byte {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s %s\x00%s\x00", req.Method, req.URL.RequestURI(), req.Header.Get(staff.Header))
+	fmt.Fprintf(h, "%s %s\x00%s\x00", req.Method, req.URL.RequestURI(), staffID)
 	h.Write(body)
 	return h.Sum(nil)
 }

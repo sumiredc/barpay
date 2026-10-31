@@ -241,6 +241,20 @@ func TestSameKeyForAnotherRequestIsRefused(t *testing.T) {
 
 // Under the admin API key, the staff member is part of the request: another staff member with
 // the same key is refused as reused, and never gets the first one's response.
+// Outside the admin API the staff header means nothing: a resend with another one is the same
+// request and gets the first response.
+func TestStaffHeaderDoesNotCountUnderTheStoreAPIKey(t *testing.T) {
+	f := newFixture(t)
+	first := f.do(request{body: `{"a":1}`, staff: "staff_a"})
+	again := f.do(request{body: `{"a":1}`, staff: "staff_b"})
+	if first.Code != http.StatusCreated || again.Code != first.Code || again.Body.String() != first.Body.String() {
+		t.Errorf("first %d %s, again %d %s; want the same 201", first.Code, first.Body, again.Code, again.Body)
+	}
+	if f.runs.Load() != 1 {
+		t.Errorf("runs = %d, want 1", f.runs.Load())
+	}
+}
+
 func TestSameKeyForAnotherStaffMemberIsRefused(t *testing.T) {
 	f := newFixture(t)
 	first := request{path: "/v1/admin/things", auth: "Bearer k-admin", body: `{"a":1}`, staff: "staff_a"}
