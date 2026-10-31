@@ -1,0 +1,31 @@
+{{define "content"}}
+<h1>Menu</h1>
+{{if .Data.Pending}}{{with .Data.Pending}}
+  <div class="card">
+    <p>Your last order is not confirmed yet:</p>
+    <ul>{{range .Lines}}<li>{{.Quantity}} × {{.Name}}</li>{{end}}</ul>
+    <form method="post" action="/orders/resend">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}">
+      <button class="button" type="submit">Send it again</button>
+    </form>
+  </div>
+{{end}}{{else if eq .Data.Session.State "active"}}
+  <form method="post" action="/orders">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div class="card scroll">
+      <table>
+        <thead><tr><th>Item</th><th>Price</th><th>Quantity</th></tr></thead>
+        <tbody>
+        {{range .Data.Items}}
+          <tr><td>{{.Name}} <span class="muted">{{.Kind}}</span></td><td>{{money (usd .Price)}}</td><td><input class="qty" type="number" name="qty_{{.ID}}" min="0" max="99" value="0" aria-label="Quantity of {{.Name}}"></td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+    <button class="button" type="submit">Place order</button>
+  </form>
+  <p class="muted">Your first order does not pause the cover charge; each later order pauses it for a while.</p>
+{{else}}
+  <div class="card"><p>This visit takes no more orders ({{stateLabel .Data.Session.State}}).</p><a class="button secondary" href="/panel">My visit</a></div>
+{{end}}
+{{end}}

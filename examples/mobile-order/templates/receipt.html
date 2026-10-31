@@ -1,0 +1,39 @@
+{{define "content"}}
+{{$s := .Data.Session}}
+<h1>Receipt</h1>
+{{with $s.Receipt}}
+<div class="card">
+  <p><strong>{{$.StoreName}}</strong><br><span class="muted">Checked in {{time $s.CheckedInAt}} · ended {{time .EndedAt}}</span></p>
+  <table>
+    <tbody>
+    {{range $.Data.Orders}}{{range .Lines}}
+      <tr><td>{{.Quantity}} × {{.Name}}</td><td>{{money .UnitPrice}} each</td></tr>
+    {{end}}{{end}}
+      <tr><td>Orders</td><td>{{money .OrdersTotal}}</td></tr>
+      <tr><td>Cover charge</td><td>{{money .CoverCharge}}</td></tr>
+      <tr><th>Total</th><th>{{money .Total}}</th></tr>
+    {{if eq .Settlement "paypal"}}
+      <tr><td>Paid with PayPal</td><td>{{money .Total}}</td></tr>
+      <tr><td>PayPal capture ID</td><td>{{with .PaypalCaptureID}}<code>{{.}}</code>{{else}}Nothing was charged (total 0){{end}}</td></tr>
+    {{else if eq .Settlement "register"}}
+      <tr><td>Paid at the register</td><td>{{with .AmountRecorded}}{{money .}}{{end}}</td></tr>
+    {{else if eq .Settlement "outside"}}
+      <tr><td>Settled with staff</td><td>{{with .AmountRecorded}}{{money .}}{{end}}</td></tr>
+    {{else if eq .Settlement "unpaid"}}
+      <tr><td>Unpaid</td><td>{{with .UnpaidAmount}}{{money .}}{{end}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  <p class="muted">Visit {{$s.SessionID}}</p>
+</div>
+{{if $.Data.Current}}
+  <div class="row">
+    {{if eq $s.State "closed"}}<a class="button secondary" href="/exit?again=1">Show exit QR again</a>{{end}}
+    <form method="post" action="/visit/done"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="button" type="submit">Done</button></form>
+  </div>
+  {{if eq $s.State "closed"}}<p class="muted">The gate did not open? Show the exit QR again within a couple of minutes, or ask staff.</p>{{end}}
+{{end}}
+{{else}}
+<div class="card"><p>This visit has not ended yet ({{stateLabel $s.State}}). Running total: {{money $s.Total}}.</p><a class="button secondary" href="/panel">My visit</a></div>
+{{end}}
+{{end}}

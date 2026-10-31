@@ -1,0 +1,14 @@
+{{define "content"}}
+<h1>Exit</h1>
+{{if .Data.QR}}
+<div class="card" style="text-align: center">
+  <p>Show this QR to the reader at the exit.</p>
+  <img class="qr" src="{{.Data.QR}}" alt="Your exit QR">
+  <p class="muted">It changes regularly, so a screenshot will not work. Running total: {{money .Data.Session.Total}}.</p>
+  <details><summary>The reader cannot scan it?</summary><p><code>{{.Data.Token}}</code></p></details>
+</div>
+{{else}}
+<div class="card"><p class="big">{{.Data.Message}}</p></div>
+{{end}}
+<p><a class="button secondary" href="/panel">Back to my visit</a></p>
+{{end}}
