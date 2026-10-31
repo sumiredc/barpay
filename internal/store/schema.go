@@ -42,6 +42,26 @@ var migrations = []string{
 		at        INTEGER NOT NULL  -- Unix nanoseconds
 	);
 	CREATE INDEX staff_actions_subject ON staff_actions (subject, seq)`,
+	// Notifications: the outbox and the notification log. A row is written in the transaction of
+	// the change it reports and sent after that commits. sequence is per subject (the spec's EventBase).
+	`CREATE TABLE notifications (
+		seq              INTEGER PRIMARY KEY, -- storing order; the log lists by it
+		id               TEXT    NOT NULL UNIQUE,
+		type             TEXT    NOT NULL,
+		subject_kind     TEXT    NOT NULL CHECK (subject_kind IN ('session', 'member')),
+		subject_id       TEXT    NOT NULL,
+		sequence         INTEGER NOT NULL CHECK (sequence >= 1),
+		body             BLOB    NOT NULL, -- sent unchanged on every attempt
+		created_at       INTEGER NOT NULL, -- Unix nanoseconds, like every instant below
+		status           TEXT    NOT NULL CHECK (status IN ('retrying', 'delivered', 'given_up')),
+		attempts         INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+		first_attempt_at INTEGER,          -- NULL before the first attempt
+		last_attempt_at  INTEGER,          -- NULL before the first attempt
+		next_attempt_at  INTEGER,          -- NULL once delivered or given up
+		UNIQUE (subject_kind, subject_id, sequence),
+		CHECK ((status = 'retrying') = (next_attempt_at IS NOT NULL))
+	);
+	CREATE INDEX notifications_due ON notifications (next_attempt_at) WHERE status = 'retrying'`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
