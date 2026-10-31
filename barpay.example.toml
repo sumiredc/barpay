@@ -38,6 +38,8 @@ edge_shared_secret = ""
 client_id = ""
 client_secret = ""
 
+# Where BarPay sends signed notifications. https, or http to a loopback IP address such as
+# http://127.0.0.1:3000/barpay (not http://localhost).
 [notifications]
 url = ""
 signing_secret = ""

@@ -16,6 +16,11 @@ info:
     `docs/PRD.md`; each operation and webhook names the use case (UC) or the
     Responsibilities rule it serves.
 
+    The notifications (`webhooks`) are sent to the notification URL in
+    BarPay's config file. It uses https; the only exception is http to a
+    loopback IP address written as one (`127.0.0.0/8` or `::1`), not to a
+    name such as `localhost`. BarPay does not start with any other URL.
+
     The edge device's API (exit tokens scanned at the gate, liveliness
     signals), which the development tools also use, is not part of this
     contract; it is in `edge.yaml`, under `/v1/edge`, where neither key of
