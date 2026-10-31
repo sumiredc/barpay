@@ -47,6 +47,7 @@ func writeConfig(t *testing.T, dir, notificationURL string) string {
 		{`listen_address = ":8080"`, `listen_address = "127.0.0.1:0"`},
 		{`database_path = "barpay.db"`, `database_path = "` + filepath.Join(dir, "barpay.db") + `"`},
 		{`store_app_origin = ""`, `store_app_origin = "https://store.example"`},
+		{`public_url = ""`, `public_url = "http://127.0.0.1:8080"`},
 		{`store_api_key = ""`, `store_api_key = "k-store"`},
 		{`admin_api_key = ""`, `admin_api_key = "k-admin"`},
 		{`edge_shared_secret = ""`, `edge_shared_secret = "k-edge"`},
@@ -171,6 +172,24 @@ func TestStartsServesAndStops(t *testing.T) {
 	}
 	if asked.Model != "qwen3:8b" || asked.ReasoningEffort != "none" {
 		t.Errorf("the model was asked with %+v, want the sample's model qwen3:8b and reasoning effort none", asked)
+	}
+
+	// The member operations are served, and a link URL is on the config file's public URL. Asking
+	// for one calls nothing in PayPal.
+	req, _ = http.NewRequest(http.MethodPost, "http://"+a.String()+"/v1/members/m_1/paypal-link", strings.NewReader(
+		`{"state":"state-0123456789abcdef","consent_version":"v1","return_url":"https://store.example/settings"}`))
+	req.Header.Set("Authorization", "Bearer k-store")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var link struct {
+		LinkURL string `json:"link_url"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&link)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated || err != nil || !strings.HasPrefix(link.LinkURL, "http://127.0.0.1:8080/v1/paypal-links/pll_") {
+		t.Errorf("createPaypalLink: status %d, %+v, %v; want a link URL on the public URL", resp.StatusCode, link, err)
 	}
 
 	cancel()

@@ -22,7 +22,9 @@ import (
 	"github.com/sumiredc/barpay/internal/httpapi"
 	"github.com/sumiredc/barpay/internal/idempotency"
 	"github.com/sumiredc/barpay/internal/llm"
+	"github.com/sumiredc/barpay/internal/member"
 	"github.com/sumiredc/barpay/internal/notify"
+	"github.com/sumiredc/barpay/internal/paypal"
 	"github.com/sumiredc/barpay/internal/session"
 	"github.com/sumiredc/barpay/internal/signals"
 	"github.com/sumiredc/barpay/internal/startup"
@@ -79,6 +81,13 @@ func serve(ctx context.Context, path string, stderr io.Writer, listening func(ne
 	httpapi.Pricing{Store: st, Clock: clk}.Register(router)
 	sessions := session.API{Store: st, Clock: clk, Keys: idempotency.New(st, clk), Notify: notifications}
 	sessions.Register(router)
+	members := member.API{
+		Store: st, Clock: clk, Notify: notifications, PublicURL: cfg.PublicURL, StoreAppOrigin: cfg.StoreAppOrigin,
+		PayPal: paypal.New(paypal.Options{
+			BaseURL: paypal.SandboxURL, ClientID: cfg.PayPalClientID, ClientSecret: cfg.PayPalClientSecret, Clock: clk, Log: log,
+		}),
+	}
+	members.Register(router)
 	signals.API{Store: st, Clock: clk, Log: log}.Register(router)
 	ev := evaluation.New(evaluation.Options{
 		Store: st, Clock: clk, Model: llm.New(cfg.LLMAddress, cfg.LLMModel, cfg.LLMReasoningEffort), MaxStep: state.MaxStep,
@@ -104,6 +113,12 @@ func serve(ctx context.Context, path string, stderr io.Writer, listening func(ne
 	go func() { sessions.RunLimits(limitsCtx, log); close(limitsDone) }()
 	// Stop closing sessions before the store closes; one cut off here is closed at the next start.
 	defer func() { stopLimits(); <-limitsDone }()
+
+	membersCtx, stopMembers := context.WithCancel(context.Background())
+	membersDone := make(chan struct{})
+	go func() { members.Run(membersCtx, log); close(membersDone) }()
+	// Stop checking and deleting before the store closes; what was cut off is due again at the next start.
+	defer func() { stopMembers(); <-membersDone }()
 
 	log.Info("BarPay started", "address", ln.Addr().String(), "currency", state.Currency,
 		"currency_change_pending", state.CurrencyChangePending)

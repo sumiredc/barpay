@@ -40,6 +40,7 @@ max_stay = "10h"
 reunlock_window = "90s"
 exit_token_refresh = "20s"
 store_app_origin = "https://store.example"
+public_url = "https://barpay.store.example"
 
 [keys]
 store_api_key = "SECRET-store-key-0c9d"
@@ -138,6 +139,7 @@ func TestEveryItemIsLoaded(t *testing.T) {
 		{"notification URL", cfg.NotificationURL, "https://store.example/barpay/notify"},
 		{"signing secret", cfg.NotificationSigningSecret.Reveal(), secrets["notifications.signing_secret"]},
 		{"store app origin", cfg.StoreAppOrigin, "https://store.example"},
+		{"public URL", cfg.PublicURL, "https://barpay.store.example"},
 		{"currency", cfg.Currency, money.USD},
 		{"starting rate", cfg.StartingRate, usd(1200)},
 		{"max step", cfg.MaxStep, usd(300)},
@@ -206,7 +208,7 @@ func TestSampleDoesNotStartForMissingCredentials(t *testing.T) {
 	// Apart from the credentials, only the store's own addresses are left for the owner.
 	for _, p := range ce.Problems {
 		if _, isSecret := secrets[p.Key]; !isSecret && !slices.Contains(
-			[]string{"store_app_origin", "notifications.url", "llm.address"}, p.Key) {
+			[]string{"store_app_origin", "public_url", "notifications.url", "llm.address"}, p.Key) {
 			t.Errorf("unexpected problem in the sample: %s: %s", p.Key, p.Reason)
 		}
 	}
@@ -382,6 +384,44 @@ func TestNotificationURL(t *testing.T) {
 	}
 }
 
+// The PRD's UC8 exception for BarPay's public URL: the notification URL's rule, and a base URL
+// that BarPay's paths can follow.
+func TestPublicURL(t *testing.T) {
+	for u, want := range map[string]string{
+		"https://barpay.store.example":  "https://barpay.store.example",
+		"https://store.example/barpay/": "https://store.example/barpay",
+		"http://127.0.0.1:8080":         "http://127.0.0.1:8080",
+		"http://[::1]:8080/":            "http://[::1]:8080",
+	} {
+		if cfg := mustParse(t, with(t, "public_url", `public_url = "`+u+`"`)); cfg.PublicURL != want {
+			t.Errorf("%s: PublicURL = %q, want %q", u, cfg.PublicURL, want)
+		}
+	}
+	for _, u := range []string{"http://localhost:8080", "http://barpay.store.example", "barpay.store.example",
+		"https://barpay.store.example?x=1", "https://barpay.store.example/#x", "https://u:p@barpay.store.example"} {
+		t.Run(u, func(t *testing.T) { mustFail(t, with(t, "public_url", `public_url = "`+u+`"`), "public_url") })
+	}
+}
+
+// The store app's origin is compared with return URLs, so it is an origin and nothing more.
+func TestStoreAppOrigin(t *testing.T) {
+	for u, want := range map[string]string{
+		"https://store.example":       "https://store.example",
+		"https://Store.Example:8443/": "https://store.example:8443",
+		"http://localhost:3000":       "http://localhost:3000",
+	} {
+		if cfg := mustParse(t, with(t, "store_app_origin", `store_app_origin = "`+u+`"`)); cfg.StoreAppOrigin != want {
+			t.Errorf("%s: StoreAppOrigin = %q, want %q", u, cfg.StoreAppOrigin, want)
+		}
+	}
+	for _, u := range []string{"store.example", "ftp://store.example", "https://store.example/app",
+		"https://store.example?x", "https://store.example#x", "https://u@store.example", "https:///"} {
+		t.Run(u, func(t *testing.T) {
+			mustFail(t, with(t, "store_app_origin", `store_app_origin = "`+u+`"`), "store_app_origin")
+		})
+	}
+}
+
 func TestLLMAddress(t *testing.T) {
 	for _, u := range []string{"http://127.0.0.1:11434/v1", "https://llm.example/v1/", "http://[::1]:8080"} {
 		if cfg := mustParse(t, with(t, "llm.address", `address = "`+u+`"`)); cfg.LLMAddress != u {
@@ -414,7 +454,7 @@ func TestDatabasePathWithoutURISeparators(t *testing.T) {
 }
 
 func TestOtherRequiredValues(t *testing.T) {
-	for _, key := range []string{"listen_address", "database_path", "store_app_origin", "notifications.url",
+	for _, key := range []string{"listen_address", "database_path", "store_app_origin", "public_url", "notifications.url",
 		"llm.address", "llm.model", "min_evaluation_interval", "capacity", "starting_rate", "max_step", "settings.floor", "settings.ceiling"} {
 		t.Run(key, func(t *testing.T) { mustFail(t, with(t, key, ""), key) })
 	}

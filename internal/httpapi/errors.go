@@ -28,7 +28,16 @@ type errorObject struct {
 }
 
 type errorDetails struct {
-	Field string `json:"field,omitempty"`
+	Field     string `json:"field,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+}
+
+// WriteSessionError is WriteError with details.session_id naming the session at fault.
+func WriteSessionError(w http.ResponseWriter, status int, code Code, message, sessionID string) {
+	body := errorBody{Error: errorObject{Code: code, Message: message, Details: &errorDetails{SessionID: sessionID}}}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 // WriteError writes the spec's Error. message is for developers, in English, and must not

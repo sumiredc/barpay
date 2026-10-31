@@ -30,6 +30,7 @@ max_step = 300
 min_evaluation_interval = "1m"
 capacity = 40
 store_app_origin = "https://store.example"
+public_url = "https://barpay.store.example"
 [keys]
 store_api_key = "k1"
 admin_api_key = "k2"

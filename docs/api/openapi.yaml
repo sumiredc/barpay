@@ -407,9 +407,9 @@ paths:
         a full page, never embedded. BarPay shows no page there: the
         browser is redirected to PayPal, and from PayPal back to `return_url`
         (see the `paypalLinkReturn` callback). Redirects carry
-        `Referrer-Policy: no-referrer`. A URL works for 30 minutes
-        (`expires_at`); each call returns a new URL, and an earlier unused one
-        stops working. Nothing is saved until `confirmPaypalLink`.
+        `Referrer-Policy: no-referrer`. A URL works for 30 minutes, until
+        just before `expires_at`; each call returns a new URL, and an earlier
+        unused one stops working. Nothing is saved until `confirmPaypalLink`.
       requestBody:
         required: true
         content:
@@ -501,8 +501,9 @@ paths:
         `member_id` must be the member logged in to the store app's own
         session, not a value taken from the return URL. BarPay saves PayPal
         only if the code is known, unused, not expired and was issued for a
-        link URL made for this member. A code works for 10 minutes and is
-        used up by the first confirm request, whether it succeeds or not.
+        link URL made for this member. A code works for 10 minutes from when
+        it was issued, until just before that instant, and is used up by the
+        first confirm request, whether it succeeds or not.
         On success an active session of the member is linked, and
         `member.paypal_linked` is sent.
       requestBody:
@@ -566,8 +567,9 @@ paths:
         Deletes the saved PayPal in PayPal. When PayPal confirms within the
         request, the response is `204`. Otherwise it is `202`: BarPay keeps
         retrying, and the member's saved PayPal shows `deletion_pending`; the
-        member cannot link again and a check-in starts unlinked. Either way,
-        `member.saved_paypal_deleted` is sent once PayPal confirms.
+        member cannot link again and a check-in starts unlinked. A request
+        while the deletion is pending gets `202` again and starts nothing new.
+        Either way, `member.saved_paypal_deleted` is sent once PayPal confirms.
       responses:
         '202':
           description: Deletion accepted; PayPal has not confirmed yet.

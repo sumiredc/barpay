@@ -193,6 +193,61 @@ var migrations = []string{
 		id         INTEGER PRIMARY KEY CHECK (id = 1),
 		started_at INTEGER NOT NULL -- Unix nanoseconds
 	)`,
+	// When a session was linked to its member's saved PayPal (UC1, UC2); NULL while not linked.
+	`ALTER TABLE sessions ADD COLUMN paypal_linked_at INTEGER -- Unix nanoseconds
+		CHECK (paypal_linked_at IS NULL OR member_id IS NOT NULL)`,
+	// PayPal links (the PRD's Responsibilities, PayPal link): each link URL a member was given and
+	// how far it went. status is 'open' until a return or cancel is accepted, or the setup token
+	// is refused ('done'), or a newer link replaces it ('replaced'). Each PayPal-Request-Id is
+	// stored before its call. The one-time code is kept only as its SHA-256.
+	`CREATE TABLE paypal_links (
+		id               TEXT    PRIMARY KEY, -- the unguessable link ID in BarPay's URLs
+		member_id        TEXT    NOT NULL,
+		consent_version  TEXT    NOT NULL,
+		state            TEXT    NOT NULL,    -- the store app's own value, echoed on the return
+		return_url       TEXT    NOT NULL,
+		created_at       INTEGER NOT NULL,    -- Unix nanoseconds, like every instant below
+		status           TEXT    NOT NULL CHECK (status IN ('open', 'done', 'replaced')),
+		setup_request_id TEXT,
+		setup_token_id   TEXT,
+		approve_url      TEXT,
+		code_hash        BLOB    UNIQUE,
+		code_issued_at   INTEGER,
+		code_used_at     INTEGER,
+		save_request_id  TEXT,
+		CHECK ((code_hash IS NULL) = (code_issued_at IS NULL))
+	);
+	CREATE INDEX paypal_links_open ON paypal_links (member_id) WHERE status = 'open';
+	-- Saved PayPals: at most one per member, and a PayPal (vault_id) for at most one member (UC2).
+	-- A row stays while its deletion is pending, and is removed once PayPal confirms it.
+	CREATE TABLE saved_paypals (
+		member_id       TEXT    PRIMARY KEY,
+		vault_id        TEXT    NOT NULL UNIQUE,
+		consent_version TEXT    NOT NULL,
+		saved_at        INTEGER NOT NULL,
+		status          TEXT    NOT NULL CHECK (status IN ('saved', 'deletion_pending'))
+	);
+	-- Deletions a member asked for (UC9), kept after PayPal confirms them. request_id is the
+	-- PayPal-Request-Id of the current attempt, stored before it is sent; next_at is when it is
+	-- tried again, until confirmed_at.
+	CREATE TABLE paypal_deletions (
+		id           TEXT    PRIMARY KEY,
+		member_id    TEXT    NOT NULL,
+		vault_id     TEXT    NOT NULL,
+		requested_at INTEGER NOT NULL,
+		attempt      INTEGER NOT NULL CHECK (attempt >= 1),
+		request_id   TEXT    NOT NULL,
+		next_at      INTEGER,
+		alerted      INTEGER NOT NULL DEFAULT 0 CHECK (alerted IN (0, 1)), -- deletion_failing raised
+		confirmed_at INTEGER,
+		CHECK ((confirmed_at IS NULL) = (next_at IS NOT NULL))
+	);
+	CREATE INDEX paypal_deletions_due ON paypal_deletions (next_at) WHERE confirmed_at IS NULL;
+	-- Check-in checks of a saved PayPal whose answer was not readable (UC1): when to check again.
+	CREATE TABLE paypal_checks (
+		session_id TEXT    PRIMARY KEY REFERENCES sessions (id),
+		next_at    INTEGER NOT NULL
+	)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

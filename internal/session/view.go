@@ -74,10 +74,9 @@ func compute(ctx context.Context, q store.Querier, s Session, now time.Time) (Vi
 		return View{}, err
 	}
 	v := View{
-		SessionID: s.ID,
-		State:     s.State,
-		// TODO(#18): linked once the session is linked to the member's saved PayPal.
-		PaymentMethod:     paymentMethod(false, s.State),
+		SessionID:         s.ID,
+		State:             s.State,
+		PaymentMethod:     paymentMethod(!s.LinkedAt.IsZero(), s.State),
 		CheckedInAt:       httpapi.FormatTime(s.CheckedInAt),
 		RatePerHour:       httpapi.ToMoney(rate.Rate),
 		CoverChargeStatus: cc.Status,

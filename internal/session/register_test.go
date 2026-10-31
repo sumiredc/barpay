@@ -112,8 +112,7 @@ func TestBlockEndingAfterTheRequestIsNotCharged(t *testing.T) {
 }
 
 // UC6 precondition and exception: a linked session pays by PayPal until it requests the register,
-// and by the register from then on.
-// TODO(#18): request the register for a linked session end to end once linking exists.
+// and by the register from then on. The member package checks it end to end through linking.
 func TestPaymentMethodOfALinkedSessionAtTheRegister(t *testing.T) {
 	for _, c := range []struct {
 		linked bool

@@ -49,8 +49,12 @@ type Config struct {
 	NotificationURL           string
 	NotificationSigningSecret secret.Value
 
-	// StoreAppOrigin is the only place members are returned to after linking.
+	// StoreAppOrigin is the only place members are returned to after linking: a scheme and a
+	// host with an optional port, in lower case, such as "https://store.example".
 	StoreAppOrigin string
+	// PublicURL is BarPay's own base URL as the member's browser and PayPal reach it, without a
+	// trailing "/"; the API's paths, such as /v1/..., follow it.
+	PublicURL string
 
 	// Currency is the one the file names. While a currency change waits for a start with no open
 	// session, BarPay runs in another one: use startup.State, not this, for the running currency.
@@ -88,6 +92,7 @@ type file struct {
 	ReunlockWindow        time.Duration `toml:"reunlock_window"`
 	ExitTokenRefresh      time.Duration `toml:"exit_token_refresh"`
 	StoreAppOrigin        string        `toml:"store_app_origin"`
+	PublicURL             string        `toml:"public_url"`
 
 	Keys struct {
 		StoreAPIKey      secret.Value `toml:"store_api_key"`
@@ -261,35 +266,72 @@ func (c *checker) databasePath(p string) string {
 	return p
 }
 
-// notificationURL enforces the PRD's UC8 exception for the notification URL: https, or http to
-// a loopback IP address written as one. A name such as localhost is refused even over http,
-// because what it resolves to is not known when the file is read.
+// notificationURL enforces the PRD's UC8 exception for the notification URL.
 func (c *checker) notificationURL(v string) string {
-	const key = "notifications.url"
-	if c.text(key, v) == "" {
+	c.secureURL("notifications.url", v, "https://store.example/barpay")
+	return v
+}
+
+// publicURL enforces the PRD's UC8 exception for BarPay's public URL. BarPay's paths are added
+// after it, so it has no query, fragment or user info, and a trailing "/" is dropped.
+func (c *checker) publicURL(v string) string {
+	const key = "public_url"
+	u, ok := c.secureURL(key, v, "https://barpay.store.example")
+	if !ok {
 		return v
+	}
+	if u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		c.add(key, "must be a base URL without user info, a query or a fragment, such as https://barpay.store.example")
+		return v
+	}
+	return strings.TrimSuffix(v, "/")
+}
+
+// secureURL checks the PRD's UC8 exception for a URL that private data travels to: https, or
+// http to a loopback IP address written as one. A name such as localhost is refused even over
+// http, because what it resolves to is not known when the file is read. example is shown in the
+// reason for a URL that is not absolute.
+func (c *checker) secureURL(key, v, example string) (*url.URL, bool) {
+	if c.text(key, v) == "" {
+		return nil, false
 	}
 	// The reasons do not quote the URL: it can carry credentials in its user info or query.
 	u, err := url.Parse(v)
 	if err != nil || !u.IsAbs() || u.Host == "" || u.Opaque != "" {
-		c.add(key, "must be an absolute URL such as https://store.example/barpay")
-		return v
+		c.add(key, "must be an absolute URL such as %s", example)
+		return nil, false
 	}
 	switch u.Scheme {
 	case "https":
-		return v
+		return u, true
 	case "http":
 		// An IPv4-mapped IPv6 address such as ::ffff:127.0.0.1 is refused: the PRD names only
 		// 127.0.0.0/8 written as IPv4, and ::1.
 		host := u.Hostname()
 		if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() && (ip.Equal(net.IPv6loopback) || !strings.Contains(host, ":")) {
-			return v
+			return u, true
 		}
 		c.add(key, "must use https; http is accepted only to a loopback IP address such as 127.0.0.1 or [::1], not to a name such as localhost")
 	default:
 		c.add(key, "must use https")
 	}
-	return v
+	return nil, false
+}
+
+// storeAppOrigin checks the store app's origin, which a return URL's scheme and host are
+// compared with, and returns it in lower case.
+func (c *checker) storeAppOrigin(v string) string {
+	const key = "store_app_origin"
+	if c.text(key, v) == "" {
+		return v
+	}
+	u, err := url.Parse(v)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Opaque != "" || u.User != nil ||
+		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		c.add(key, "must be an origin: http or https and a host with an optional port, such as https://store.example")
+		return v
+	}
+	return strings.ToLower(u.Scheme + "://" + u.Host)
 }
 
 // llmAddress checks the local LLM's address: the base URL of its OpenAI-compatible API, to
@@ -320,7 +362,8 @@ func (c *checker) build(f *file, opts Options) *Config {
 
 		NotificationURL:           c.notificationURL(f.Notifications.URL),
 		NotificationSigningSecret: c.credential("notifications.signing_secret", f.Notifications.SigningSecret),
-		StoreAppOrigin:            c.text("store_app_origin", f.StoreAppOrigin),
+		StoreAppOrigin:            c.storeAppOrigin(f.StoreAppOrigin),
+		PublicURL:                 c.publicURL(f.PublicURL),
 
 		MinEvaluationInterval: c.positive("min_evaluation_interval", f.MinEvaluationInterval),
 		LLMAddress:            c.llmAddress(f.LLM.Address),
