@@ -90,6 +90,29 @@ func (OpenSessions) AnyOpen(ctx context.Context, q store.Querier) (bool, error) 
 	return open, nil
 }
 
+// CountByState returns how many sessions are in each state, reading through q; a state with
+// none is 0. Occupancy is computed from it, counting the states it decides.
+func CountByState(ctx context.Context, q store.Querier) (map[State]int, error) {
+	counts := make(map[State]int, len(States))
+	for _, s := range States {
+		counts[s] = 0
+	}
+	rows, err := q.QueryContext(ctx, `SELECT state, count(*) FROM sessions GROUP BY state`)
+	if err != nil {
+		return nil, fmt.Errorf("session: count: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var s string
+		var n int
+		if err := rows.Scan(&s, &n); err != nil {
+			return nil, fmt.Errorf("session: count: %w", err)
+		}
+		counts[State(s)] = n
+	}
+	return counts, rows.Err()
+}
+
 // get returns the session with id, or errNotFound.
 func get(ctx context.Context, q store.Querier, id string) (Session, error) {
 	var s Session
