@@ -13,7 +13,7 @@ import (
 )
 
 // Pricing serves the published rate (getRate, getRateHistory) and the settings (getSettings,
-// updateSettings).
+// updateSettings), and the decision log (listDecisions).
 type Pricing struct {
 	Store *store.Store
 	Clock clock.Clock
@@ -25,6 +25,7 @@ func (p Pricing) Register(r *Router) {
 	r.Store("GET /rate/history", http.HandlerFunc(p.getRateHistory))
 	r.Admin("GET /settings", http.HandlerFunc(p.getSettings))
 	r.Admin("PUT /settings", http.HandlerFunc(p.updateSettings))
+	r.Admin("GET /decisions", http.HandlerFunc(p.listDecisions))
 }
 
 type ratePointJSON struct {
