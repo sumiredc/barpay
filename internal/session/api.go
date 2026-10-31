@@ -17,7 +17,7 @@ import (
 type Waker interface{ Wake() }
 
 // API serves the session operations of the store API (createCheckin, getSession, reportOrder,
-// requestRegister) and of the admin API.
+// requestRegister) and of the admin API (listSessions and the operations on a session).
 type API struct {
 	Store  *store.Store
 	Clock  clock.Clock
@@ -42,6 +42,7 @@ func (a API) Register(r *httpapi.Router) {
 	r.Store("POST /sessions/{session_id}/orders", http.HandlerFunc(a.reportOrder))
 	r.Store("POST /sessions/{session_id}/register-request", http.HandlerFunc(a.requestRegister))
 	r.Store("GET /sessions/{session_id}/exit-token", http.HandlerFunc(a.getExitToken))
+	r.Admin("GET /sessions", http.HandlerFunc(a.listSessions))
 	r.Admin("POST /sessions/{session_id}/register-payment", http.HandlerFunc(a.recordRegisterPayment))
 	r.Admin("POST /sessions/{session_id}/mark-unpaid", http.HandlerFunc(a.markUnpaid))
 	r.Admin("POST /sessions/{session_id}/close", a.Keys.Require(http.HandlerFunc(a.closeSession)))
