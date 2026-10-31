@@ -154,6 +154,24 @@ var migrations = []string{
 		recorded_at INTEGER NOT NULL,    -- Unix nanoseconds
 		UNIQUE (session_id, order_id)
 	)`,
+	// Receipts: how a session ended (the spec's Receipt), written in the transaction that ends it,
+	// with the values the session showed then. An ended session is shown from its receipt, so
+	// later rates, settings and a currency change do not change it. One per session.
+	`CREATE TABLE receipts (
+		session_id      TEXT    PRIMARY KEY REFERENCES sessions (id),
+		settlement      TEXT    NOT NULL CHECK (settlement IN ('paypal', 'register', 'outside', 'unpaid')),
+		payment_method  TEXT    NOT NULL CHECK (payment_method IN ('paypal', 'register')),
+		rate_per_hour   INTEGER NOT NULL,
+		order_count     INTEGER NOT NULL,
+		orders_total    INTEGER NOT NULL,
+		cover_charge    INTEGER NOT NULL,
+		total           INTEGER NOT NULL,
+		amount_recorded INTEGER,          -- for register and outside only
+		unpaid_amount   INTEGER,          -- for unpaid only
+		ended_at        INTEGER NOT NULL, -- Unix nanoseconds
+		CHECK ((settlement IN ('register', 'outside')) = (amount_recorded IS NOT NULL)),
+		CHECK ((settlement = 'unpaid') = (unpaid_amount IS NOT NULL))
+	)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

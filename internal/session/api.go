@@ -27,6 +27,7 @@ func (a API) Register(r *httpapi.Router) {
 	r.Store("GET /sessions/{session_id}", http.HandlerFunc(a.getSession))
 	r.Store("POST /sessions/{session_id}/orders", http.HandlerFunc(a.reportOrder))
 	r.Store("POST /sessions/{session_id}/register-request", http.HandlerFunc(a.requestRegister))
+	r.Admin("POST /sessions/{session_id}/register-payment", http.HandlerFunc(a.recordRegisterPayment))
 }
 
 // Error codes of the spec's Error that these operations return.

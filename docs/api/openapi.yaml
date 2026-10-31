@@ -1563,7 +1563,7 @@ components:
       enum: [active, checking_out, at_register, payment_failed, closed, closed_unpaid]
     PaymentMethod:
       type: string
-      description: '`paypal` when the session is linked to the member''s saved PayPal and the register was not requested; otherwise `register`.'
+      description: '`paypal` when the session is linked to the member''s saved PayPal and the register was neither requested nor paid at; otherwise `register`.'
       enum: [paypal, register]
     CoverChargeStatus:
       type: string
@@ -1609,7 +1609,7 @@ components:
           type: string
           format: date-time
         total_fixed_at:
-          description: When the final total was fixed (checkout began or the register was requested); absent while active.
+          description: When the final total was fixed (checkout began, the register was requested, or staff recorded a register payment); absent while active.
           type: string
           format: date-time
         rate_per_hour:

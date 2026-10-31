@@ -15,7 +15,8 @@ import (
 type trigger string
 
 const (
-	registerRequested trigger = "the register is requested"
+	registerRequested       trigger = "the register is requested"
+	registerPaymentRecorded trigger = "staff record a register payment"
 )
 
 // edge is the states a trigger moves a session from, and the state it moves it to.
@@ -27,7 +28,8 @@ type edge struct {
 // edges are the PRD's state diagram, by trigger. Every change of a session's state is one of
 // them, made by move.
 var edges = map[trigger]edge{
-	registerRequested: {from: []State{Active}, to: AtRegister},
+	registerRequested:       {from: []State{Active}, to: AtRegister},
+	registerPaymentRecorded: {from: []State{Active, AtRegister}, to: Closed},
 }
 
 // errRefused is returned by move when the trigger does not apply to the session at that instant.

@@ -33,8 +33,22 @@ type View struct {
 // view shows s at now, reading through q. q must give every read the same state (a transaction),
 // so the rate, the cover charge and the total it shows agree. A session whose total is fixed is
 // shown as at that instant, so what it shows no longer changes with time: the amount checkout
-// charges or staff collect is the amount the panel showed.
+// charges or staff collect is the amount the panel showed. An ended session is shown from its
+// receipt, which holds what it showed when it ended.
 func view(ctx context.Context, q store.Querier, s Session, now time.Time) (View, error) {
+	if s.State.ended() {
+		r, err := getReceipt(ctx, q, s.ID)
+		if err != nil {
+			return View{}, err
+		}
+		return fromReceipt(s, r), nil
+	}
+	return compute(ctx, q, s, now)
+}
+
+// compute is view of a session that has not ended, from its orders, the rates and the settings.
+// A session that has not ended never spans a currency change, which waits until none is open.
+func compute(ctx context.Context, q store.Querier, s Session, now time.Time) (View, error) {
 	times, ordersTotal, err := orders(ctx, q, s.ID)
 	if err != nil {
 		return View{}, err
@@ -45,8 +59,6 @@ func view(ctx context.Context, q store.Querier, s Session, now time.Time) (View,
 		rate, err = pricing.Current(ctx, q, s.Currency)
 	} else {
 		now = s.TotalFixedAt
-		// TODO(#19): an ended session from before a currency change finds no rate in its
-		// currency; show it from its stored receipt.
 		rate, err = pricing.At(ctx, q, s.Currency, now)
 	}
 	if err != nil {
@@ -80,7 +92,7 @@ func view(ctx context.Context, q store.Querier, s Session, now time.Time) (View,
 	if !s.TotalFixedAt.IsZero() {
 		v.TotalFixedAt = httpapi.FormatTime(s.TotalFixedAt)
 	}
-	// TODO(#19): unpaid_amount and the receipt, once checkout and its results are stored.
+	// TODO(#19): unpaid_amount while payment_failed, once checkout and its results are stored.
 	return v, nil
 }
 
