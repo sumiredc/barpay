@@ -85,7 +85,7 @@ paths:
           description: |
             `member_has_open_session`: the member already has a session that
             is not closed. `idempotency_key_reused`: the key was used with a
-            different body. `idempotency_key_in_progress`: a request with the
+            different request. `idempotency_key_in_progress`: a request with the
             same key is still being processed; retry shortly.
           content:
             application/json:

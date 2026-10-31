@@ -126,6 +126,23 @@ var migrations = []string{
 		PRIMARY KEY (scope, key)
 	);
 	CREATE INDEX idempotency_keys_kept_at ON idempotency_keys (kept_at)`,
+	// Sessions: the spec's Session as stored. state lists the spec's SessionState. A member has at
+	// most one session that has not ended (UC1), held by the unique index rather than by a check
+	// in code, so two check-ins at once cannot both start one.
+	`CREATE TABLE sessions (
+		seq            INTEGER PRIMARY KEY, -- check-in order
+		id             TEXT    NOT NULL UNIQUE,
+		member_id      TEXT,                -- NULL for a guest
+		state          TEXT    NOT NULL CHECK (state IN ('active', 'checking_out', 'at_register',
+			'payment_failed', 'closed', 'closed_unpaid')),
+		currency       TEXT    NOT NULL,
+		checked_in_at  INTEGER NOT NULL,    -- Unix nanoseconds, like every instant below
+		total_fixed_at INTEGER,             -- NULL while active
+		CHECK ((state = 'active') = (total_fixed_at IS NULL))
+	);
+	CREATE UNIQUE INDEX sessions_one_open_per_member ON sessions (member_id)
+		WHERE member_id IS NOT NULL AND state NOT IN ('closed', 'closed_unpaid');
+	CREATE INDEX sessions_state ON sessions (state)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
