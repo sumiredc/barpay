@@ -8,7 +8,20 @@ import (
 // migrations brings an empty database to the current schema, one step per entry; step i
 // leaves the database at user_version i+1. Append new steps; never edit or reorder an existing
 // one, because databases already past it will not run it again.
-var migrations = []string{}
+var migrations = []string{
+	// Settings: one row. Its currency is the store's currency in effect.
+	`CREATE TABLE settings (
+		id            INTEGER PRIMARY KEY CHECK (id = 1),
+		currency      TEXT    NOT NULL,
+		floor         INTEGER NOT NULL,
+		ceiling       INTEGER NOT NULL,
+		block_minutes INTEGER NOT NULL,
+		pause_minutes INTEGER NOT NULL,
+		cap_per_visit INTEGER NOT NULL,
+		goal          INTEGER NOT NULL,
+		updated_at    INTEGER NOT NULL -- Unix nanoseconds
+	)`,
+}
 
 func (s *Store) migrate(ctx context.Context) error {
 	var version int
