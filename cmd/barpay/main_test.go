@@ -174,6 +174,24 @@ func TestStartsServesAndStops(t *testing.T) {
 		t.Errorf("the model was asked with %+v, want the sample's model qwen3:8b and reasoning effort none", asked)
 	}
 
+	// The member operations are served, and a link URL is on the config file's public URL. Asking
+	// for one calls nothing in PayPal.
+	req, _ = http.NewRequest(http.MethodPost, "http://"+a.String()+"/v1/members/m_1/paypal-link", strings.NewReader(
+		`{"state":"state-0123456789abcdef","consent_version":"v1","return_url":"https://store.example/settings"}`))
+	req.Header.Set("Authorization", "Bearer k-store")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var link struct {
+		LinkURL string `json:"link_url"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&link)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated || err != nil || !strings.HasPrefix(link.LinkURL, "http://127.0.0.1:8080/v1/paypal-links/pll_") {
+		t.Errorf("createPaypalLink: status %d, %+v, %v; want a link URL on the public URL", resp.StatusCode, link, err)
+	}
+
 	cancel()
 	if c := <-code; c != 0 {
 		t.Errorf("exit code after stop = %d, want 0:\n%s", c, stderr.String())
