@@ -2010,17 +2010,26 @@ components:
         type:
           type: string
         status:
+          description: |
+            `retrying` from when the event is stored, before its first
+            attempt too, until the store app acknowledges it (`delivered`) or
+            the last retry is not acknowledged (`given_up`).
           type: string
           enum: [delivered, retrying, given_up]
         attempts:
+          description: Attempts made so far; 0 before the first one.
           type: integer
-          minimum: 1
+          minimum: 0
         created_at:
+          description: When the event was stored; its `created_at`.
           type: string
           format: date-time
         last_attempt_at:
-          type: string
-          format: date-time
+          description: '`null` before the first attempt.'
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
     EventBase:
       type: object
       description: |
