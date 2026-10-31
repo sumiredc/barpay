@@ -58,6 +58,10 @@ type setupToken struct {
 
 // Fake is a PayPal. It is safe for concurrent use.
 type Fake struct {
+	// During, if set, is called with each call when it arrives, before the fake acts on it, so a
+	// test can look at what BarPay stored before calling, or change something meanwhile.
+	During func(Call)
+
 	mu      sync.Mutex
 	faults  map[Op][]Fault
 	calls   []Call
@@ -144,8 +148,13 @@ func SetupTokenOf(approveURL string) string {
 	return u.Query().Get("token")
 }
 
-// begin records a call and returns its fault.
+// begin records a call, calls During, and returns the call's fault with f.mu held; the caller
+// unlocks it.
 func (f *Fake) begin(c Call) Fault {
+	if f.During != nil {
+		f.During(c)
+	}
+	f.mu.Lock()
 	f.calls = append(f.calls, c)
 	q := f.faults[c.Op]
 	if len(q) == 0 {
@@ -161,9 +170,8 @@ func (f *Fake) newID(prefix string) string {
 }
 
 func (f *Fake) CreateSetupToken(_ context.Context, requestID string, urls paypal.URLs) (paypal.SetupToken, paypal.Outcome) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
 	fault := f.begin(Call{Op: CreateSetupToken, RequestID: requestID})
+	defer f.mu.Unlock()
 	if fault == NoAnswer {
 		return paypal.SetupToken{}, paypal.Unknown
 	}
@@ -184,9 +192,9 @@ func (f *Fake) CreateSetupToken(_ context.Context, requestID string, urls paypal
 }
 
 func (f *Fake) SetupTokenApproved(_ context.Context, id string) (approved, ok bool) {
-	f.mu.Lock()
+	fault := f.begin(Call{Op: SetupTokenApproved, ID: id})
 	defer f.mu.Unlock()
-	if fault := f.begin(Call{Op: SetupTokenApproved, ID: id}); fault == NoAnswer || fault == LostAnswer {
+	if fault == NoAnswer || fault == LostAnswer {
 		return false, false
 	}
 	st := f.setups[id]
@@ -194,9 +202,8 @@ func (f *Fake) SetupTokenApproved(_ context.Context, id string) (approved, ok bo
 }
 
 func (f *Fake) CreatePaymentToken(_ context.Context, requestID, setupTokenID string) (string, paypal.Outcome) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
 	fault := f.begin(Call{Op: CreatePaymentToken, RequestID: requestID, ID: setupTokenID})
+	defer f.mu.Unlock()
 	if fault == NoAnswer {
 		return "", paypal.Unknown
 	}
@@ -230,9 +237,9 @@ func (f *Fake) CreatePaymentToken(_ context.Context, requestID, setupTokenID str
 }
 
 func (f *Fake) CheckPaymentToken(_ context.Context, vaultID string) paypal.Presence {
-	f.mu.Lock()
+	fault := f.begin(Call{Op: CheckPaymentToken, ID: vaultID})
 	defer f.mu.Unlock()
-	if fault := f.begin(Call{Op: CheckPaymentToken, ID: vaultID}); fault != NoFault {
+	if fault != NoFault {
 		return paypal.PresenceUnknown
 	}
 	if _, ok := f.vaults[vaultID]; ok {
@@ -242,9 +249,9 @@ func (f *Fake) CheckPaymentToken(_ context.Context, vaultID string) paypal.Prese
 }
 
 func (f *Fake) DeletePaymentToken(_ context.Context, requestID, vaultID string) paypal.Outcome {
-	f.mu.Lock()
+	fault := f.begin(Call{Op: DeletePaymentToken, RequestID: requestID, ID: vaultID})
 	defer f.mu.Unlock()
-	switch f.begin(Call{Op: DeletePaymentToken, RequestID: requestID, ID: vaultID}) {
+	switch fault {
 	case NoAnswer:
 		return paypal.Unknown
 	case Refuse:
