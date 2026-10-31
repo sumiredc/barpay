@@ -181,6 +181,12 @@ var migrations = []string{
 		recorded_at INTEGER NOT NULL     -- Unix nanoseconds
 	);
 	CREATE INDEX staff_events_label ON staff_events (label, seq)`,
+	// Liveliness: the last value the edge device sent, and when BarPay received it.
+	`CREATE TABLE liveliness (
+		id          INTEGER PRIMARY KEY CHECK (id = 1),
+		value       REAL    NOT NULL CHECK (value BETWEEN 0 AND 1),
+		received_at INTEGER NOT NULL -- Unix nanoseconds
+	)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

@@ -25,9 +25,83 @@ servers:
 security:
   - edgeSharedSecret: []
 
-paths: {}
+paths:
+  /signals:
+    post:
+      operationId: sendSignals
+      summary: Send the room's signals
+      description: |
+        PRD: Pricing model → Signals; Guarantees → Privacy; Fixed
+        constraints → Working without hardware.
+
+        Send about every 10 seconds. BarPay keeps the last value it received
+        and uses it for 1 minute after receiving it; from exactly 1 minute
+        on, evaluations run with no liveliness signal, as without the edge
+        device. The time is BarPay's own, when the request arrives.
+
+        Numbers only: a field this schema does not define, or a value that
+        is not a number from 0 to 1, is rejected with `400`
+        `invalid_request` and `details.field` naming it, and nothing is
+        kept. Raw audio never leaves the edge device.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Signals'
+      responses:
+        '204':
+          description: The signals were kept.
+        '400':
+          description: |
+            `invalid_request`: the body is not a `Signals` object.
+            `details.field` names the first bad field.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: '`unauthorized`: the shared secret is missing or wrong, or another key was sent. Nothing is kept.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
 components:
+  schemas:
+    Signals:
+      type: object
+      additionalProperties: false
+      required: [liveliness]
+      properties:
+        liveliness:
+          description: How lively the room sounds, from 0 (quiet) to 1 (loudest), computed on the edge device.
+          type: number
+          minimum: 0
+          maximum: 1
+    Error:
+      type: object
+      description: Every error response; the same shape as in `openapi.yaml`.
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [invalid_request, unauthorized]
+            message:
+              description: For developers.
+              type: string
+            details:
+              type: object
+              additionalProperties: false
+              properties:
+                field:
+                  type: string
   securitySchemes:
     edgeSharedSecret:
       type: http
