@@ -1481,7 +1481,7 @@ components:
       enum: [paypal, register]
     CoverChargeStatus:
       type: string
-      description: '`running`, `paused` (an additional order paused it), `capped` (the cap per visit was reached) or `stopped` (the total is fixed).'
+      description: '`running`, `paused` (an additional order paused it), `capped` (the cap per visit was reached) or `stopped` (the total is fixed). When more than one applies, `stopped` wins, then `capped`, then `paused`.'
       enum: [running, paused, capped, stopped]
     CheckinRequest:
       type: object
