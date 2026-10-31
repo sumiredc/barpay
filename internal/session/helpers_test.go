@@ -28,6 +28,9 @@ var (
 
 const storeAuth = "Bearer k-store"
 
+// noAuth as a call's auth sends no Authorization header.
+const noAuth = "-"
+
 func usd(v int64) money.Amount { return money.New(v, money.USD) }
 
 // startingSettings: blocks of 10 minutes, a pause of 30 minutes and a cap of $30.00.
@@ -71,10 +74,13 @@ func newFixture(t *testing.T) *fixture {
 }
 
 // build makes every in-memory part again from f.st, as a restart does.
-func (f *fixture) build() {
+func (f *fixture) build() { f.buildWith(f.clk) }
+
+// buildWith is build with another clock.
+func (f *fixture) buildWith(clk clock.Clock) {
 	f.wake = &waker{}
 	r := httpapi.NewRouter(keys)
-	API{Store: f.st, Clock: f.clk, Keys: idempotency.New(f.st, f.clk), Notify: f.wake}.Register(r)
+	API{Store: f.st, Clock: clk, Keys: idempotency.New(f.st, clk), Notify: f.wake}.Register(r)
 	f.router = r
 }
 
@@ -87,7 +93,6 @@ func (f *fixture) restart(t *testing.T) {
 
 type call struct {
 	method, path, auth, key, body string
-	noKey                         bool
 }
 
 func (f *fixture) do(c call) *httptest.ResponseRecorder {
@@ -95,7 +100,9 @@ func (f *fixture) do(c call) *httptest.ResponseRecorder {
 		c.auth = storeAuth
 	}
 	req := httptest.NewRequest(c.method, c.path, strings.NewReader(c.body))
-	req.Header.Set("Authorization", c.auth)
+	if c.auth != noAuth {
+		req.Header.Set("Authorization", c.auth)
+	}
 	req.Header.Set("BarPay-Staff-Id", "staff_1")
 	if c.key != "" {
 		req.Header.Set("Idempotency-Key", c.key)

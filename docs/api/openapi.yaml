@@ -137,7 +137,15 @@ paths:
         Adds an order to the session's running total. `order_id` is the dedup
         key within the session: reporting the same order again records it
         once, does not restart the pause, and returns `200` with the order as
-        first recorded, even after the session is no longer active.
+        first recorded, even after the session is no longer active. The same
+        order has the same lines in the same order, each with the same name,
+        quantity and unit price.
+
+        A request is checked in this order, and the first failure is
+        returned: the body (`400`), the session (`404`), an `order_id`
+        already recorded (`200`, or `409` `order_conflict`), the currency
+        (`422` `currency_mismatch`), the session's state (`409`
+        `session_not_active`), the total (`422` `amount_too_large`).
       requestBody:
         required: true
         content:
@@ -162,13 +170,21 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
-          $ref: '#/components/responses/SessionNotFound'
+          description: |
+            `session_not_found`: no session has this ID. Nothing is recorded,
+            and no alert is raised: there is no customer for staff to see to.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '409':
           description: |
             `session_not_active`: the session is at the register, checking
-            out, payment failed or ended; the order is not recorded and an
-            alert is raised. `order_conflict`: the `order_id` was already
-            recorded with different lines.
+            out, payment failed or ended; the order is not recorded and a
+            `late_order_rejected` alert is raised for the session, once for
+            each such report, a resend included.
+            `order_conflict`: the `order_id` was already recorded with
+            different lines; the recorded order stays as it was.
           content:
             application/json:
               schema:
@@ -176,6 +192,8 @@ paths:
         '422':
           description: |
             `currency_mismatch`: an amount is not in the store's currency.
+            `amount_too_large`: with this order, the session's `total` would
+            be above the maximum of `Total`; the order is not recorded.
           content:
             application/json:
               schema:
@@ -1519,7 +1537,10 @@ components:
         the amount staff record against a total. The same form as `Money`,
         with a higher maximum, the largest integer a JSON reader keeps
         exactly: the lines of one order can add up to more than `Money`'s
-        maximum, and so can a visit.
+        maximum, and so can a visit. BarPay rejects an order that would
+        bring a session's `total` above 9,000,000,000,000,000 (`reportOrder`,
+        `amount_too_large`), which leaves room under this maximum for the
+        cover charge that accrues afterwards.
       required: [value, currency]
       additionalProperties: false
       properties:
@@ -2362,6 +2383,7 @@ components:
                 - session_not_active
                 - order_conflict
                 - currency_mismatch
+                - amount_too_large
                 - member_has_open_session
                 - idempotency_key_reused
                 - idempotency_key_in_progress

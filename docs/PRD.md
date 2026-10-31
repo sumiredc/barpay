@@ -260,10 +260,12 @@ Staff act through the store app's admin screen, which calls BarPay's admin API.
 
 - **Precondition**: the session is active.
 - **Main flow**: the customer orders in the store app; the store app sends BarPay the order lines and amounts. BarPay adds them to the session. From the second order of the visit, the cover charge pauses as in the [Pricing model](#4-pricing-model).
-- **Exception**: the session is not active (at the register, checking out, payment failed, closed, closed unpaid, unknown) → rejected and raised as an alert; anything already served is collected by the store outside BarPay.
+- **Exception**: the session is not active (at the register, checking out, payment failed, closed, closed unpaid) → rejected and raised as an alert; anything already served is collected by the store outside BarPay.
+- **Exception**: no session has the ID → rejected; no alert is raised, since there is no customer for staff to see to, and requests with made-up IDs cannot fill the alerts.
 - **Exception**: the same order is reported twice (same order ID) → recorded once, and the pause is not restarted; this holds even after the session is no longer active.
 - **Exception**: an order ID already recorded comes with different lines → rejected; the recorded order stays as it was.
 - **Exception**: an amount is negative or in another currency → rejected.
+- **Exception**: with the order, the running total would be above 9,000,000,000,000,000 in the currency's smallest unit, which leaves room under the largest total BarPay holds (the API spec's `Total`) for the cover charge that accrues afterwards → rejected; nothing is recorded.
 - **Postcondition**: the running total includes the order.
 
 ### UC5 — Customer checks out at the exit gate

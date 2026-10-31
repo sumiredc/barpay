@@ -143,6 +143,17 @@ var migrations = []string{
 	CREATE UNIQUE INDEX sessions_one_open_per_member ON sessions (member_id)
 		WHERE member_id IS NOT NULL AND state NOT IN ('closed', 'closed_unpaid');
 	CREATE INDEX sessions_state ON sessions (state)`,
+	// Orders: the spec's Order as first recorded. order_id is unique within its session, so the
+	// same order reported twice is recorded once (UC4).
+	`CREATE TABLE orders (
+		seq         INTEGER PRIMARY KEY, -- recording order
+		session_id  TEXT    NOT NULL REFERENCES sessions (id),
+		order_id    TEXT    NOT NULL,
+		lines       TEXT    NOT NULL,    -- JSON of the spec's OrderLine array, as returned
+		amount      INTEGER NOT NULL CHECK (amount >= 0),
+		recorded_at INTEGER NOT NULL,    -- Unix nanoseconds
+		UNIQUE (session_id, order_id)
+	)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

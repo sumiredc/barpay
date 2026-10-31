@@ -49,8 +49,12 @@ func (f *fixture) chargeAt(t *testing.T, id string, at time.Time) pricing.CoverC
 		if err != nil {
 			return err
 		}
+		times, _, err := orders(context.Background(), q, id)
+		if err != nil {
+			return err
+		}
 		cc, err = pricing.ChargeAt(context.Background(), q, money.USD,
-			pricing.Visit{CheckedInAt: s.CheckedInAt, TotalFixedAt: s.TotalFixedAt}, at)
+			pricing.Visit{CheckedInAt: s.CheckedInAt, Orders: times, TotalFixedAt: s.TotalFixedAt}, at)
 		return err
 	})
 	if err != nil {

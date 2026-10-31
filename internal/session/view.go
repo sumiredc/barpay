@@ -35,9 +35,12 @@ type View struct {
 // shown as at that instant, so what it shows no longer changes with time: the amount checkout
 // charges or staff collect is the amount the panel showed.
 func view(ctx context.Context, q store.Querier, s Session, now time.Time) (View, error) {
-	visit := pricing.Visit{CheckedInAt: s.CheckedInAt, TotalFixedAt: s.TotalFixedAt}
+	times, ordersTotal, err := orders(ctx, q, s.ID)
+	if err != nil {
+		return View{}, err
+	}
+	visit := pricing.Visit{CheckedInAt: s.CheckedInAt, Orders: times, TotalFixedAt: s.TotalFixedAt}
 	var rate pricing.Point
-	var err error
 	if s.TotalFixedAt.IsZero() {
 		rate, err = pricing.Current(ctx, q, s.Currency)
 	} else {
@@ -52,8 +55,8 @@ func view(ctx context.Context, q store.Querier, s Session, now time.Time) (View,
 	if err != nil {
 		return View{}, err
 	}
-	orders := money.New(0, s.Currency)
-	total, err := orders.Add(cc.Amount)
+	ot := money.New(ordersTotal, s.Currency)
+	total, err := ot.Add(cc.Amount)
 	if err != nil {
 		return View{}, err
 	}
@@ -65,7 +68,8 @@ func view(ctx context.Context, q store.Querier, s Session, now time.Time) (View,
 		CheckedInAt:       httpapi.FormatTime(s.CheckedInAt),
 		RatePerHour:       httpapi.ToMoney(rate.Rate),
 		CoverChargeStatus: cc.Status,
-		OrdersTotal:       httpapi.ToMoney(orders),
+		OrdersTotal:       httpapi.ToMoney(ot),
+		OrderCount:        len(times),
 		CoverCharge:       httpapi.ToMoney(cc.Amount),
 		Total:             httpapi.ToMoney(total),
 	}
