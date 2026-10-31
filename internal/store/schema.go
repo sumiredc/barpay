@@ -21,6 +21,18 @@ var migrations = []string{
 		goal          INTEGER NOT NULL,
 		updated_at    INTEGER NOT NULL -- Unix nanoseconds
 	)`,
+	// Alerts: the spec's Alert. kind lists the spec's enum, as alert.Kinds does.
+	`CREATE TABLE alerts (
+		seq        INTEGER PRIMARY KEY, -- raising order
+		id         TEXT    NOT NULL UNIQUE,
+		kind       TEXT    NOT NULL CHECK (kind IN ('payment_failed', 'unlock_failed',
+			'register_requested', 'late_order_rejected', 'max_stay_reached',
+			'notification_given_up', 'deletion_failing', 'currency_change_pending')),
+		raised_at  INTEGER NOT NULL, -- Unix nanoseconds
+		session_id TEXT    NOT NULL, -- '' when not about a session
+		member_id  TEXT    NOT NULL, -- '' when not about a member
+		message    TEXT    NOT NULL CHECK (length(message) BETWEEN 1 AND 500)
+	)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
