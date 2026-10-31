@@ -1,7 +1,6 @@
 openapi: 3.1.0
 info:
   title: BarPay API
-  version: 0.2.0
   summary: The contract between a store's mobile order app and BarPay.
   description: |
     The calls a store app makes to BarPay from its server, the notifications
