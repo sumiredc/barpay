@@ -3,6 +3,7 @@ package settings
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -116,5 +117,78 @@ func TestInvalidSettingsAreNotSaved(t *testing.T) {
 	}
 	if _, ok, _ := Load(ctx, s.Read()); ok {
 		t.Error("invalid settings were saved")
+	}
+}
+
+func save(t *testing.T, st *store.Store, s Settings, at time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	if err := st.Tx(ctx, func(tx store.Querier) error { return Save(ctx, tx, s, at) }); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Every save is kept with its time, so the settings in effect at any past instant can be read
+// after a restart (the PRD's Pricing model, Settings changes; Guarantees, Durability).
+func TestHistoryKeepsEveryChange(t *testing.T) {
+	ctx := context.Background()
+	st := storetest.Open(t)
+	t0 := time.Date(2026, 10, 31, 18, 0, 0, 0, time.UTC)
+	a, b, c := valid(), valid(), valid()
+	b.BlockMinutes, c.BlockMinutes = 15, 20
+	save(t, st, a, t0)
+	save(t, st, b, t0.Add(time.Hour))
+	save(t, st, c, t0.Add(2*time.Hour))
+	st = storetest.Reopen(t, st)
+
+	cases := []struct {
+		since time.Time
+		want  []int // block minutes, oldest first
+	}{
+		{t0.Add(-time.Minute), []int{10, 15, 20}}, // before the first change: every change
+		{t0, []int{10, 15, 20}},
+		{t0.Add(time.Hour - 1), []int{10, 15, 20}},
+		{t0.Add(time.Hour), []int{15, 20}}, // a change at since is in effect at since
+		{t0.Add(3 * time.Hour), []int{20}},
+	}
+	for _, tc := range cases {
+		h, err := History(ctx, st.Read(), tc.since)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []int
+		for _, ch := range h {
+			got = append(got, ch.BlockMinutes)
+		}
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("History(%v) = %v, want %v", tc.since.Sub(t0), got, tc.want)
+		}
+	}
+	h, _ := History(ctx, st.Read(), t0)
+	if h[1].At != t0.Add(time.Hour) || h[1].Settings != b {
+		t.Errorf("second change = %+v, want %+v at +1h", h[1], b)
+	}
+}
+
+// A clock set back does not put a change before the one saved earlier.
+func TestHistoryTimesDoNotGoBack(t *testing.T) {
+	st := storetest.Open(t)
+	t0 := time.Date(2026, 10, 31, 18, 0, 0, 0, time.UTC)
+	save(t, st, valid(), t0)
+	save(t, st, valid(), t0.Add(-time.Minute))
+	h, err := History(context.Background(), st.Read(), t0.Add(-time.Hour))
+	if err != nil || len(h) != 2 || h[1].At.Before(h[0].At) {
+		t.Errorf("History = %+v, %v; want two changes in time order", h, err)
+	}
+}
+
+func TestInvalidSettingsAddNoChange(t *testing.T) {
+	ctx := context.Background()
+	st := storetest.Open(t)
+	bad := valid()
+	bad.Floor = usd(601)
+	_ = st.Tx(ctx, func(tx store.Querier) error { return Save(ctx, tx, bad, time.Unix(0, 0)) })
+	if h, _ := History(ctx, st.Read(), time.Unix(0, 0)); len(h) != 0 {
+		t.Errorf("History = %+v after an invalid save, want none", h)
 	}
 }

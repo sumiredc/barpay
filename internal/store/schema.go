@@ -62,6 +62,22 @@ var migrations = []string{
 		CHECK ((status = 'retrying') = (next_attempt_at IS NOT NULL))
 	);
 	CREATE INDEX notifications_due ON notifications (next_attempt_at) WHERE status = 'retrying'`,
+	// Settings changes: every saved settings, kept so a session's cover charge can be computed
+	// with the settings in effect at each block (the PRD's Pricing model, Settings changes).
+	// at never goes back from one row to the next. The settings saved before this step are copied in.
+	`CREATE TABLE settings_changes (
+		seq           INTEGER PRIMARY KEY,
+		currency      TEXT    NOT NULL,
+		floor         INTEGER NOT NULL,
+		ceiling       INTEGER NOT NULL,
+		block_minutes INTEGER NOT NULL,
+		pause_minutes INTEGER NOT NULL,
+		cap_per_visit INTEGER NOT NULL,
+		goal          INTEGER NOT NULL,
+		at            INTEGER NOT NULL -- Unix nanoseconds
+	);
+	INSERT INTO settings_changes (currency, floor, ceiling, block_minutes, pause_minutes, cap_per_visit, goal, at)
+		SELECT currency, floor, ceiling, block_minutes, pause_minutes, cap_per_visit, goal, updated_at FROM settings`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
