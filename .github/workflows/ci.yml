@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  openapi:
+    name: OpenAPI lint
+    runs-on: arc-runner-barpay
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npx --yes @redocly/cli@2.72.1 lint docs/api/openapi.yaml
+
+  bilingual-docs:
+    name: Bilingual docs
+    runs-on: arc-runner-barpay
+    steps:
+      # The script lists files with git ls-files, so checkout must fetch with git.
+      - name: Install git if missing
+        run: command -v git >/dev/null || { sudo apt-get update && sudo apt-get install -y git; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: scripts/check-bilingual-docs.sh
