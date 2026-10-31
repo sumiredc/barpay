@@ -2,6 +2,8 @@ package session
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"time"
 
 	"github.com/sumiredc/barpay/internal/httpapi"
@@ -29,13 +31,24 @@ type View struct {
 }
 
 // view shows s at now, reading through q. q must give every read the same state (a transaction),
-// so the rate, the cover charge and the total it shows agree.
+// so the rate, the cover charge and the total it shows agree. A session whose total is fixed is
+// shown as at that instant, so what it shows no longer changes with time: the amount checkout
+// charges or staff collect is the amount the panel showed.
 func view(ctx context.Context, q store.Querier, s Session, now time.Time) (View, error) {
-	cc, err := pricing.ChargeAt(ctx, q, s.Currency, pricing.Visit{CheckedInAt: s.CheckedInAt}, now)
+	visit := pricing.Visit{CheckedInAt: s.CheckedInAt, TotalFixedAt: s.TotalFixedAt}
+	var rate pricing.Point
+	var err error
+	if s.TotalFixedAt.IsZero() {
+		rate, err = pricing.Current(ctx, q, s.Currency)
+	} else {
+		now = s.TotalFixedAt
+		// TODO(#19): an ended session from before a currency change finds no rate in its currency; show it from its stored receipt.
+		rate, err = pricing.At(ctx, q, s.Currency, now)
+	}
 	if err != nil {
 		return View{}, err
 	}
-	rate, err := pricing.Current(ctx, q, s.Currency)
+	cc, err := pricing.ChargeAt(ctx, q, s.Currency, visit, now)
 	if err != nil {
 		return View{}, err
 	}
@@ -59,5 +72,43 @@ func view(ctx context.Context, q store.Querier, s Session, now time.Time) (View,
 	if s.MemberID != "" {
 		v.MemberID = &s.MemberID
 	}
+	if !s.TotalFixedAt.IsZero() {
+		v.TotalFixedAt = httpapi.FormatTime(s.TotalFixedAt)
+	}
+	// TODO(#19): unpaid_amount and the receipt, once checkout and its results are stored.
 	return v, nil
+}
+
+// lookup shows the session with id as at the clock's time, from one state of the store.
+// That state may predate a rate or an order committed at the same moment near a block end;
+// it decides only what the panel shows, never an amount that is charged.
+func (a API) lookup(ctx context.Context, id string) (View, error) {
+	var v View
+	err := a.Store.View(ctx, func(q store.Querier) error {
+		s, err := get(ctx, q, id)
+		if err != nil {
+			return err
+		}
+		v, err = view(ctx, q, s, a.Clock.Now())
+		return err
+	})
+	return v, err
+}
+
+// getSession is the lookup of the PRD's Responsibilities, Lookup and Panel, and Guarantees,
+// Transparency.
+func (a API) getSession(w http.ResponseWriter, req *http.Request) {
+	v, err := a.lookup(req.Context(), req.PathValue("session_id"))
+	switch {
+	case errors.Is(err, errNotFound):
+		writeNotFound(w)
+	case err != nil:
+		httpapi.WriteInternal(w)
+	default:
+		httpapi.WriteJSON(w, http.StatusOK, v)
+	}
+}
+
+func writeNotFound(w http.ResponseWriter) {
+	httpapi.WriteError(w, http.StatusNotFound, codeSessionNotFound, "No session has this ID.", "")
 }

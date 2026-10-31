@@ -191,6 +191,7 @@ Linking PayPal is optional and moves no money: it saves a member's PayPal for th
 - **The store's own PayPal**: BarPay calls PayPal with the store's REST credentials and keeps them as secrets.
 - **Approval for saved PayPal**: in production, saving PayPal for merchant-initiated charges needs PayPal's approval for reference transactions. It does not block the sandbox.
 - **Currency**: each store picks JPY or USD; all amounts in that store use it. JPY has no decimal places. JPY in the sandbox depends on [Open question 3](#12-open-questions).
+- **Clock**: BarPay assumes its server's clock never steps back; keep it synchronized by adjusting it gradually (slewing), never by stepping it. Every amount and time limit is computed from the instants BarPay stored (check-in, orders, published rates, settings changes), so a clock set back could give a rate or an order a time before a block that has already ended and change that block's amount, which the [Pricing model](#4-pricing-model), Blocks forbids.
 - **Hardware**: Raspberry Pi 5, a USB QR reader that acts as a keyboard, a SwitchBot Lock over BLE. The lock needs its MAC address, key ID and encryption key, read from environment variables.
 - **AI**: the pricing agent runs on a local LLM that the BarPay backend reaches over the network; there is no per-call cost.
 - **Secrets**: PayPal credentials, the store API key, the admin API key, the notification signing secret, the edge device's shared secret and the SwitchBot keys never enter the public repository.

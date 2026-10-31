@@ -48,6 +48,24 @@ func Current(ctx context.Context, q store.Querier, cur money.Currency) (Point, e
 	return ps[0], nil
 }
 
+// At returns the rate in cur in effect at t: the last published at or before it, the same rule
+// Charge uses for a block's rate. It returns ErrNoRate when none was published by t.
+func At(ctx context.Context, q store.Querier, cur money.Currency, t time.Time) (Point, error) {
+	rows, err := q.QueryContext(ctx, `WITH c AS (`+inCurrency+`)
+		SELECT * FROM c WHERE published_at <= ?2 ORDER BY seq DESC LIMIT 1`, string(cur), t.UnixNano())
+	if err != nil {
+		return Point{}, fmt.Errorf("pricing: rate at: %w", err)
+	}
+	ps, err := scan(rows, cur)
+	if err != nil {
+		return Point{}, fmt.Errorf("pricing: rate at: %w", err)
+	}
+	if len(ps) == 0 {
+		return Point{}, ErrNoRate
+	}
+	return ps[0], nil
+}
+
 // History returns the rates in cur from since, oldest first: the one in effect at since (none
 // if since is before the first) and every later one, at most limit of the most recent.
 func History(ctx context.Context, q store.Querier, cur money.Currency, since time.Time, limit int) ([]Point, error) {

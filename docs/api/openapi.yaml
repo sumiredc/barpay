@@ -106,6 +106,12 @@ paths:
         session has ended, its receipt. Use it to draw the panel, to confirm
         a result and to recover missed notifications. The rate over the visit
         comes from `getRateHistory` with `since` set to `checked_in_at`.
+
+        The values come from one consistent state, computed at the instant
+        of the request, or at `total_fixed_at` once the total is fixed:
+        `rate_per_hour`, `cover_charge` and `total` agree even when a rate is
+        published during the request, and a session whose total is fixed
+        shows the same values at every later request.
       responses:
         '200':
           description: The session.
