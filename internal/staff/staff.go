@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/sumiredc/barpay/internal/clock"
 	"github.com/sumiredc/barpay/internal/store"
 )
 
@@ -47,16 +48,29 @@ type Action struct {
 }
 
 // Tx runs fn in one transaction with c recorded in it, so the staff member is stored exactly
-// when the change is. Every admin request that changes something makes its change through Tx.
+// when the change is. Every admin request that changes something makes its change through Tx
+// or TxNow.
 func Tx(ctx context.Context, st *store.Store, c Change, fn func(tx store.Querier) error) error {
+	if c.At.IsZero() {
+		return errors.New("staff: change needs a time")
+	}
+	return TxNow(ctx, st, instant(c.At), c, func(tx store.Querier, _ time.Time) error { return fn(tx) })
+}
+
+// TxNow is Tx with the time of the change read from clk once the transaction holds the write
+// lock, passed to fn and recorded with c; c.At is ignored. A change whose time orders it against
+// changes stored by other requests, such as fixing a session's total, takes its time this way,
+// so a change stored later never has an earlier time.
+func TxNow(ctx context.Context, st *store.Store, clk clock.Clock, c Change, fn func(tx store.Querier, now time.Time) error) error {
 	if !idPattern.MatchString(string(c.Staff)) {
 		return ErrInvalidID
 	}
-	if c.Operation == "" || c.Subject == "" || c.At.IsZero() {
-		return errors.New("staff: change needs an operation, a subject and a time")
+	if c.Operation == "" || c.Subject == "" {
+		return errIncomplete
 	}
 	return st.Tx(ctx, func(tx store.Querier) error {
-		if err := fn(tx); err != nil {
+		c.At = clk.Now()
+		if err := fn(tx, c.At); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx, `INSERT INTO staff_actions (staff_id, operation, subject, at) VALUES (?, ?, ?, ?)`,
@@ -67,6 +81,13 @@ func Tx(ctx context.Context, st *store.Store, c Change, fn func(tx store.Querier
 		return nil
 	})
 }
+
+var errIncomplete = errors.New("staff: change needs an operation and a subject")
+
+// instant is a clock that always reads one time.
+type instant time.Time
+
+func (i instant) Now() time.Time { return time.Time(i) }
 
 // Actions returns the recorded changes to subject, oldest first.
 func Actions(ctx context.Context, q store.Querier, subject string) ([]Action, error) {

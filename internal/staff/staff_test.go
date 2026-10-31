@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sumiredc/barpay/internal/clock"
 	"github.com/sumiredc/barpay/internal/money"
 	"github.com/sumiredc/barpay/internal/settings"
 	"github.com/sumiredc/barpay/internal/staff"
@@ -73,6 +74,26 @@ func TestChangeWithoutValidStaffIsRefused(t *testing.T) {
 	}
 	if ran {
 		t.Error("the change ran without a valid staff ID")
+	}
+}
+
+// TxNow records the change at the time it read inside the transaction and gave fn, not at c.At.
+func TestTxNowRecordsTheTimeItGaveTheChange(t *testing.T) {
+	ctx := context.Background()
+	st := storetest.Open(t)
+	clk := clock.NewFake(at.Add(time.Minute))
+	var seen time.Time
+	err := staff.TxNow(ctx, st, clk, staff.Change{Staff: "staff_7", Operation: "markUnpaid", Subject: "s", At: at},
+		func(_ store.Querier, now time.Time) error { seen = now; return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions, err := staff.Actions(ctx, st.Read(), "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := at.Add(time.Minute); !seen.Equal(want) || len(actions) != 1 || !actions[0].At.Equal(want) {
+		t.Errorf("fn saw %v, recorded %+v; want both at %v", seen, actions, want)
 	}
 }
 
