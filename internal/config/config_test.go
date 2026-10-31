@@ -300,6 +300,48 @@ func TestDurationsMustBeStrings(t *testing.T) {
 	}
 }
 
+// The PRD's UC8 exception for the notification URL.
+func TestNotificationURL(t *testing.T) {
+	accepted := []string{
+		"https://store.example/barpay/notify",
+		"https://203.0.113.7:8443/notify",
+		"http://127.0.0.1:9000/notify",
+		"http://127.255.0.9/notify",
+		"http://[::1]:9000/notify",
+	}
+	for _, u := range accepted {
+		t.Run(u, func(t *testing.T) {
+			cfg := mustParse(t, with(t, "notifications.url", `url = "`+u+`"`))
+			if cfg.NotificationURL != u {
+				t.Errorf("NotificationURL = %q, want %q", cfg.NotificationURL, u)
+			}
+		})
+	}
+	refused := map[string]string{
+		"http://localhost:9000/notify": "localhost",
+		"http://LOCALHOST/notify":      "localhost",
+		"http://store.example/notify":  "https",
+		"http://192.0.2.10/notify":     "https",
+		"http://128.0.0.1/notify":      "https",
+		"http://[::2]/notify":          "https",
+		"http://[::ffff:127.0.0.1]/n":  "https",
+		"http://127.0.0.1.example/n":   "https",
+		"ftp://store.example/notify":   "https",
+		"ws://127.0.0.1/notify":        "https",
+		"store.example/notify":         "absolute URL",
+		"https:///notify":              "absolute URL",
+		"https:store.example":          "absolute URL",
+	}
+	for u, why := range refused {
+		t.Run(u, func(t *testing.T) {
+			ce := mustFail(t, with(t, "notifications.url", `url = "`+u+`"`), "notifications.url")
+			if !strings.Contains(ce.Error(), why) {
+				t.Errorf("error does not say why (%q): %v", why, ce)
+			}
+		})
+	}
+}
+
 func TestDatabasePathWithoutURISeparators(t *testing.T) {
 	for _, p := range []string{"barpay.db?mode=memory", "data#1.db"} {
 		mustFail(t, with(t, "database_path", `database_path = "`+p+`"`), "database_path")

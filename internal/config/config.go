@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -253,6 +255,37 @@ func (c *checker) databasePath(p string) string {
 	return p
 }
 
+// notificationURL enforces the PRD's UC8 exception for the notification URL: https, or http to
+// a loopback IP address written as one. A name such as localhost is refused even over http,
+// because what it resolves to is not known when the file is read.
+func (c *checker) notificationURL(v string) string {
+	const key = "notifications.url"
+	if c.text(key, v) == "" {
+		return v
+	}
+	// The reasons do not quote the URL: it can carry credentials in its user info or query.
+	u, err := url.Parse(v)
+	if err != nil || !u.IsAbs() || u.Host == "" || u.Opaque != "" {
+		c.add(key, "must be an absolute URL such as https://store.example/barpay")
+		return v
+	}
+	switch u.Scheme {
+	case "https":
+		return v
+	case "http":
+		// An IPv4-mapped IPv6 address such as ::ffff:127.0.0.1 is refused: the PRD names only
+		// 127.0.0.0/8 written as IPv4, and ::1.
+		host := u.Hostname()
+		if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() && (ip.Equal(net.IPv6loopback) || !strings.Contains(host, ":")) {
+			return v
+		}
+		c.add(key, "must use https; http is accepted only to a loopback IP address such as 127.0.0.1 or [::1], not to a name such as localhost")
+	default:
+		c.add(key, "must use https")
+	}
+	return v
+}
+
 func (c *checker) build(f *file, opts Options) *Config {
 	cfg := &Config{
 		ListenAddress: c.text("listen_address", f.ListenAddress),
@@ -264,7 +297,7 @@ func (c *checker) build(f *file, opts Options) *Config {
 		AdminAPIKey:        c.credential("keys.admin_api_key", f.Keys.AdminAPIKey),
 		EdgeSharedSecret:   c.credential("keys.edge_shared_secret", f.Keys.EdgeSharedSecret),
 
-		NotificationURL:           c.text("notifications.url", f.Notifications.URL),
+		NotificationURL:           c.notificationURL(f.Notifications.URL),
 		NotificationSigningSecret: c.credential("notifications.signing_secret", f.Notifications.SigningSecret),
 		StoreAppOrigin:            c.text("store_app_origin", f.StoreAppOrigin),
 

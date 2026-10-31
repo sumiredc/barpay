@@ -29,9 +29,9 @@ func TestMissingConfigFileDoesNotStart(t *testing.T) {
 	}
 }
 
-// With a complete config file BarPay serves, refuses a request without a key, and stops cleanly.
-func TestStartsServesAndStops(t *testing.T) {
-	dir := t.TempDir()
+// writeConfig writes a complete config file into dir, from the sample, with notificationURL.
+func writeConfig(t *testing.T, dir, notificationURL string) string {
+	t.Helper()
 	sample, err := os.ReadFile("../../barpay.example.toml")
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +46,7 @@ func TestStartsServesAndStops(t *testing.T) {
 		{`edge_shared_secret = ""`, `edge_shared_secret = "k-edge"`},
 		{`client_id = ""`, `client_id = "id"`},
 		{`client_secret = ""`, `client_secret = "secret"`},
-		{`url = ""`, `url = "https://store.example/notify"`},
+		{`url = ""`, `url = "` + notificationURL + `"`},
 		{`signing_secret = ""`, `signing_secret = "sig"`},
 		{`address = ""`, `address = "http://llm.example"`},
 		{`model = ""`, `model = "m"`},
@@ -60,6 +60,23 @@ func TestStartsServesAndStops(t *testing.T) {
 	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	return path
+}
+
+func TestPlainHTTPNotificationURLDoesNotStart(t *testing.T) {
+	var stderr bytes.Buffer
+	path := writeConfig(t, t.TempDir(), "http://localhost:3000/notify")
+	if code := run(context.Background(), []string{"-config", path}, &stderr, nil); code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "notifications.url: must use https") {
+		t.Errorf("stderr does not say why:\n%s", stderr.String())
+	}
+}
+
+// With a complete config file BarPay serves, refuses a request without a key, and stops cleanly.
+func TestStartsServesAndStops(t *testing.T) {
+	path := writeConfig(t, t.TempDir(), "https://store.example/notify")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -81,6 +98,17 @@ func TestStartsServesAndStops(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("request without a key: status = %d, want 401", resp.StatusCode)
+	}
+	req, _ := http.NewRequest(http.MethodGet, "http://"+a.String()+"/v1/admin/notifications", nil)
+	req.Header.Set("Authorization", "Bearer k-admin")
+	req.Header.Set("BarPay-Staff-Id", "staff_1")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("listNotifications: status = %d, want 200", resp.StatusCode)
 	}
 
 	cancel()
