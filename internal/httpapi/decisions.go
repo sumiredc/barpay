@@ -24,7 +24,7 @@ type decisionJSON struct {
 	Inputs      *inputsJSON       `json:"inputs"`
 	Proposal    *Money            `json:"proposal"`
 	Reasoning   *string           `json:"reasoning"`
-	Published   ratePointJSON     `json:"published"`
+	Published   RatePoint         `json:"published"`
 	Explanation string            `json:"explanation"`
 	Fallback    *pricing.Fallback `json:"fallback"`
 }
@@ -32,7 +32,7 @@ type decisionJSON struct {
 func toDecision(d pricing.Decision) decisionJSON {
 	j := decisionJSON{
 		DecidedAt: FormatTime(d.DecidedAt), Trigger: d.Trigger, StaffID: d.Staff, Reasoning: d.Reasoning,
-		Published: toRatePoint(d.Published), Explanation: d.Explanation,
+		Published: ToRatePoint(d.Published), Explanation: d.Explanation,
 	}
 	if in := d.Inputs; in != nil {
 		events := in.StaffEvents

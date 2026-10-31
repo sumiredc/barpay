@@ -28,14 +28,16 @@ func (p Pricing) Register(r *Router) {
 	r.Admin("GET /decisions", http.HandlerFunc(p.listDecisions))
 }
 
-type ratePointJSON struct {
+// RatePoint is the spec's RatePoint.
+type RatePoint struct {
 	RatePerHour Money  `json:"rate_per_hour"`
 	Change      Money  `json:"change"`
 	PublishedAt string `json:"published_at"`
 }
 
-func toRatePoint(p pricing.Point) ratePointJSON {
-	return ratePointJSON{RatePerHour: ToMoney(p.Rate), Change: ToMoney(p.Change), PublishedAt: FormatTime(p.PublishedAt)}
+// ToRatePoint writes p as the spec's RatePoint.
+func ToRatePoint(p pricing.Point) RatePoint {
+	return RatePoint{RatePerHour: ToMoney(p.Rate), Change: ToMoney(p.Change), PublishedAt: FormatTime(p.PublishedAt)}
 }
 
 var (
@@ -59,7 +61,7 @@ func (p Pricing) getRate(w http.ResponseWriter, req *http.Request) {
 		WriteInternal(w)
 		return
 	}
-	WriteJSON(w, http.StatusOK, toRatePoint(pt))
+	WriteJSON(w, http.StatusOK, ToRatePoint(pt))
 }
 
 func (p Pricing) getRateHistory(w http.ResponseWriter, req *http.Request) {
@@ -89,10 +91,10 @@ func (p Pricing) getRateHistory(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	out := struct {
-		Rates []ratePointJSON `json:"rates"`
-	}{Rates: make([]ratePointJSON, len(pts))}
+		Rates []RatePoint `json:"rates"`
+	}{Rates: make([]RatePoint, len(pts))}
 	for i, pt := range pts {
-		out.Rates[i] = toRatePoint(pt)
+		out.Rates[i] = ToRatePoint(pt)
 	}
 	WriteJSON(w, http.StatusOK, out)
 }
