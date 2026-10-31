@@ -11,7 +11,7 @@ The repository is public and read in English; the Japanese copy is for the autho
 ## Rules
 
 - **English is the source of truth.** Write or change `<name>.md` first, then bring `<name>.ja.md` in line with it.
-- **Change both in the same commit.** A commit that touches one without the other leaves them out of sync.
+- **Change both in the same commit.** A commit that touches one without the other leaves them out of sync. Exception: when an outside contributor changes only the English file, the maintainer adds the translation in a separate commit on the same branch before merging; the pair must be in sync when it is merged.
 - **Rename and delete together.** `PRD.md` → `docs/PRD.md` also moves `PRD.ja.md` → `docs/PRD.ja.md`.
 - **No Japanese-only documents in the repository.** A draft written in Japanese first is either turned into an English `.md` with its `.ja.md`, or kept outside the repository.
 - **Each file points to the other**, right under the title:
