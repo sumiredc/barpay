@@ -51,6 +51,7 @@ type fixture struct {
 	st     *store.Store
 	clk    *clock.Fake
 	wake   *waker
+	api    API
 	router *httpapi.Router
 }
 
@@ -80,7 +81,8 @@ func (f *fixture) build() { f.buildWith(f.clk) }
 func (f *fixture) buildWith(clk clock.Clock) {
 	f.wake = &waker{}
 	r := httpapi.NewRouter(keys)
-	API{Store: f.st, Clock: clk, Keys: idempotency.New(f.st, clk), Notify: f.wake}.Register(r)
+	f.api = API{Store: f.st, Clock: clk, Keys: idempotency.New(f.st, clk), Notify: f.wake}
+	f.api.Register(r)
 	f.router = r
 }
 

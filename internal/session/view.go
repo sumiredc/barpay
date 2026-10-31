@@ -107,18 +107,31 @@ func paymentMethod(linked bool, state State) string {
 
 // lookup shows the session with id as at the clock's time, from one state of the store.
 // That state may predate a rate or an order committed at the same moment near a block end;
-// it decides only what the panel shows, never an amount that is charged.
+// it decides only what the panel shows, never an amount that is charged. A session that reached
+// its 3-day limit is closed first, so it is shown as ended from that instant.
 func (a API) lookup(ctx context.Context, id string) (View, error) {
-	var v View
-	err := a.Store.View(ctx, func(q store.Querier) error {
+	v, due, err := a.read(ctx, id)
+	if err == nil && due {
+		if err = a.closeIfDue(ctx, id); err == nil {
+			v, _, err = a.read(ctx, id)
+		}
+	}
+	return v, err
+}
+
+// read is lookup without closing: it also tells whether the session reached its 3-day limit.
+func (a API) read(ctx context.Context, id string) (v View, due bool, err error) {
+	err = a.Store.View(ctx, func(q store.Querier) error {
 		s, err := get(ctx, q, id)
 		if err != nil {
 			return err
 		}
-		v, err = view(ctx, q, s, a.Clock.Now())
+		now := a.Clock.Now()
+		due = pastLimit(s, now)
+		v, err = view(ctx, q, s, now)
 		return err
 	})
-	return v, err
+	return v, due, err
 }
 
 // getSession is the lookup of the PRD's Responsibilities, Lookup and Panel, and Guarantees,

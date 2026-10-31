@@ -25,9 +25,14 @@ type sessionData struct {
 // requestRegister is the customer choosing to pay at the register (the PRD's UC6 main flow). The
 // move to at_register, its alert and its session.register_requested notification are stored in
 // one transaction. A repeat for a session already at the register changes nothing and returns
-// it as it is: the request cannot be withdrawn, and the store app is notified once.
+// it as it is: the request cannot be withdrawn, and the store app is notified once. One that
+// reached its 3-day limit has ended, and is refused.
 func (a API) requestRegister(w http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
+	if err := a.closeIfDue(ctx, req.PathValue("session_id")); err != nil {
+		httpapi.WriteInternal(w)
+		return
+	}
 	var v View
 	moved := false
 	err := a.Store.Tx(ctx, func(tx store.Querier) error {
@@ -38,7 +43,7 @@ func (a API) requestRegister(w http.ResponseWriter, req *http.Request) {
 			return err
 		}
 		s, err = move(ctx, tx, s, registerRequested, now)
-		if errors.Is(err, errRefused) && s.State == AtRegister {
+		if errors.Is(err, errRefused) && s.State == AtRegister && !pastLimit(s, now) {
 			v, err = view(ctx, tx, s, now)
 			return err
 		}
@@ -88,6 +93,10 @@ func (a API) recordRegisterPayment(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	ctx, id := req.Context(), req.PathValue("session_id")
+	if err := a.closeIfDue(ctx, id); err != nil {
+		httpapi.WriteInternal(w)
+		return
+	}
 	var v View
 	var cur money.Currency
 	err = staff.TxNow(ctx, a.Store, a.Clock, staff.Change{Staff: httpapi.StaffID(req), Operation: "recordRegisterPayment", Subject: id},
@@ -129,6 +138,10 @@ func (a API) recordRegisterPayment(w http.ResponseWriter, req *http.Request) {
 // Nothing is charged.
 func (a API) markUnpaid(w http.ResponseWriter, req *http.Request) {
 	ctx, id := req.Context(), req.PathValue("session_id")
+	if err := a.closeIfDue(ctx, id); err != nil {
+		httpapi.WriteInternal(w)
+		return
+	}
 	var v View
 	err := staff.TxNow(ctx, a.Store, a.Clock, staff.Change{Staff: httpapi.StaffID(req), Operation: "markUnpaid", Subject: id},
 		func(tx store.Querier, now time.Time) error {
