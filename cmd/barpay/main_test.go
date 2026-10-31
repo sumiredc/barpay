@@ -4,13 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/sumiredc/barpay/internal/store"
 )
 
 func TestSampleConfigDoesNotStart(t *testing.T) {
@@ -78,6 +83,19 @@ func TestPlainHTTPNotificationURLDoesNotStart(t *testing.T) {
 // With a complete config file BarPay serves, refuses a request without a key, and stops cleanly.
 func TestStartsServesAndStops(t *testing.T) {
 	path := writeConfig(t, t.TempDir(), "https://store.example/notify")
+	// A local LLM that proposes $13.00 per hour, at the config file's address.
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"{\"rate_per_hour\":1300,\"reason\":\"Busy\",\"reasoning\":\"r\"}"}}]}`)
+	}))
+	defer model.Close()
+	data, _ := os.ReadFile(path)
+	if err := os.WriteFile(path, []byte(strings.Replace(string(data), `address = "http://llm.example"`, `address = "`+model.URL+`/v1"`, 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -128,6 +146,26 @@ func TestStartsServesAndStops(t *testing.T) {
 		t.Errorf("GET /v1/rate: status %d, rate %+v, %v; want 200 with the sample's starting rate 1200", resp.StatusCode, rate, err)
 	}
 
+	// An evaluation asks the model at the config file's address and publishes its proposal.
+	req, _ = http.NewRequest(http.MethodPost, "http://"+a.String()+"/v1/rate-evaluations", nil)
+	req.Header.Set("Authorization", "Bearer k-store")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ev struct {
+		Rate struct {
+			RatePerHour struct{ Value int64 } `json:"rate_per_hour"`
+		} `json:"rate"`
+		Evaluated bool    `json:"evaluated"`
+		Fallback  *string `json:"fallback"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&ev)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || err != nil || !ev.Evaluated || ev.Fallback != nil || ev.Rate.RatePerHour.Value != 1300 {
+		t.Errorf("requestRateEvaluation: status %d, %+v, %v; want 1300 evaluated", resp.StatusCode, ev, err)
+	}
+
 	cancel()
 	if c := <-code; c != 0 {
 		t.Errorf("exit code after stop = %d, want 0:\n%s", c, stderr.String())
@@ -136,6 +174,63 @@ func TestStartsServesAndStops(t *testing.T) {
 		if strings.Contains(stderr.String(), `"`+s+`"`) || strings.Contains(stderr.String(), "="+s) {
 			t.Errorf("the log contains the secret %q:\n%s", s, stderr.String())
 		}
+	}
+}
+
+// Stopping BarPay while the AI is answering waits for the evaluation, which stores its decision
+// before the store closes.
+func TestStopWaitsForAnEvaluation(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, "https://store.example/notify")
+	entered := make(chan struct{})
+	var once sync.Once
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		once.Do(func() { close(entered) })
+		time.Sleep(1500 * time.Millisecond)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"{\"rate_per_hour\":1300,\"reason\":\"Busy\",\"reasoning\":\"r\"}"}}]}`)
+	}))
+	defer model.Close()
+	data, _ := os.ReadFile(path)
+	if err := os.WriteFile(path, []byte(strings.Replace(string(data), `address = "http://llm.example"`, `address = "`+model.URL+`/v1"`, 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	addr := make(chan net.Addr, 1)
+	var stderr syncBuffer
+	code := make(chan int, 1)
+	go func() { code <- run(ctx, []string{"-config", path}, &stderr, func(a net.Addr) { addr <- a }) }()
+	var a net.Addr
+	select {
+	case a = <-addr:
+	case c := <-code:
+		t.Fatalf("exited with %d before serving:\n%s", c, stderr.String())
+	}
+	// The store app gives up on its call, so the server has no request left to wait for.
+	reqCtx, giveUp := context.WithCancel(context.Background())
+	go func() {
+		req, _ := http.NewRequestWithContext(reqCtx, http.MethodPost, "http://"+a.String()+"/v1/rate-evaluations", nil)
+		req.Header.Set("Authorization", "Bearer k-store")
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			resp.Body.Close()
+		}
+	}()
+	<-entered
+	giveUp()
+	cancel()
+	if c := <-code; c != 0 {
+		t.Fatalf("exit code = %d, want 0:\n%s", c, stderr.String())
+	}
+
+	st, err := store.Open(context.Background(), filepath.Join(dir, "barpay.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	var n int
+	if err := st.Read().QueryRowContext(context.Background(), `SELECT count(*) FROM decisions WHERE proposal = 1300`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("%d decisions with the AI's proposal, %v; want 1", n, err)
 	}
 }
 

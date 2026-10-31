@@ -142,16 +142,34 @@ func PublishProposal(ctx context.Context, tx store.Querier, proposal, maxStep mo
 	if !ok {
 		return Point{}, ErrNoRate
 	}
+	p, _, err := publishProposal(ctx, tx, s, proposal, maxStep, at)
+	return p, err
+}
+
+// publishProposal is PublishProposal with the settings loaded, returning the rates row too.
+func publishProposal(ctx context.Context, tx store.Querier, s settings.Settings, proposal, maxStep money.Amount, at time.Time) (Point, int64, error) {
 	current, err := Current(ctx, tx, s.Currency)
 	if err != nil {
-		return Point{}, err
+		return Point{}, 0, err
 	}
 	g, err := Guard(current.Rate, proposal, Limits{Floor: s.Floor, Ceiling: s.Ceiling, MaxStep: maxStep})
 	if err != nil {
-		return Point{}, err
+		return Point{}, 0, err
 	}
-	p, _, err := publish(ctx, tx, g, at)
-	return p, err
+	return publish(ctx, tx, g, at)
+}
+
+// currentSeq returns the rates row of the rate published now in cur.
+func currentSeq(ctx context.Context, q store.Querier, cur money.Currency) (int64, error) {
+	var seq int64
+	err := q.QueryRowContext(ctx, `WITH c AS (`+inCurrency+`) SELECT seq FROM c ORDER BY seq DESC LIMIT 1`, string(cur)).Scan(&seq)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNoRate
+	}
+	if err != nil {
+		return 0, fmt.Errorf("pricing: current rate: %w", err)
+	}
+	return seq, nil
 }
 
 // SaveMaxStep keeps the max step BarPay runs with, for a later start that waits for a currency change.

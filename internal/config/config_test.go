@@ -380,6 +380,18 @@ func TestNotificationURL(t *testing.T) {
 	}
 }
 
+func TestLLMAddress(t *testing.T) {
+	for _, u := range []string{"http://127.0.0.1:11434/v1", "https://llm.example/v1/", "http://[::1]:8080"} {
+		if cfg := mustParse(t, with(t, "llm.address", `address = "`+u+`"`)); cfg.LLMAddress != u {
+			t.Errorf("LLMAddress = %q, want %q", cfg.LLMAddress, u)
+		}
+	}
+	for _, u := range []string{"127.0.0.1:11434", "llm.example/v1", "ftp://llm.example", "http:///v1",
+		"http:llm.example", "http://llm.example/v1?key=1", "http://llm.example/v1?", "http://llm.example/v1#x"} {
+		t.Run(u, func(t *testing.T) { mustFail(t, with(t, "llm.address", `address = "`+u+`"`), "llm.address") })
+	}
+}
+
 func TestDatabasePathWithoutURISeparators(t *testing.T) {
 	for _, p := range []string{"barpay.db?mode=memory", "data#1.db"} {
 		mustFail(t, with(t, "database_path", `database_path = "`+p+`"`), "database_path")

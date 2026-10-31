@@ -172,6 +172,27 @@ var migrations = []string{
 		CHECK ((settlement IN ('register', 'outside')) = (amount_recorded IS NOT NULL)),
 		CHECK ((settlement = 'unpaid') = (unpaid_amount IS NOT NULL))
 	)`,
+	// Staff events: the spec's StaffEvent, in recording order. A label's event is going on while
+	// its last row is 'starts' (the PRD's Pricing model, Signals).
+	`CREATE TABLE staff_events (
+		seq         INTEGER PRIMARY KEY, -- recording order
+		label       TEXT    NOT NULL CHECK (length(label) BETWEEN 1 AND 100),
+		phase       TEXT    NOT NULL CHECK (phase IN ('starts', 'ends')),
+		recorded_at INTEGER NOT NULL     -- Unix nanoseconds
+	);
+	CREATE INDEX staff_events_label ON staff_events (label, seq)`,
+	// Liveliness: the last value the edge device sent, and when BarPay received it.
+	`CREATE TABLE liveliness (
+		id          INTEGER PRIMARY KEY CHECK (id = 1),
+		value       REAL    NOT NULL CHECK (value BETWEEN 0 AND 1),
+		received_at INTEGER NOT NULL -- Unix nanoseconds
+	)`,
+	// When the last rate evaluation started, written before the AI is asked, so the minimum
+	// interval holds across a restart and counts evaluations that fell back or never finished.
+	`CREATE TABLE evaluation_start (
+		id         INTEGER PRIMARY KEY CHECK (id = 1),
+		started_at INTEGER NOT NULL -- Unix nanoseconds
+	)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

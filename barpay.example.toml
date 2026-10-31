@@ -23,7 +23,7 @@ max_step = 300
 # Evaluations are at least this far apart.
 min_evaluation_interval = "1m"
 
-# Checked-in phones that make the room full.
+# Active sessions (checked-in phones) that make the room full.
 capacity = 40
 
 max_stay = "12h"           # default "12h"; must be shorter than 3 days
@@ -50,8 +50,14 @@ client_secret = ""
 url = ""
 signing_secret = ""
 
+# The local LLM that proposes the rate. address is the base URL of its OpenAI-compatible API
+# (BarPay posts to <address>/chat/completions), served by llama.cpp's server, Ollama, vLLM or
+# LM Studio: for example "http://127.0.0.1:11434/v1" for Ollama.
 [llm]
 address = ""
+# PLACEHOLDER: no model has been measured yet. The default will be the model measured to answer
+# BarPay's prompt within the AI's time limit on the hardware BarPay runs with (docs/PRD.md,
+# Open question 5). Until then, name the model your server runs, as the server spells it.
 model = ""
 
 # Starting values of the settings, used on the first start and when a currency change is applied;

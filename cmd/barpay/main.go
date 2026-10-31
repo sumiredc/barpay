@@ -18,10 +18,13 @@ import (
 
 	"github.com/sumiredc/barpay/internal/clock"
 	"github.com/sumiredc/barpay/internal/config"
+	"github.com/sumiredc/barpay/internal/evaluation"
 	"github.com/sumiredc/barpay/internal/httpapi"
 	"github.com/sumiredc/barpay/internal/idempotency"
+	"github.com/sumiredc/barpay/internal/llm"
 	"github.com/sumiredc/barpay/internal/notify"
 	"github.com/sumiredc/barpay/internal/session"
+	"github.com/sumiredc/barpay/internal/signals"
 	"github.com/sumiredc/barpay/internal/startup"
 	"github.com/sumiredc/barpay/internal/store"
 )
@@ -76,6 +79,14 @@ func serve(ctx context.Context, path string, stderr io.Writer, listening func(ne
 	httpapi.Pricing{Store: st, Clock: clk}.Register(router)
 	sessions := session.API{Store: st, Clock: clk, Keys: idempotency.New(st, clk), Notify: notifications}
 	sessions.Register(router)
+	signals.API{Store: st, Clock: clk, Log: log}.Register(router)
+	ev := evaluation.New(evaluation.Options{
+		Store: st, Clock: clk, Model: llm.New(cfg.LLMAddress, cfg.LLMModel), MaxStep: state.MaxStep,
+		MinInterval: cfg.MinEvaluationInterval, Capacity: cfg.Capacity, Log: log,
+	})
+	// Runs before the store closes: an evaluation whose requests have gone still stores its decision.
+	defer ev.Wait()
+	evaluation.API{Evaluator: ev}.Register(router)
 	srv := &http.Server{Handler: router, ReadHeaderTimeout: 10 * time.Second}
 	ln, err := net.Listen("tcp", cfg.ListenAddress)
 	if err != nil {
@@ -107,7 +118,8 @@ func serve(ctx context.Context, path string, stderr io.Writer, listening func(ne
 		return fmt.Errorf("stopped: %w", err)
 	case <-ctx.Done():
 	}
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Long enough for a request waiting on an evaluation, which the AI's time limit bounds.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), evaluation.ModelTimeout+10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("shutdown: %w", err)
