@@ -116,20 +116,18 @@ func CountByState(ctx context.Context, q store.Querier) (map[State]int, error) {
 	return counts, rows.Err()
 }
 
-// get returns the session with id, or errNotFound.
-func get(ctx context.Context, q store.Querier, id string) (Session, error) {
+// sessionColumns are the columns scanSession reads, in its order.
+const sessionColumns = `id, member_id, state, currency, checked_in_at, total_fixed_at, paypal_linked_at`
+
+// scanSession reads a row of sessionColumns, after the columns before them into before.
+func scanSession(row interface{ Scan(...any) error }, before ...any) (Session, error) {
 	var s Session
 	var member sql.NullString
 	var state, cur string
 	var checkedIn int64
 	var fixed, linked sql.NullInt64
-	err := q.QueryRowContext(ctx, `SELECT id, member_id, state, currency, checked_in_at, total_fixed_at, paypal_linked_at
-		FROM sessions WHERE id = ?`, id).Scan(&s.ID, &member, &state, &cur, &checkedIn, &fixed, &linked)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Session{}, errNotFound
-	}
-	if err != nil {
-		return Session{}, fmt.Errorf("session: get: %w", err)
+	if err := row.Scan(append(before, &s.ID, &member, &state, &cur, &checkedIn, &fixed, &linked)...); err != nil {
+		return Session{}, err
 	}
 	s.MemberID, s.State, s.Currency = member.String, State(state), money.Currency(cur)
 	s.CheckedInAt = time.Unix(0, checkedIn).UTC()
@@ -138,6 +136,18 @@ func get(ctx context.Context, q store.Querier, id string) (Session, error) {
 	}
 	if linked.Valid {
 		s.LinkedAt = time.Unix(0, linked.Int64).UTC()
+	}
+	return s, nil
+}
+
+// get returns the session with id, or errNotFound.
+func get(ctx context.Context, q store.Querier, id string) (Session, error) {
+	s, err := scanSession(q.QueryRowContext(ctx, `SELECT `+sessionColumns+` FROM sessions WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Session{}, errNotFound
+	}
+	if err != nil {
+		return Session{}, fmt.Errorf("session: get: %w", err)
 	}
 	return s, nil
 }

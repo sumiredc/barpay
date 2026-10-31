@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sumiredc/barpay/internal/alert"
 	"github.com/sumiredc/barpay/internal/clock"
 	"github.com/sumiredc/barpay/internal/evaluation"
 	"github.com/sumiredc/barpay/internal/gate"
@@ -98,6 +99,7 @@ func newBarPay(t *testing.T) *barpay {
 	})
 	b.router = httpapi.NewRouter(httpapi.Keys{Store: secret.New(storeKey), Admin: secret.New(adminKey), Edge: secret.New(edgeSecret)})
 	b.router.Admin("GET /notifications", notify.ListHandler(b.st, log))
+	alert.API{Store: b.st, Log: log}.Register(b.router)
 	httpapi.Pricing{Store: b.st, Clock: b.clk}.Register(b.router)
 	session.API{
 		Store: b.st, Clock: b.clk, Keys: idempotency.New(b.st, b.clk), Notify: notifications,
