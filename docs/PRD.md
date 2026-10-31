@@ -208,7 +208,7 @@ Linking PayPal is optional and moves no money: it saves a member's PayPal for th
 - **Hardware**: Raspberry Pi 5, a USB QR reader that acts as a keyboard, a SwitchBot Lock over BLE. The lock needs its MAC address, key ID and encryption key, read from environment variables.
 - **AI**: the pricing agent runs on a local LLM that the BarPay backend reaches over the network; there is no per-call cost.
 - **Secrets**: PayPal credentials, the store API key, the admin API key, the notification signing secret, the edge device's shared secret and the SwitchBot keys never enter the public repository.
-- **Working without hardware**: every hardware step has a development tool that stands in for it (virtual exit gate, signal simulator) and uses the edge device's API. The tools hold neither the store API key nor the admin API key, and are not part of a production build.
+- **Working without hardware**: every hardware step has a development tool that stands in for it (virtual exit gate, signal simulator) and uses the edge device's API. The tools hold neither the store API key nor the admin API key, and are not part of a production build. Their only credential is the edge device's shared secret, which they take from an environment variable; they never read BarPay's config file, which holds the other keys. The virtual exit gate sends the text of an exit QR that a person gives it, as the reader would read it, and never fetches an exit token itself: exit tokens are issued only to the store API key.
 - **Language**: text BarPay returns, the sample app's UI and the README are in English. Every non-exempt `.md` in the repo has a `.ja.md` translation (see `.claude/skills/bilingual-docs`).
 
 ## 9. Use cases
