@@ -55,7 +55,6 @@ func writeConfig(t *testing.T, dir, notificationURL string) string {
 		{`url = ""`, `url = "` + notificationURL + `"`},
 		{`signing_secret = ""`, `signing_secret = "sig"`},
 		{`address = ""`, `address = "http://llm.example"`},
-		{`model = ""`, `model = "m"`},
 	} {
 		if !strings.Contains(cfg, r[0]) {
 			t.Fatalf("the sample has no line %s", r[0])
@@ -84,11 +83,16 @@ func TestPlainHTTPNotificationURLDoesNotStart(t *testing.T) {
 func TestStartsServesAndStops(t *testing.T) {
 	path := writeConfig(t, t.TempDir(), "https://store.example/notify")
 	// A local LLM that proposes $13.00 per hour, at the config file's address.
+	var asked struct {
+		Model           string `json:"model"`
+		ReasoningEffort string `json:"reasoning_effort"`
+	}
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
 			http.NotFound(w, r)
 			return
 		}
+		_ = json.NewDecoder(r.Body).Decode(&asked)
 		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"{\"rate_per_hour\":1300,\"reason\":\"Busy\",\"reasoning\":\"r\"}"}}]}`)
 	}))
 	defer model.Close()
@@ -164,6 +168,9 @@ func TestStartsServesAndStops(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK || err != nil || !ev.Evaluated || ev.Fallback != nil || ev.Rate.RatePerHour.Value != 1300 {
 		t.Errorf("requestRateEvaluation: status %d, %+v, %v; want 1300 evaluated", resp.StatusCode, ev, err)
+	}
+	if asked.Model != "qwen3:8b" || asked.ReasoningEffort != "none" {
+		t.Errorf("the model was asked with %+v, want the sample's model qwen3:8b and reasoning effort none", asked)
 	}
 
 	cancel()

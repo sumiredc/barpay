@@ -206,7 +206,7 @@ func TestSampleDoesNotStartForMissingCredentials(t *testing.T) {
 	// Apart from the credentials, only the store's own addresses are left for the owner.
 	for _, p := range ce.Problems {
 		if _, isSecret := secrets[p.Key]; !isSecret && !slices.Contains(
-			[]string{"store_app_origin", "notifications.url", "llm.address", "llm.model"}, p.Key) {
+			[]string{"store_app_origin", "notifications.url", "llm.address"}, p.Key) {
 			t.Errorf("unexpected problem in the sample: %s: %s", p.Key, p.Reason)
 		}
 	}
