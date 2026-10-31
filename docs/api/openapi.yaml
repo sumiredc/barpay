@@ -18,7 +18,8 @@ info:
 
     The edge device's API (exit tokens scanned at the gate, liveliness
     signals), which the development tools also use, is not part of this
-    contract.
+    contract; it is in `edge.yaml`, under `/v1/edge`, where neither key of
+    this contract is accepted.
 
     Format limits (lengths, patterns, maximums, timeouts) belong to this
     contract, not to the PRD.
@@ -628,6 +629,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -673,6 +676,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -813,6 +818,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -881,6 +888,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Settings'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
     put:
@@ -1277,6 +1286,7 @@ components:
 
         The store API key from the config file, sent from the store app's
         server as `Authorization: Bearer <key>`. Never send it from a browser.
+        It is rejected under `/admin` and under `/v1/edge`.
     adminApiKey:
       type: http
       scheme: bearer
@@ -1328,7 +1338,10 @@ components:
 
         The store app's ID of the staff member acting, as authenticated by
         the store app. BarPay records it with every change it makes and
-        trusts it as sent.
+        trusts it as sent. Checked after the admin API key: when it is
+        missing or malformed, the request is rejected with `400`
+        `invalid_request` and `details.field` `BarPay-Staff-Id`, and nothing
+        changes.
       schema:
         type: string
         minLength: 1
