@@ -25,8 +25,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          # The cache is keyed on go.sum, which does not exist while there are no dependencies.
-          cache: false
+          cache-dependency-path: go.sum
       - name: Build
         run: go build ./...
       - name: Vet
