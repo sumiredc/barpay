@@ -5,7 +5,8 @@ info:
   summary: The calls the edge device makes to BarPay.
   description: |
     The calls the edge device at the exit gate makes to BarPay: exit tokens
-    scanned at the gate and liveliness signals. The development tools that
+    scanned at the gate, the unlocks staff make by hand and how each unlock
+    went, and liveliness signals. The development tools that
     stand in for the hardware (virtual exit gate, signal simulator) use the
     same calls with the same shared secret.
 
@@ -26,6 +27,153 @@ security:
   - edgeSharedSecret: []
 
 paths:
+  /exit-scans:
+    post:
+      operationId: scanExitToken
+      summary: Report an exit QR read at the gate
+      description: |
+        PRD: UC5; UC6; Guarantees → Unlock only on payment, Single payment;
+        Responsibilities → Exit token.
+
+        Send the token read from the exit QR. The answer says whether to
+        unlock the gate once and what the reader shows.
+
+        - The current token of an active session linked to PayPal: BarPay
+          fixes the final total at this moment, stops the cover charge and
+          charges the total once with the member's saved PayPal. `unlock` is
+          `true` only after PayPal confirmed the charge (or the total was 0
+          and nothing was charged). If the charge fails or is refused, or its
+          outcome is unknown (PayPal did not answer in time), the gate stays
+          locked and the reader shows `Please see staff` at once; BarPay
+          goes on finding out the outcome by itself, and a later success
+          closes the session without unlocking.
+        - The token of a session closed (charged, or recorded by staff at
+          the register or outside BarPay) within the re-unlock window: unlock
+          again; nothing is charged. The token stops changing once the
+          session's total is fixed.
+        - The token of a session without PayPal linked, or waiting at the
+          register: locked, `Please pay at the register`.
+        - The token of a session checking out, whose payment failed, closed
+          longer ago than the re-unlock window, or closed as unpaid: locked,
+          `Please see staff`.
+        - A token that is unknown or no longer current (an old
+          screenshot): locked, `Please show a new QR code`.
+
+        Scans of the same session are handled one at a time: two reads of
+        the same QR at once run one checkout, and the second gets the result
+        the first left (an unlock again after a success). After every answer
+        with `unlock` `true`, report how the unlock went with
+        `reportUnlockResult`. The token is never written to logs.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanRequest'
+      responses:
+        '200':
+          description: What the gate and the reader do.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanResult'
+        '400':
+          description: |
+            `invalid_request`: the body is not a `ScanRequest` object, such
+            as a token that is empty or longer than 128 characters. Nothing
+            is charged.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: '`unauthorized`: the shared secret is missing or wrong, or another key was sent. Nothing is charged.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /unlocks/next:
+    get:
+      operationId: waitForUnlock
+      summary: Wait for an unlock staff make by hand
+      description: |
+        PRD: UC7 (staff open the gate by hand); Guarantees → Unlock only on
+        payment.
+
+        A long poll: the call waits up to 25 seconds for an unlock that
+        staff make through the admin API (`unlockGate` in `openapi.yaml`)
+        and answers it, or answers `204` when none came. Call it again as
+        soon as it answers. While a call is waiting, the edge device counts
+        as connected; when none is waiting, `unlockGate` is refused with
+        `gate_unavailable` and nothing is sent later. An unlock answered here
+        is not sent again. After unlocking, report how it went with
+        `reportUnlockResult`.
+      responses:
+        '200':
+          description: Unlock the gate once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Unlock'
+        '204':
+          description: No unlock came while waiting; call again.
+        '401':
+          description: '`unauthorized`: the shared secret is missing or wrong, or another key was sent.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /unlocks/{unlock_id}/result:
+    parameters:
+      - name: unlock_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/UnlockId'
+    post:
+      operationId: reportUnlockResult
+      summary: Report whether an unlock worked
+      description: |
+        PRD: UC5 exception (the charge succeeds but unlocking fails); UC7.
+
+        For an unlock from `scanExitToken` or `waitForUnlock`. A failed
+        unlock raises an `unlock_failed` alert. After a scan, whose session
+        was paid or settled, the store app is also notified (`gate.unlock_failed`), so
+        staff can open the gate by hand; a failed unlock by hand raises the
+        alert only, since staff are already at it. The first report of an
+        unlock stands: a repeat is answered `204` and changes nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UnlockResult'
+      responses:
+        '204':
+          description: The report was kept, or one was already kept for this unlock.
+        '400':
+          description: |
+            `invalid_request`: the path or the body is malformed;
+            `details.field` names it. Nothing is kept.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: '`unauthorized`: the shared secret is missing or wrong, or another key was sent. Nothing is kept.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: '`unlock_not_found`: no unlock has this ID. Nothing is kept.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /signals:
     post:
       operationId: sendSignals
@@ -69,6 +217,53 @@ paths:
 
 components:
   schemas:
+    ScanRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          description: The text read from the exit QR, as read.
+          type: string
+          minLength: 1
+          maxLength: 128
+    ScanResult:
+      type: object
+      additionalProperties: false
+      required: [unlock, reader_message]
+      properties:
+        unlock:
+          description: Whether to unlock the gate once now.
+          type: boolean
+        unlock_id:
+          description: Set when `unlock` is `true`; report how the unlock went under it.
+          $ref: '#/components/schemas/UnlockId'
+        reader_message:
+          description: What the reader shows. In English; the edge device may show it in another language.
+          type: string
+          enum:
+            - Thank you
+            - Please pay at the register
+            - Please see staff
+            - Please show a new QR code
+    Unlock:
+      type: object
+      additionalProperties: false
+      required: [unlock_id]
+      properties:
+        unlock_id:
+          $ref: '#/components/schemas/UnlockId'
+    UnlockId:
+      type: string
+      pattern: '^glk_[A-Za-z0-9]{16,32}$'
+    UnlockResult:
+      type: object
+      additionalProperties: false
+      required: [unlocked]
+      properties:
+        unlocked:
+          description: Whether the gate unlocked.
+          type: boolean
     Signals:
       type: object
       additionalProperties: false
@@ -92,7 +287,7 @@ components:
           properties:
             code:
               type: string
-              enum: [invalid_request, unauthorized]
+              enum: [invalid_request, unauthorized, unlock_not_found]
             message:
               description: For developers.
               type: string
