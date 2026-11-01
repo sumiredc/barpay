@@ -193,20 +193,73 @@ func TestListAlertsRefusesBadParameters(t *testing.T) {
 	}
 }
 
+// A query string that cannot be read, or a limit or cursor given more than once, is refused rather
+// than answered as if the pair were left out. details.field names the pair's parameter, and is
+// left out when that name cannot be read either.
+func TestListAlertsRefusesUnreadableAndRepeatedParameters(t *testing.T) {
+	f := newListFixture(t)
+	f.raised(t, Alert{Kind: PaymentFailed, RaisedAt: t0, Message: "m"})
+	c1 := httpapi.Cursor("alerts", 1)
+	for _, c := range []struct{ query, field string }{
+		{"?cursor=%zz", "cursor"},
+		{"?limit=%zz", "limit"},
+		{"?limit=1;2", "limit"},
+		{"?foo=%zz", "foo"},
+		{"?limit=10&foo=%zz", "foo"},
+		{"?f%6Fo=%zz", "foo"},
+		{"?%zz=1", ""},
+		{"?a;b=1", ""},
+		{"?=%zz", ""},
+		{"?limit=10&limit=10", "limit"},
+		{"?limit=10&limit=20", "limit"},
+		{"?cursor=" + c1 + "&cursor=" + c1, "cursor"},
+		{"?cursor=&cursor=" + c1, "cursor"},
+	} {
+		w := f.get(c.query, "Bearer k-admin", "staff_1")
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d %s; want 400", c.query, w.Code, w.Body)
+			continue
+		}
+		spectest.Valid(t, "Error", w.Body.Bytes())
+		var e struct {
+			Error struct {
+				Code    string `json:"code"`
+				Details *struct {
+					Field string `json:"field"`
+				} `json:"details"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &e); err != nil {
+			t.Fatal(err)
+		}
+		field := ""
+		if e.Error.Details != nil {
+			field = e.Error.Details.Field
+		}
+		if e.Error.Code != "invalid_request" || field != c.field || (c.field == "" && e.Error.Details != nil) {
+			t.Errorf("%s: %s; want invalid_request, details.field %q", c.query, w.Body, c.field)
+		}
+	}
+}
+
 // Guarantees → Access: only the admin API key lists alerts, and it needs the staff ID.
 func TestListAlertsNeedsTheAdminKeyAndStaffID(t *testing.T) {
 	f := newListFixture(t)
 	a := f.raised(t, Alert{Kind: PaymentFailed, RaisedAt: t0, Message: "m"})
-	for _, auth := range []string{noAuth, "Bearer wrong", "Bearer k-store", "Bearer k-edge"} {
-		w := f.get("", auth, "staff_1")
-		if w.Code != http.StatusUnauthorized || bytes.Contains(w.Body.Bytes(), []byte(a.ID)) {
-			t.Errorf("with %s: %d %s; want 401", auth, w.Code, w.Body)
+	// The key and the staff ID are checked before the query string, so an unreadable one does not
+	// change the answer.
+	for _, query := range []string{"", "?cursor=%zz"} {
+		for _, auth := range []string{noAuth, "Bearer wrong", "Bearer k-store", "Bearer k-edge"} {
+			w := f.get(query, auth, "staff_1")
+			if w.Code != http.StatusUnauthorized || bytes.Contains(w.Body.Bytes(), []byte(a.ID)) {
+				t.Errorf("%q with %s: %d %s; want 401", query, auth, w.Code, w.Body)
+			}
 		}
-	}
-	for _, id := range []string{noAuth, "bad id"} {
-		w := f.get("", "Bearer k-admin", id)
-		if w.Code != http.StatusBadRequest || !bytes.Contains(w.Body.Bytes(), []byte(`"field":"BarPay-Staff-Id"`)) {
-			t.Errorf("staff ID %q: %d %s; want 400 for BarPay-Staff-Id", id, w.Code, w.Body)
+		for _, id := range []string{noAuth, "bad id"} {
+			w := f.get(query, "Bearer k-admin", id)
+			if w.Code != http.StatusBadRequest || !bytes.Contains(w.Body.Bytes(), []byte(`"field":"BarPay-Staff-Id"`)) {
+				t.Errorf("%q with staff ID %q: %d %s; want 400 for BarPay-Staff-Id", query, id, w.Code, w.Body)
+			}
 		}
 	}
 }
