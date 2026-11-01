@@ -19,6 +19,8 @@ examples/mobile-order/mobile-order
 
 # Dependencies and builds
 node_modules/
+__pycache__/
+.venv/
 dist/
 build/
 /barpay

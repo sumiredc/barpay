@@ -1,0 +1,63 @@
+[project]
+name = "barpay-edge"
+version = "0.1.0"
+description = "The software of BarPay's edge device at the exit gate, which talks to BarPay only through docs/api/edge.yaml."
+license = "MIT"
+# .python-version pins the exact version CI and the Raspberry Pi run.
+requires-python = "==3.13.*"
+# Nothing at run time beyond the standard library, until a device part needs its library.
+dependencies = []
+
+# Each device's library goes in its own extra, with a marker for the OS it installs on, for
+# example `lock = ["bleak==X.Y.Z; sys_platform == 'linux'"]`. The fake-device tests and CI install
+# no extra, so they never have a device library to import.
+[project.optional-dependencies]
+
+[dependency-groups]
+dev = [
+    "jsonschema==4.26.0",
+    "mypy==2.4.1",
+    "pytest==9.2.0",
+    "pyyaml==6.0.3",
+    "ruff==0.17.3",
+    "types-jsonschema==4.26.0.20261006",
+    "types-pyyaml==6.0.12.20261030",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.6,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv]
+required-version = ">=0.12.6"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "PT", "RUF", "S", "BLE", "TID"]
+# assert is how pytest checks, and the tests' secrets are test values.
+per-file-ignores = { "tests/**" = ["S101", "S105", "S106"] }
+
+# The device libraries. Only each device part's own module may import its library; that module is
+# added to per-file-ignores with TID251. tests/conftest.py reads this list and makes importing any
+# of them fail in the fake-device tests, even where the library is installed.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"evdev".msg = "a device library: import it only in the QR reader's part"
+"alsaaudio".msg = "a device library: import it only in the microphone's part"
+"sounddevice".msg = "a device library: import it only in the microphone's part"
+"gpiod".msg = "a device library: import it only in the indicator's part"
+"gpiozero".msg = "a device library: import it only in the indicator's part"
+"lgpio".msg = "a device library: import it only in the indicator's part"
+"RPi".msg = "a device library: import it only in the indicator's part"
+"bleak".msg = "a device library: import it only in the lock's part"
+"bluepy".msg = "a device library: import it only in the lock's part"
+"dbus_fast".msg = "a device library: import it only in the lock's part"
+
+[tool.mypy]
+strict = true
+files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-markers", "-p", "no:cacheprovider"]
