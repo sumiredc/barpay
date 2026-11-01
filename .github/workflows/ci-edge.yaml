@@ -1,0 +1,53 @@
+name: "[CI] Edge"
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: arc-runner-barpay
+    defaults:
+      run:
+        working-directory: edge
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.6"
+          working-directory: edge
+      # uv installs the Python that edge/.python-version pins. --locked fails when uv.lock is not
+      # up to date with pyproject.toml, so CI installs exactly what the Raspberry Pi installs. No
+      # extra is installed, so no device library is either.
+      - name: Install
+        run: uv sync --locked
+      # The fake-device tests must pass without the device libraries, which tests/conftest.py also
+      # blocks; this checks the environment they run in has none to begin with.
+      - name: Check no device library is installed
+        run: |
+          uv run --no-sync python - <<'EOF'
+          import importlib.util, sys
+          sys.path.insert(0, "tests")
+          from helpers import device_libraries
+          found = sorted(n for n in device_libraries() if importlib.util.find_spec(n))
+          if found:
+              sys.exit("Device libraries are installed: " + ", ".join(found))
+          EOF
+      - name: Check formatting
+        run: uv run --no-sync ruff format --check
+      - name: Lint
+        run: uv run --no-sync ruff check
+      - name: Type check
+        run: uv run --no-sync mypy
+      - name: Test
+        run: uv run --no-sync pytest
