@@ -13,6 +13,9 @@ dependencies = []
 # no extra, so they never have a device library to import.
 [project.optional-dependencies]
 
+[project.scripts]
+barpay-edge = "barpay_edge.app:main"
+
 [dependency-groups]
 dev = [
     "jsonschema==4.26.0",
