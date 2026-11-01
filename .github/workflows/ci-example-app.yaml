@@ -1,0 +1,57 @@
+name: "[CI] Example app"
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mobile-order:
+    runs-on: arc-runner-barpay
+    # bash runs with pipefail, so an error anywhere in a pipeline fails the step.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # The dependency checks read the tracked files with git grep and git ls-files.
+      - name: Install git if missing
+        run: command -v git >/dev/null || { sudo apt-get update && sudo apt-get install -y git; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The sample app uses BarPay only through docs/api/openapi.yaml. With BarPay in its
+      # dependencies it could import internal/ and take a shortcut the spec does not offer.
+      # git grep and grep exit 1 when nothing matches, which is the pass; anything above 1 is an
+      # error and fails the step. The module file is checked to be tracked first, so the check
+      # never passes because it found no file to read.
+      - name: Check the sample app does not depend on BarPay
+        run: |
+          git ls-files --error-unmatch examples/mobile-order/go.mod >/dev/null
+          found=$(git grep -n 'github.com/sumiredc/barpay' -- $(for f in go.mod go.sum package.json package-lock.json pnpm-lock.yaml yarn.lock; do echo ":(glob)examples/mobile-order/**/$f"; done)) || [ $? -eq 1 ]
+          if [ -n "$found" ]; then
+            echo "The sample app depends on BarPay:"
+            echo "$found"
+            exit 1
+          fi
+      - name: Check there is no go.work
+        run: |
+          found=$(git ls-files | grep -E '(^|/)go\.work(\.sum)?$') || [ $? -eq 1 ]
+          if [ -n "$found" ]; then
+            echo "A go.work joins the sample app's module to BarPay's:"
+            echo "$found"
+            exit 1
+          fi
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: examples/mobile-order/go.mod
+          cache-dependency-path: examples/mobile-order/go.sum
+      - name: Build
+        working-directory: examples/mobile-order
+        run: go build ./...

@@ -1,0 +1,53 @@
+{{define "content"}}
+<h1>Sessions</h1>
+<form class="card row" method="get" action="/admin">
+  {{range .Data.States}}
+    <label style="font-weight: normal; margin: 0"><input type="checkbox" name="state" value="{{.}}" {{if has $.Data.Selected .}}checked{{end}}> {{stateLabel .}}</label>
+  {{end}}
+  <button class="button small" type="submit">Filter</button>
+</form>
+<form class="row" method="post" action="/admin/gate">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <button class="button small secondary" type="submit">Open the exit gate by hand</button>
+</form>
+{{if .Data.ReadFailed}}<div class="flash">BarPay did not answer; the list is not available right now.</div>{{end}}
+<div class="card scroll">
+<table>
+  <thead><tr><th>Checked in</th><th>Stay</th><th>Customer</th><th>Orders</th><th>Total</th><th>Payment</th><th>State</th><th>Actions</th></tr></thead>
+  <tbody>
+  {{range .Data.Rows}}
+    <tr>
+      <td>{{time .CheckedInAt}}<br><span class="muted">{{.SessionID}}</span></td>
+      <td>{{duration .Stay}}</td>
+      <td>{{with .MemberID}}{{.}}{{else}}Guest{{end}}</td>
+      <td>{{.OrderCount}}</td>
+      <td>{{money .Total}}<br><span class="muted">cover {{money .CoverCharge}}{{if ne .CoverChargeStatus "running"}}, {{.CoverChargeStatus}}{{end}}</span>{{with .UnpaidAmount}}<br><span class="up">unpaid {{money .}}</span>{{end}}</td>
+      <td>{{if eq .PaymentMethod "paypal"}}PayPal{{else}}Register{{end}}</td>
+      <td><span class="pill {{.State}}">{{stateLabel .State}}</span></td>
+      <td>
+        {{if and (eq .State "active") (eq .PaymentMethod "paypal")}}
+          <form method="post" action="/admin/sessions/{{.SessionID}}/close"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="button small" type="submit">{{if .PendingKey}}Send close again{{else}}Close (charge PayPal){{end}}</button></form>
+        {{end}}
+        {{if eq .State "payment_failed"}}
+          <form method="post" action="/admin/sessions/{{.SessionID}}/retry"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="button small" type="submit">{{if .PendingKey}}Send retry again{{else}}Retry charge{{end}}</button></form>
+          <form method="post" action="/admin/sessions/{{.SessionID}}/settle-outside"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="currency" value="{{.Total.Currency}}"><input type="text" name="amount" value="{{with .UnpaidAmount}}{{dollars .}}{{end}}" aria-label="Amount settled"> <button class="button small secondary" type="submit">Settled outside</button></form>
+        {{end}}
+        {{if or (eq .State "active") (eq .State "at_register")}}
+          <form method="post" action="/admin/sessions/{{.SessionID}}/register-payment"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="currency" value="{{.Total.Currency}}"><input type="text" name="amount" value="{{dollars .Total}}" aria-label="Amount taken"> <button class="button small secondary" type="submit">Record register payment</button></form>
+        {{end}}
+        {{if eq .State "at_register"}}
+          <form method="post" action="/admin/sessions/{{.SessionID}}/mark-unpaid"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="button small secondary" type="submit">Mark unpaid</button></form>
+        {{end}}
+        {{if eq .State "closed"}}
+          <form method="post" action="/admin/sessions/{{.SessionID}}/unlock"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="button small secondary" type="submit">Open gate for this customer</button></form>
+        {{end}}
+      </td>
+    </tr>
+  {{else}}
+    <tr><td colspan="8">No sessions.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{with .Data.Next}}<p><a class="button small secondary" href="{{.}}">Older sessions</a></p>{{end}}
+{{end}}

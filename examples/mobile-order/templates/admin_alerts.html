@@ -1,0 +1,17 @@
+{{define "content"}}
+<h1>Alerts</h1>
+{{if .Data.Failed}}<div class="flash">BarPay did not answer; the alerts are not available right now.</div>{{end}}
+<div class="card scroll">
+<table>
+  <thead><tr><th>Raised</th><th>Kind</th><th>Message</th><th>Session or member</th></tr></thead>
+  <tbody>
+  {{range .Data.Alerts}}
+    <tr><td>{{time .RaisedAt}}</td><td><span class="pill">{{.Kind}}</span></td><td>{{.Message}}</td><td>{{.SessionID}}{{.MemberID}}</td></tr>
+  {{else}}
+    <tr><td colspan="4">No alerts.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{with .Data.Next}}<p><a class="button small secondary" href="{{.}}">Older alerts</a></p>{{end}}
+{{end}}

@@ -1,0 +1,59 @@
+{{define "content"}}
+<h1>Pricing</h1>
+{{if .Data.Failed}}<div class="flash">BarPay did not answer every request; some parts are missing.</div>{{end}}
+<div class="card row" style="justify-content: space-between">
+  {{with .Data.Rate}}<div class="stat"><div class="label">Published rate</div><div class="big">{{money .RatePerHour}}/h</div><div class="muted">{{signedMoney .Change}} at {{time .PublishedAt}}</div></div>{{end}}
+  <form method="post" action="/admin/evaluate">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <button class="button" type="submit">Evaluate now</button>
+    <p class="muted">The app also asks every 5 minutes.</p>
+  </form>
+</div>
+
+<h2>Decision log</h2>
+<div class="card scroll">
+<table>
+  <thead><tr><th>When</th><th>Explanation</th><th>Rate</th><th>Inputs</th><th>Proposal and reasoning</th></tr></thead>
+  <tbody>
+  {{range .Data.Decisions}}
+    <tr>
+      <td>{{time .DecidedAt}}<br><span class="muted">{{if eq .Trigger "range_change"}}range change by {{.StaffID}}{{else}}evaluation{{end}}</span></td>
+      <td>{{.Explanation}}{{with .Fallback}}<br><span class="up">fallback: {{.}}</span>{{end}}</td>
+      <td>{{money .Published.RatePerHour}}/h<br><span class="muted">{{signedMoney .Published.Change}}</span></td>
+      <td>{{with .Inputs}}occupancy {{percent .Occupancy}}<br>liveliness {{with .Liveliness}}{{percent .}}{{else}}none{{end}}<br>goal {{.Goal}}{{range .StaffEvents}}<br>event: {{.}}{{end}}{{else}}—{{end}}</td>
+      <td>{{with .Proposal}}{{money .}}/h proposed<br>{{end}}<span class="muted">{{deref .Reasoning}}</span></td>
+    </tr>
+  {{else}}
+    <tr><td colspan="5">No decisions yet.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{with .Data.Next}}<p><a class="button small secondary" href="{{.}}">Older decisions</a></p>{{end}}
+
+<h2>Staff event</h2>
+<form class="card" method="post" action="/admin/staff-events">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <label for="label">Label</label><input id="label" name="label" type="text" maxlength="100" placeholder="Live show" required>
+  <label for="phase">Phase</label>
+  <select id="phase" name="phase"><option value="starts">Starts</option><option value="ends">Ends</option></select>
+  <p><button class="button" type="submit">Send</button></p>
+</form>
+
+{{with .Data.Settings}}
+<h2>Settings</h2>
+<form class="card" method="post" action="/admin/settings">
+  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+  <input type="hidden" name="currency" value="{{.Floor.Currency}}">
+  <div class="grid">
+    <div><label for="floor">Floor ({{.Floor.Currency}}/h)</label><input id="floor" name="floor" type="text" value="{{dollars .Floor}}"></div>
+    <div><label for="ceiling">Ceiling ({{.Ceiling.Currency}}/h)</label><input id="ceiling" name="ceiling" type="text" value="{{dollars .Ceiling}}"></div>
+    <div><label for="cap">Cap per visit ({{.CapPerVisit.Currency}}, 0 for none)</label><input id="cap" name="cap_per_visit" type="text" value="{{dollars .CapPerVisit}}"></div>
+    <div><label for="block">Block (minutes)</label><input id="block" name="block_minutes" type="number" min="1" max="240" value="{{.BlockMinutes}}"></div>
+    <div><label for="pause">Pause after an order (minutes, 0 for off)</label><input id="pause" name="pause_minutes" type="number" min="0" max="240" value="{{.PauseMinutes}}"></div>
+    <div><label for="goal">Goal (0 fill the room – 100 maximize revenue)</label><input id="goal" name="goal" type="number" min="0" max="100" value="{{.Goal}}"></div>
+  </div>
+  <p><button class="button" type="submit">Save settings</button></p>
+</form>
+{{end}}
+{{end}}

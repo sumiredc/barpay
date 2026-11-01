@@ -1,0 +1,9 @@
+{{define "content"}}
+<h1>Staff login</h1>
+<form class="card" method="post" action="/admin/login">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <label for="staff_id">Staff ID</label><input id="staff_id" name="staff_id" type="text" required autocomplete="username">
+  <label for="password">Password</label><input id="password" name="password" type="password" required autocomplete="current-password">
+  <p><button class="button" type="submit">Log in</button></p>
+</form>
+{{end}}
