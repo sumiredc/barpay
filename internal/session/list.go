@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -21,8 +22,8 @@ var errUnknownCursor = errors.New("session: no session at the cursor")
 
 // parseStates reads the spec's state filter of listSessions: comma-separated SessionState
 // values. It returns nil when there is none, which lists every state.
-func parseStates(req *http.Request) ([]State, bool) {
-	vals, ok := req.URL.Query()["state"]
+func parseStates(q url.Values) ([]State, bool) {
+	vals, ok := q["state"]
 	if !ok {
 		return nil, true
 	}
@@ -138,11 +139,15 @@ func (a API) list(ctx context.Context, states []State, after int64, limit int) (
 
 // listSessions serves the admin screen's session list (the PRD's UC7 main flow).
 func (a API) listSessions(w http.ResponseWriter, req *http.Request) {
-	p, ok := httpapi.ParsePage(w, req, sessionsList)
+	q, ok := httpapi.Query(w, req)
 	if !ok {
 		return
 	}
-	states, ok := parseStates(req)
+	p, ok := httpapi.PageFrom(w, q, sessionsList)
+	if !ok {
+		return
+	}
+	states, ok := parseStates(q)
 	if !ok {
 		httpapi.WriteError(w, http.StatusBadRequest, httpapi.CodeInvalidRequest,
 			"state must be one or more SessionState values, separated by commas.", "state")

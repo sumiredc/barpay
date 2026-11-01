@@ -65,7 +65,14 @@ func (p Pricing) getRate(w http.ResponseWriter, req *http.Request) {
 }
 
 func (p Pricing) getRateHistory(w http.ResponseWriter, req *http.Request) {
-	raw := req.URL.Query().Get("since")
+	q, ok := Query(w, req)
+	if !ok {
+		return
+	}
+	raw, _, ok := single(w, q, "since")
+	if !ok {
+		return
+	}
 	if raw == "" {
 		WriteError(w, http.StatusBadRequest, CodeInvalidRequest, "since is required.", "since")
 		return

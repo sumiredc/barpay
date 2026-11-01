@@ -15,6 +15,7 @@ import (
 	"github.com/sumiredc/barpay/internal/money"
 	"github.com/sumiredc/barpay/internal/pricing"
 	"github.com/sumiredc/barpay/internal/settings"
+	"github.com/sumiredc/barpay/internal/spectest"
 	"github.com/sumiredc/barpay/internal/store"
 	"github.com/sumiredc/barpay/internal/store/storetest"
 )
@@ -164,6 +165,36 @@ func TestGetRateHistoryRefusesBadSince(t *testing.T) {
 		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), `"field":"since"`) ||
 			!strings.Contains(w.Body.String(), `"invalid_request"`) {
 			t.Errorf("%s: %d %s; want 400 invalid_request on since", path, w.Code, w.Body)
+		}
+	}
+}
+
+// An unreadable since is refused as unreadable, not as missing, and since given more than once is
+// refused rather than one of them being used.
+func TestGetRateHistoryRefusesUnreadableOrRepeatedSince(t *testing.T) {
+	r := pricingRouter(started(t))
+	at := "2026-10-31T18:00:00Z"
+	for _, c := range []struct{ query, notMessage string }{
+		{"since=%zz", "since is required."},
+		{"since=" + at + ";x", "since is required."},
+		{"since=" + at + "&since=" + at, ""},
+		{"since=" + at + "&since=2026-10-31T19:00:00Z", ""},
+	} {
+		w := do(r, "/v1/rate/history?"+c.query, storeAuth)
+		spectest.Valid(t, "Error", w.Body.Bytes())
+		var e struct {
+			Error struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+				Details struct {
+					Field string `json:"field"`
+				} `json:"details"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &e); err != nil || w.Code != http.StatusBadRequest ||
+			e.Error.Code != "invalid_request" || e.Error.Details.Field != "since" ||
+			(c.notMessage != "" && e.Error.Message == c.notMessage) {
+			t.Errorf("%s: %d %s; want 400 invalid_request on since", c.query, w.Code, w.Body)
 		}
 	}
 }

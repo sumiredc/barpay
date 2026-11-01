@@ -291,6 +291,24 @@ func TestListSessionsRefusesBadParameters(t *testing.T) {
 	}
 }
 
+// An unreadable state is refused rather than answered with every state.
+func TestListSessionsRefusesUnreadableState(t *testing.T) {
+	f := newFixture(t)
+	f.checkedIn(t, "")
+	for _, q := range []string{"?state=%zz", "?state=active&state=%zz", "?state=active;closed"} {
+		w := f.listSessions(q)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d %s; want 400", q, w.Code, w.Body)
+			continue
+		}
+		spectest.Valid(t, "Error", w.Body.Bytes())
+		if !bytes.Contains(w.Body.Bytes(), []byte(`"code":"invalid_request"`)) ||
+			!bytes.Contains(w.Body.Bytes(), []byte(`"details":{"field":"state"}`)) {
+			t.Errorf("%s: %s; want invalid_request for state", q, w.Body)
+		}
+	}
+}
+
 // Guarantees → Access: only the admin API key lists sessions, and it needs the staff ID.
 func TestListSessionsNeedsTheAdminKeyAndStaffID(t *testing.T) {
 	f := newFixture(t)

@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/base64"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -31,14 +32,27 @@ func Cursor(list string, seq int64) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(list + ":" + strconv.FormatInt(seq, 10)))
 }
 
-// ParsePage reads limit and cursor for the list named list. When either is malformed it writes
-// the 400 and returns false. Whether After names an item of the list is for the list to check,
-// answering with InvalidCursor when it does not.
+// ParsePage reads limit and cursor for the list named list. When the query string cannot be read
+// (see Query), or either is repeated or malformed, it writes the 400 and returns false. Whether
+// After names an item of the list is for the list to check, answering with InvalidCursor when it
+// does not.
 func ParsePage(w http.ResponseWriter, req *http.Request, list string) (Page, bool) {
-	q := req.URL.Query()
+	q, ok := Query(w, req)
+	if !ok {
+		return Page{}, false
+	}
+	return PageFrom(w, q, list)
+}
+
+// PageFrom is ParsePage for a list that reads other parameters too, from q as Query returned it.
+func PageFrom(w http.ResponseWriter, q url.Values, list string) (Page, bool) {
 	p := Page{Limit: DefaultLimit}
-	if q.Has("limit") {
-		n, err := strconv.Atoi(q.Get("limit"))
+	limit, hasLimit, ok := single(w, q, "limit")
+	if !ok {
+		return Page{}, false
+	}
+	if hasLimit {
+		n, err := strconv.Atoi(limit)
 		if err != nil || n < 1 || n > MaxLimit {
 			WriteError(w, http.StatusBadRequest, CodeInvalidRequest,
 				"limit must be an integer from 1 to "+strconv.Itoa(MaxLimit)+".", "limit")
@@ -46,8 +60,12 @@ func ParsePage(w http.ResponseWriter, req *http.Request, list string) (Page, boo
 		}
 		p.Limit = n
 	}
-	if q.Has("cursor") {
-		seq, ok := parseCursor(list, q.Get("cursor"))
+	cursor, hasCursor, ok := single(w, q, "cursor")
+	if !ok {
+		return Page{}, false
+	}
+	if hasCursor {
+		seq, ok := parseCursor(list, cursor)
 		if !ok {
 			InvalidCursor(w)
 			return Page{}, false
