@@ -147,7 +147,7 @@ The OS's `/etc/chrony/chrony.conf` must read `/etc/chrony/conf.d` (`confdir`) an
 
 ```sh
 grep -nE '^(confdir|sourcedir|makestep|nocerttimecheck)' /etc/chrony/chrony.conf
-chronyc -N authdata
+sudo chronyc -N authdata
 timedatectl
 ```
 

@@ -147,7 +147,7 @@ OS の `/etc/chrony/chrony.conf` は `/etc/chrony/conf.d` を読み（`confdir`�
 
 ```sh
 grep -nE '^(confdir|sourcedir|makestep|nocerttimecheck)' /etc/chrony/chrony.conf
-chronyc -N authdata
+sudo chronyc -N authdata
 timedatectl
 ```
 
