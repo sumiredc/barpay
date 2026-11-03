@@ -163,7 +163,7 @@ sudo install -m 600 /opt/barpay-edge/barpay/edge/deploy/barpay-edge.example.env 
 sudoedit /etc/barpay-edge/barpay-edge.env
 ```
 
-`BARPAY_URL` と `BARPAY_EDGE_SHARED_SECRET`（`barpay.toml` の `keys.edge_shared_secret`）を埋める。`BARPAY_URL` は `https` でなければならない。平文の `http` では、ネットワーク上の誰でも共有シークレットを読め、BarPay の答え（解錠を含む）を読むことも偽ることもできる。`BARPAY_EDGE_MICROPHONE_DEVICE` にはマイクのカードを指定する。ALSA の既定の機器はマイクのカードとは限らない。各変数が何を取るかはファイルのコメントにある。ほかの値は、Raspberry Pi 5 と下の配線に合わせて入れてある。値が無いか形が違えば、エッジ端末はどの値かをログに出し、起動しない。
+`BARPAY_URL` と `BARPAY_EDGE_SHARED_SECRET`（`barpay.toml` の `keys.edge_shared_secret`）を埋める。`BARPAY_URL` は `https` でなければならない。ただし、ループバックの IP アドレス（`127.0.0.0/8` か `::1`）への `http`（確認のために同じマシンで動かす BarPay など）は除く。ネットワーク越しの平文の `http` では、そのネットワーク上の誰でも共有シークレットを読め、BarPay の答え（解錠を含む）を読むことも偽ることもできる。`BARPAY_EDGE_MICROPHONE_DEVICE` にはマイクのカードを指定する。ALSA の既定の機器はマイクのカードとは限らない。各変数が何を取るかはファイルのコメントにある。ほかの値は、Raspberry Pi 5 と下の配線に合わせて入れてある。値が無いか形が違えば、エッジ端末はどの値かをログに出し、起動しない。
 
 サービスが動き始めた後は、ファイルを変える前にサービスを止め、変えた後に起動する。止まった後の処理はファイルを読み直すので、動いている間に線の番号を変えると、その処理は新しい線を low にし、古い線はそのままにしてしまう。
 
