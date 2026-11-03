@@ -7,6 +7,7 @@ import fake_gpiod
 import pytest
 
 from barpay_edge import lock_gpio
+from barpay_edge.app import LOCK_ENV
 from barpay_edge.indicator import (
     BLUE_LINE_ENV,
     BUZZER_LINE_ENV,
@@ -575,6 +576,60 @@ def test_a_line_that_cannot_be_requested_is_unavailable(
 
     with pytest.raises(lock_gpio.LockUnavailable, match="cannot request line 24"):
         lock_gpio.GpiodLine(SETTINGS)
+
+
+LOW_ENV = {LOCK_ENV: "gpio", CHIP_ENV: "/dev/gpiochip4", LOCK_LINE_ENV: "5"}
+
+
+def test_low_sets_the_lock_line_low_and_releases_it(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    gpiod = fake_gpiod.install(monkeypatch)
+
+    assert lock_gpio.main(["low"], LOW_ENV) == 0
+
+    (request,) = gpiod.requests
+    assert request.chip == "/dev/gpiochip4"
+    assert request.config[5].output_value == fake_gpiod.Value.INACTIVE
+    assert request.values[5] == fake_gpiod.Value.INACTIVE
+    assert request.released
+    assert capsys.readouterr().out.startswith("OK")
+
+
+def test_low_fails_when_the_line_reads_back_high(monkeypatch: pytest.MonkeyPatch) -> None:
+    gpiod = fake_gpiod.install(monkeypatch)
+    monkeypatch.setattr(fake_gpiod.Request, "set_value", lambda self, line, value: None)
+    monkeypatch.setattr(fake_gpiod.Request, "get_value", lambda self, line: fake_gpiod.Value.ACTIVE)
+
+    assert lock_gpio.main(["low"], LOW_ENV) == 1
+    assert gpiod.requests[0].released
+
+
+@pytest.mark.parametrize("lock", ["fake", ""])
+def test_low_touches_no_line_when_the_lock_is_not_the_gpio_lock(
+    lock: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gpiod = fake_gpiod.install(monkeypatch)
+    env = {**LOW_ENV, LOCK_ENV: lock}
+
+    assert lock_gpio.main(["low"], env) == 0
+    assert gpiod.requests == []
+
+
+def test_low_fails_when_the_line_cannot_be_requested(monkeypatch: pytest.MonkeyPatch) -> None:
+    gpiod = fake_gpiod.install(monkeypatch)
+    gpiod.fail = OSError("the line is in use")
+
+    assert lock_gpio.main(["low"], LOW_ENV) == 2
+
+
+def test_low_reads_the_lock_line_from_the_environment_and_refuses_a_malformed_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gpiod = fake_gpiod.install(monkeypatch)
+
+    assert lock_gpio.main(["low"], {**LOW_ENV, LOCK_LINE_ENV: "x"}) == 2
+    assert gpiod.requests == []
 
 
 def test_the_gpio_lock_is_unavailable_without_libgpiod() -> None:

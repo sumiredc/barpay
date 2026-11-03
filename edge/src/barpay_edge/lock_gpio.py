@@ -1,11 +1,19 @@
 """The lock's part on the Raspberry Pi 5: its line through libgpiod, which only this module and
 the indicator's part import.
 
-Run as a module, it checks the lock on the real line, with nothing on the line but a jumper to an
-input line that another process reads. Never run it with the relay on the line: it opens the gate,
-and hold leaves the line as a killed process leaves it. It reads the chip, the lock's line and the
-unlock time from the same environment variables as the edge device; --seconds sets the unlock time
-instead.
+Run as a module, it reads the chip, the lock's line and the unlock time from the same environment
+variables as the edge device; --seconds sets the unlock time instead.
+
+low sets the lock's line low and releases it, and exits 0 only when the line read back low. The
+edge device's service runs it after every stop, however the edge device ended: a process killed
+with SIGKILL leaves the line as it was, high while the gate was open. When the lock is not the
+gpio lock, it touches no line and exits 0.
+
+    .venv/bin/python -m barpay_edge.lock_gpio low
+
+The other commands check the lock on the real line, with nothing on the line but a jumper to an
+input line that another process reads. Never run them with the relay on the line: they open the
+gate, and hold leaves the line as a killed process leaves it.
 
     uv sync --locked --extra gpio
     uv run --no-sync python -m barpay_edge.lock_gpio check --input-line N [--seconds S]
@@ -412,16 +420,41 @@ def start(settings: LockSettings, input_line: int) -> int:
     return 0 if ok else 1
 
 
+def low(settings: LockSettings) -> int:
+    # Requested as an output that starts low; written low as well, so a request that kept the
+    # line's value would still end low.
+    line = GpiodLine(settings)
+    try:
+        line.write(False)
+        high = line.read()
+    finally:
+        line.release()
+    print(
+        f"{'FAIL' if high else 'OK  '} lock line {settings.line} of {settings.chip} read back "
+        f"{_hl(high)} and released"
+    )
+    return 1 if high else 0
+
+
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] = os.environ) -> int:
     parser = argparse.ArgumentParser(prog="python -m barpay_edge.lock_gpio")
-    parser.add_argument("command", choices=["check", "hold", "read", "start", "watch"])
+    parser.add_argument("command", choices=["check", "hold", "low", "read", "start", "watch"])
     parser.add_argument("--input-line", type=int, help="the input line the jumper joins")
     parser.add_argument("--seconds", help=f"the unlock time, instead of {UNLOCK_SECONDS_ENV}")
     args = parser.parse_args(argv)
     if args.seconds is not None:
         env = {**env, UNLOCK_SECONDS_ENV: args.seconds}
+    if args.command == "low":
+        # Imported here, so that importing this part does not import the entry point.
+        from barpay_edge.app import LOCK_ENV
+
+        if env.get(LOCK_ENV) != "gpio":
+            print(f"{LOCK_ENV} is not gpio, so no line is set low")
+            return 0
     try:
         settings = load_lock_settings(env)
+        if args.command == "low":
+            return low(settings)
         if args.command == "hold":
             return hold(settings)
         if args.input_line is None:
