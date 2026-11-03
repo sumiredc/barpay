@@ -128,7 +128,7 @@ sudo useradd --system --user-group --no-create-home --home-dir /nonexistent --sh
 
 ### 時刻の合わせ方
 
-Raspberry Pi 5 の時計には電池が無いので、電源が戻った後、時計は大きく遅れた時刻から始まる。すると chrony は NTS の時刻のサーバーの証明書をまだ有効でないと見て時計を合わせず、`BARPAY_URL` が `https` なら BarPay への呼び出しもすべて証明書の確認で失敗する。[`edge/deploy/chrony/barpay-edge.conf`](edge/deploy/chrony/barpay-edge.conf) は、OS の chrony の設定に足す分で、OS の NTS の時刻のサーバーはそのまま使う。NTS の時刻のサーバーだけを使い、起動のときに chronyd が立ち上がった後の最初の時刻の更新だけ証明書の有効期間を確かめず、時計を一度に直すのは chronyd が立ち上がった直後の更新だけにする。
+Raspberry Pi 5 の時計には電池が無いので、電源が戻った後、時計は大きく遅れた時刻から始まる。すると chrony は NTS の時刻のサーバーの証明書をまだ有効でないと見て時計を合わせず、BarPay への呼び出しもすべて証明書の確認で失敗する。[`edge/deploy/chrony/barpay-edge.conf`](edge/deploy/chrony/barpay-edge.conf) は、OS の chrony の設定に足す分で、OS の NTS の時刻のサーバーはそのまま使う。NTS の時刻のサーバーだけを使い、起動のときに chronyd が立ち上がった後の最初の時刻の更新だけ証明書の有効期間を確かめず、時計を一度に直すのは chronyd が立ち上がった直後の更新だけにする。
 
 ```sh
 sudo install -m 644 /opt/barpay-edge/barpay/edge/deploy/chrony/barpay-edge.conf /etc/chrony/conf.d/
@@ -155,7 +155,7 @@ sudo install -m 600 /opt/barpay-edge/barpay/edge/deploy/barpay-edge.example.env 
 sudoedit /etc/barpay-edge/barpay-edge.env
 ```
 
-`BARPAY_URL` と `BARPAY_EDGE_SHARED_SECRET`（`barpay.toml` の `keys.edge_shared_secret`）を埋め、`BARPAY_EDGE_MICROPHONE_DEVICE` にマイクのカードを指定する。ALSA の既定の機器はマイクのカードとは限らない。各変数が何を取るかはファイルのコメントにある。ほかの値は、Raspberry Pi 5 と下の配線に合わせて入れてある。値が無いか形が違えば、エッジ端末はどの値かをログに出し、起動しない。
+`BARPAY_URL` と `BARPAY_EDGE_SHARED_SECRET`（`barpay.toml` の `keys.edge_shared_secret`）を埋める。`BARPAY_URL` は `https` でなければならない。平文の `http` では、ネットワーク上の誰でも共有シークレットを読め、BarPay の答え（解錠を含む）を読むことも偽ることもできる。`BARPAY_EDGE_MICROPHONE_DEVICE` にはマイクのカードを指定する。ALSA の既定の機器はマイクのカードとは限らない。各変数が何を取るかはファイルのコメントにある。ほかの値は、Raspberry Pi 5 と下の配線に合わせて入れてある。値が無いか形が違えば、エッジ端末はどの値かをログに出し、起動しない。
 
 ### 権限
 

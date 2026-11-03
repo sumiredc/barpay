@@ -128,7 +128,7 @@ To update, run `git pull` and the `uv sync` line above again in `/opt/barpay-edg
 
 ### Setting the clock
 
-The Raspberry Pi 5 has no battery for its clock, so after power comes back the clock starts far behind. chrony then finds the NTS time server's certificate not yet valid and never sets the clock, and with an `https` `BARPAY_URL` every call to BarPay fails its certificate check too. [`edge/deploy/chrony/barpay-edge.conf`](edge/deploy/chrony/barpay-edge.conf) adds to the OS's chrony settings, keeping its NTS time servers: only NTS sources are used, the certificate's times are not checked for the first clock update after chronyd starts at boot, and the clock is stepped only in the first updates after chronyd starts.
+The Raspberry Pi 5 has no battery for its clock, so after power comes back the clock starts far behind. chrony then finds the NTS time server's certificate not yet valid and never sets the clock, and every call to BarPay fails its certificate check too. [`edge/deploy/chrony/barpay-edge.conf`](edge/deploy/chrony/barpay-edge.conf) adds to the OS's chrony settings, keeping its NTS time servers: only NTS sources are used, the certificate's times are not checked for the first clock update after chronyd starts at boot, and the clock is stepped only in the first updates after chronyd starts.
 
 ```sh
 sudo install -m 644 /opt/barpay-edge/barpay/edge/deploy/chrony/barpay-edge.conf /etc/chrony/conf.d/
@@ -155,7 +155,7 @@ sudo install -m 600 /opt/barpay-edge/barpay/edge/deploy/barpay-edge.example.env 
 sudoedit /etc/barpay-edge/barpay-edge.env
 ```
 
-Fill in `BARPAY_URL` and `BARPAY_EDGE_SHARED_SECRET` (`keys.edge_shared_secret` in `barpay.toml`), and set `BARPAY_EDGE_MICROPHONE_DEVICE` to the microphone's card, which ALSA's default device may not be. The comments in the file say what each variable takes; the other values are filled in for the Raspberry Pi 5 and the wiring below. When a value is missing or malformed, the edge device logs which one and does not start.
+Fill in `BARPAY_URL` and `BARPAY_EDGE_SHARED_SECRET` (`keys.edge_shared_secret` in `barpay.toml`). `BARPAY_URL` must use `https`: over plain `http`, anyone on the network can read the shared secret and read or forge BarPay's answers, including an unlock. Set `BARPAY_EDGE_MICROPHONE_DEVICE` to the microphone's card, which ALSA's default device may not be. The comments in the file say what each variable takes; the other values are filled in for the Raspberry Pi 5 and the wiring below. When a value is missing or malformed, the edge device logs which one and does not start.
 
 ### Permissions
 
