@@ -161,4 +161,6 @@ class Sender:
             try:
                 self._client.send_liveliness(value, timeout=self._timeout)
             except BarPayError as e:
-                log.warning("the liveliness was not sent, and is not sent again: %s", e)
+                log.warning("the liveliness %.3f was not sent, and is not sent again: %s", value, e)
+            else:
+                log.info("sent the liveliness %.3f", value)

@@ -245,6 +245,18 @@ def test_each_value_is_sent_once_with_only_the_liveliness(barpay: FakeBarPay) ->
     assert bodies(barpay) == [{"liveliness": 0.25}, {"liveliness": 0.75}]
 
 
+def test_each_value_sent_is_logged_for_tuning(
+    barpay: FakeBarPay, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    sender = Sender(Client(barpay.url, SECRET), timeout=1.0)
+    with running(sender):
+        sender.offer(0.25)
+        wait_until(lambda: "sent the liveliness" in caplog.text)
+
+    assert "sent the liveliness 0.250" in caplog.text
+
+
 @pytest.mark.parametrize(
     "failure",
     [
