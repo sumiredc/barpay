@@ -16,7 +16,8 @@ RULES = _EDGE / "deploy" / "99-barpay-edge.rules"
 SERVICE = _EDGE / "deploy" / "barpay-edge.service"
 
 # How the code names an environment variable: every one is a string constant of this shape, and
-# no other string constant in the code has it.
+# no other string constant in the code has it. A name built at run time, such as in an f-string,
+# would not be found, so the code must write each name as a literal constant.
 _VARIABLE = re.compile(r"[A-Z][A-Z0-9]*(_[A-Z0-9]+)+")
 
 
