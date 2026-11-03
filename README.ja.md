@@ -99,7 +99,7 @@ go run ./cmd/barpay-dev
 
 ## エッジ端末の動かし方
 
-エッジ端末（[`edge/`](edge)）は出口ゲートのソフトウェア。退店 QR を読み、ロックを動かし、結果を LED とブザーで示し、店の賑わいを BarPay に送る。Ubuntu Server 26.04 LTS の Raspberry Pi 5 の上で、専用のユーザーの systemd のサービスとして動き、起動のときに立ち上がる。使う部品は [動かせない前提](docs/PRD.ja.md#8-動かせない前提) のハードウェアにある。OS の入れ方とネットワークの設定はここでは扱わない。以下のコマンドは、Raspberry Pi 5 の上で、`sudo` を使えるユーザーで動かす。
+エッジ端末（[`edge/`](edge)）は出口ゲートのソフトウェア。退店 QR を読み、ロックを動かし、結果を LED とブザーで示し、店の盛り上がりを BarPay に送る。Ubuntu Server 26.04 LTS の Raspberry Pi 5 の上で、専用のユーザーの systemd のサービスとして動き、起動のときに立ち上がる。使う部品は [動かせない前提](docs/PRD.ja.md#8-動かせない前提) のハードウェアにある。OS の入れ方とネットワークの設定はここでは扱わない。以下のコマンドは、Raspberry Pi 5 の上で、`sudo` を使えるユーザーで動かす。
 
 ### 入れ方
 
@@ -128,7 +128,7 @@ sudo useradd --system --user-group --no-create-home --home-dir /nonexistent --sh
 
 ### 時刻の合わせ方
 
-Raspberry Pi 5 の時計には電池が無いので、電源が戻った後、時計は大きく遅れた時刻から始まる。すると chrony は NTS の時刻のサーバーの証明書をまだ有効でないと見て時計を合わせず、`BARPAY_URL` が `https` なら BarPay への呼び出しもすべて証明書の確認で失敗する。[`edge/deploy/chrony/barpay-edge.conf`](edge/deploy/chrony/barpay-edge.conf) は、OS の chrony の設定に足す分で、OS の NTS の時刻のサーバーはそのまま使う。起動の後の最初の時刻の更新だけ証明書の有効期間を確かめず、時計を一度に直すのは chronyd が立ち上がった直後の更新だけにする。
+Raspberry Pi 5 の時計には電池が無いので、電源が戻った後、時計は大きく遅れた時刻から始まる。すると chrony は NTS の時刻のサーバーの証明書をまだ有効でないと見て時計を合わせず、`BARPAY_URL` が `https` なら BarPay への呼び出しもすべて証明書の確認で失敗する。[`edge/deploy/chrony/barpay-edge.conf`](edge/deploy/chrony/barpay-edge.conf) は、OS の chrony の設定に足す分で、OS の NTS の時刻のサーバーはそのまま使う。NTS の時刻のサーバーだけを使い、起動のときに chronyd が立ち上がった後の最初の時刻の更新だけ証明書の有効期間を確かめず、時計を一度に直すのは chronyd が立ち上がった直後の更新だけにする。
 
 ```sh
 sudo install -m 644 /opt/barpay-edge/barpay/edge/deploy/chrony/barpay-edge.conf /etc/chrony/conf.d/
@@ -155,7 +155,7 @@ sudo install -m 600 /opt/barpay-edge/barpay/edge/deploy/barpay-edge.example.env 
 sudoedit /etc/barpay-edge/barpay-edge.env
 ```
 
-`BARPAY_URL` と `BARPAY_EDGE_SHARED_SECRET`（`barpay.toml` の `keys.edge_shared_secret`）を埋め、`BARPAY_EDGE_MICROPHONE_DEVICE` にマイクのカードを指定する。ALSA の既定の機器はマイクのカードとは限らない。各変数が何を取るかはファイルのコメントにある。ほかの値は既定値で、下の配線に合っている。値が無いか形が違えば、エッジ端末はどの値かをログに出し、起動しない。
+`BARPAY_URL` と `BARPAY_EDGE_SHARED_SECRET`（`barpay.toml` の `keys.edge_shared_secret`）を埋め、`BARPAY_EDGE_MICROPHONE_DEVICE` にマイクのカードを指定する。ALSA の既定の機器はマイクのカードとは限らない。各変数が何を取るかはファイルのコメントにある。ほかの値は、Raspberry Pi 5 と下の配線に合わせて入れてある。値が無いか形が違えば、エッジ端末はどの値かをログに出し、起動しない。
 
 ### 権限
 
@@ -165,6 +165,13 @@ sudoedit /etc/barpay-edge/barpay-edge.env
 ls /dev/input/by-id/
 udevadm info /dev/input/by-id/<the reader>-event-kbd | grep ID_SERIAL=
 cat /proc/asound/cards
+```
+
+規則と見本は、ヘッダーの GPIO のチップ（`pinctrl-rp1` という名前のもの）を `gpiochip0` としている。`gpiodetect`（`gpiod` のパッケージ）でそのチップの番号が違えば、規則の `KERNEL` と `BARPAY_EDGE_GPIO_CHIP` をそのチップに変える。
+
+```sh
+sudo apt install gpiod
+gpiodetect
 ```
 
 規則を入れ、その 2 つのプレースホルダーを調べた値に置き換えて、当てる。
@@ -187,7 +194,7 @@ QR リーダーの機器、マイクのカードの `controlC` と `pcmC…c` �
 |---|---|---|
 | リレー | コイルは 5 V で 100 mA 以下（コイルの抵抗が 50 Ω 以上）、接点は錠の電圧と電流に耐える | ヘッダーの 5 V のピンから動かす |
 | NPN トランジスタ | コレクタ電流 500 mA 以上、コレクタ・エミッタ間の電圧 30 V 以上、100 mA での電流増幅率 100 以上 | 下のベース電流で完全にオンになる |
-| ベースの抵抗 | 1 kΩ | ベースに約 2.6 mA、GPIO の線から合わせて約 3 mA |
+| ベースの抵抗 | 1 kΩ | GPIO の線から約 2.6 mA、ほぼすべてがベースに流れる |
 | プルダウンの抵抗 | 10 kΩ、ベースからグラウンドへ | 線を動かしていない間（起動の途中、入力になっている間、手放した後）にリレーが入らない |
 | コイルに並べるダイオード | シリコンの整流ダイオード、1 A、100 V 以上 | コイルを切ったときに出る電圧を逃がす。逃がさないとトランジスタと Raspberry Pi 5 を壊しうる |
 | 代わりの LED とその抵抗 | 任意の LED、330 Ω | 5 V から約 9 mA |
@@ -209,16 +216,18 @@ LED は解錠のたびに解錠の秒数（`BARPAY_EDGE_UNLOCK_SECONDS`）だけ
 
 ### QR リーダーをコンソールから切り離す
 
-QR リーダーはキーボード。エッジ端末は動いている間それを専有するが、起動の途中、落ちてから立ち上げ直すまで、QR リーダーを差した直後は、打った文字がコンソールに届く。ログインの画面に届けば退店トークンがユーザー名としてログに残り、ログインしたままのシェルに届けばコマンドとして動く。udev の規則では、カーネルがキーボードのキーをコンソールに送るのを止められないので、代わりにどの仮想端末でもログインの画面を動かさない。[`edge/deploy/logind/barpay-edge.conf`](edge/deploy/logind/barpay-edge.conf) で logind がそれを立ち上げないようにし、tty1 のログインの画面はマスクする。SSH でのログインには影響しない。
+QR リーダーはキーボード。エッジ端末は動いている間それを専有するが、起動の途中、落ちてから立ち上げ直すまで、QR リーダーを差した直後は、打った文字がコンソールに届く。ログインの画面に届けば退店トークンがユーザー名としてログに残り、ログインしたままのシェルに届けばコマンドとして動く。udev の規則では、カーネルがキーボードのキーをコンソールに送るのを止められないので、代わりにどの仮想端末でもログインの画面を動かさない。[`edge/deploy/logind/barpay-edge.conf`](edge/deploy/logind/barpay-edge.conf) で logind がそれを立ち上げないようにし、tty1 のログインの画面はマスクする。SSH でのログインには影響しない。コンソールにログインしたままのシェルは再起動まで動き続けるので、この手順は SSH から動かし、先にすべてのコンソールからログアウトしておく。
 
 ```sh
 sudo install -D -m 644 /opt/barpay-edge/barpay/edge/deploy/logind/barpay-edge.conf /etc/systemd/logind.conf.d/barpay-edge.conf
-sudo systemctl mask --now getty@tty1.service
+sudo systemctl mask getty@tty1.service
+sudo reboot
 ```
 
-次に再起動した後、tty1 で動くプロセスは無い。
+再起動の後、コンソールのセッションは無く（`loginctl` が示すセッションは、TTY が無いか `pts/` のもの）、tty1 で動くプロセスも無い。
 
 ```sh
+loginctl list-sessions
 ps -t tty1
 ```
 
@@ -231,7 +240,7 @@ sudo systemctl enable --now barpay-edge
 systemctl status barpay-edge
 ```
 
-サービスは起動のときに、ネットワークも時刻も待たずに立ち上がる。`systemctl stop` 以外で終わったら 2 秒後に立ち上げ直し、続けて終わると待つ時間を最大 30 秒まで延ばし、立ち上げ直しをやめない。どの止まり方の後も（落ちたときや `kill -9` を含む）ロックの線を low にするので、エッジ端末が動いていない間にゲートが開いたままにならない。
+サービスは起動のときに、ネットワークも時刻も待たずに立ち上がる。`systemctl stop` 以外で終わったら、初めは 2 秒後に立ち上げ直す。待つ時間はその後の終わりごとに 10 秒まで延び、次に `systemctl` でサービスを起動するまで 10 秒のままになる。立ち上げ直しはやめない。どの止まり方の後も（落ちたときや `kill -9` を含む）ロックの線を low にするので、エッジ端末が動いていない間にゲートが開いたままにならない。
 
 ```sh
 sudo systemctl restart barpay-edge
@@ -239,7 +248,12 @@ sudo systemctl stop barpay-edge
 sudo systemctl disable --now barpay-edge
 ```
 
-`barpay_edge.indicator_gpio` と `barpay_edge.lock_gpio` の確認は、同じ GPIO の線を使うので、サービスを止めてから動かす。
+`barpay_edge.indicator_gpio` と `barpay_edge.lock_gpio` の確認は、同じ GPIO の線を使うので、サービスを止めてから動かす。同じ変数を読むので、root で、環境変数のファイルの値とともに動かす。たとえば次のとおり。
+
+```sh
+cd /opt/barpay-edge/barpay/edge
+sudo sh -c 'set -a; . /etc/barpay-edge/barpay-edge.env; exec .venv/bin/python -m barpay_edge.indicator_gpio'
+```
 
 ### ログの見方
 

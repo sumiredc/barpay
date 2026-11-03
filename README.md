@@ -128,7 +128,7 @@ To update, run `git pull` and the `uv sync` line above again in `/opt/barpay-edg
 
 ### Setting the clock
 
-The Raspberry Pi 5 has no battery for its clock, so after power comes back the clock starts far behind. chrony then finds the NTS time server's certificate not yet valid and never sets the clock, and with an `https` `BARPAY_URL` every call to BarPay fails its certificate check too. [`edge/deploy/chrony/barpay-edge.conf`](edge/deploy/chrony/barpay-edge.conf) adds to the OS's chrony settings, keeping its NTS time servers: the certificate's times are not checked for the first clock update after boot, and the clock is stepped only in the first updates after chronyd starts.
+The Raspberry Pi 5 has no battery for its clock, so after power comes back the clock starts far behind. chrony then finds the NTS time server's certificate not yet valid and never sets the clock, and with an `https` `BARPAY_URL` every call to BarPay fails its certificate check too. [`edge/deploy/chrony/barpay-edge.conf`](edge/deploy/chrony/barpay-edge.conf) adds to the OS's chrony settings, keeping its NTS time servers: only NTS sources are used, the certificate's times are not checked for the first clock update after chronyd starts at boot, and the clock is stepped only in the first updates after chronyd starts.
 
 ```sh
 sudo install -m 644 /opt/barpay-edge/barpay/edge/deploy/chrony/barpay-edge.conf /etc/chrony/conf.d/
@@ -155,7 +155,7 @@ sudo install -m 600 /opt/barpay-edge/barpay/edge/deploy/barpay-edge.example.env 
 sudoedit /etc/barpay-edge/barpay-edge.env
 ```
 
-Fill in `BARPAY_URL` and `BARPAY_EDGE_SHARED_SECRET` (`keys.edge_shared_secret` in `barpay.toml`), and set `BARPAY_EDGE_MICROPHONE_DEVICE` to the microphone's card, which ALSA's default device may not be. The comments in the file say what each variable takes; the other values are the defaults, which match the wiring below. When a value is missing or malformed, the edge device logs which one and does not start.
+Fill in `BARPAY_URL` and `BARPAY_EDGE_SHARED_SECRET` (`keys.edge_shared_secret` in `barpay.toml`), and set `BARPAY_EDGE_MICROPHONE_DEVICE` to the microphone's card, which ALSA's default device may not be. The comments in the file say what each variable takes; the other values are filled in for the Raspberry Pi 5 and the wiring below. When a value is missing or malformed, the edge device logs which one and does not start.
 
 ### Permissions
 
@@ -165,6 +165,13 @@ The service's user gets three devices only, through its group, by the udev rule 
 ls /dev/input/by-id/
 udevadm info /dev/input/by-id/<the reader>-event-kbd | grep ID_SERIAL=
 cat /proc/asound/cards
+```
+
+The rule and the sample take `gpiochip0` as the header's GPIO chip, the one labelled `pinctrl-rp1`. If `gpiodetect` (in the `gpiod` package) shows another number for it, change the rule's `KERNEL` and `BARPAY_EDGE_GPIO_CHIP` to that chip.
+
+```sh
+sudo apt install gpiod
+gpiodetect
 ```
 
 Install the rule, replace its two placeholders with them, and apply it:
@@ -187,7 +194,7 @@ The lock's line (`BARPAY_EDGE_LOCK_LINE`, GPIO 24 by default, pin 18 of the head
 |---|---|---|
 | Relay | 5 V coil of at most 100 mA (coil resistance at least 50 Ω), contacts rated for the lock's voltage and current | Powered from the header's 5 V pin |
 | NPN transistor | Collector current at least 500 mA, collector–emitter voltage at least 30 V, current gain at least 100 at 100 mA | Fully on with the base current below |
-| Base resistor | 1 kΩ | About 2.6 mA into the base, about 3 mA from the GPIO line in all |
+| Base resistor | 1 kΩ | About 2.6 mA from the GPIO line, nearly all into the base |
 | Pull-down resistor | 10 kΩ, base to ground | The relay stays off while the line is not driven: at boot, while it is an input, after it is released |
 | Diode across the coil | Silicon rectifier diode, at least 1 A and 100 V | Takes the voltage the coil gives when switched off, which would otherwise damage the transistor and the Raspberry Pi 5 |
 | Stand-in LED and its resistor | Any LED, 330 Ω | About 9 mA from 5 V |
@@ -209,16 +216,18 @@ To drive the lock instead, move the LED's place to the lock: connect the lock's 
 
 ### Keeping the QR reader off the console
 
-The QR reader is a keyboard. The edge device holds it while it runs, but at boot, between a crash and the restart, and just after the reader is plugged in, what it types goes to the console, where a login prompt would log an exit token as a user name and a logged-in shell would run it as a command. A udev rule cannot stop the kernel sending a keyboard's keys to the console, so no virtual terminal runs a login prompt instead: [`edge/deploy/logind/barpay-edge.conf`](edge/deploy/logind/barpay-edge.conf) stops logind starting them, and the prompt on tty1 is masked. Logging in over SSH is not affected.
+The QR reader is a keyboard. The edge device holds it while it runs, but at boot, between a crash and the restart, and just after the reader is plugged in, what it types goes to the console, where a login prompt would log an exit token as a user name and a logged-in shell would run it as a command. A udev rule cannot stop the kernel sending a keyboard's keys to the console, so no virtual terminal runs a login prompt instead: [`edge/deploy/logind/barpay-edge.conf`](edge/deploy/logind/barpay-edge.conf) stops logind starting them, and the prompt on tty1 is masked. Logging in over SSH is not affected. Run these steps over SSH and log out of every console first, since a shell already logged in on a console keeps running until the reboot ends it:
 
 ```sh
 sudo install -D -m 644 /opt/barpay-edge/barpay/edge/deploy/logind/barpay-edge.conf /etc/systemd/logind.conf.d/barpay-edge.conf
-sudo systemctl mask --now getty@tty1.service
+sudo systemctl mask getty@tty1.service
+sudo reboot
 ```
 
-After the next reboot, no process runs on tty1:
+After the reboot, no session is on a console (every session `loginctl` lists has no TTY or a `pts/` one) and no process runs on tty1:
 
 ```sh
+loginctl list-sessions
 ps -t tty1
 ```
 
@@ -231,7 +240,7 @@ sudo systemctl enable --now barpay-edge
 systemctl status barpay-edge
 ```
 
-The service starts at boot without waiting for the network or the clock. After any end other than `systemctl stop`, it starts again 2 seconds later, waiting longer after repeated ends, up to 30 seconds, and never gives up. After every stop, also a crash or `kill -9`, it sets the lock's line low, so the gate does not stay open while the edge device is not running.
+The service starts at boot without waiting for the network or the clock. After any end other than `systemctl stop`, it starts again 2 seconds later at first; the wait grows over the next ends to 10 seconds and stays there until the service is next started with `systemctl`, and it never gives up. After every stop, also a crash or `kill -9`, it sets the lock's line low, so the gate does not stay open while the edge device is not running.
 
 ```sh
 sudo systemctl restart barpay-edge
@@ -239,7 +248,12 @@ sudo systemctl stop barpay-edge
 sudo systemctl disable --now barpay-edge
 ```
 
-Stop the service before running the checks in `barpay_edge.indicator_gpio` and `barpay_edge.lock_gpio`, which use the same GPIO lines.
+Stop the service before running the checks in `barpay_edge.indicator_gpio` and `barpay_edge.lock_gpio`, which use the same GPIO lines. They read the same variables, so run them as root with the environment file's values, for example:
+
+```sh
+cd /opt/barpay-edge/barpay/edge
+sudo sh -c 'set -a; . /etc/barpay-edge/barpay-edge.env; exec .venv/bin/python -m barpay_edge.indicator_gpio'
+```
 
 ### Reading the logs
 
