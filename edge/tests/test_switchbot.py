@@ -357,21 +357,23 @@ def test_an_error_left_in_the_background_is_logged_without_its_text(
     assert not lock_leaks(caplog.text)
 
 
-def test_the_ble_librarys_logs_are_dropped(caplog: pytest.LogCaptureFixture) -> None:
+def test_the_real_lock_drops_the_ble_librarys_logs(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.DEBUG)
     names = ("bleak", "dbus_fast")
     levels = {n: logging.getLogger(n).level for n in names}
     try:
-        from barpay_edge.switchbot import _quiet_ble_library_logs
-
-        _quiet_ble_library_logs()
+        lock = SwitchBotLock._over(KEYS, FakeLockPeer())
+        dropped = [logging.getLogger(n).level > logging.CRITICAL for n in names]
         logging.getLogger("bleak.backends.bluezdbus.client").critical("Connecting to %s", MAC)
         logging.getLogger("dbus_fast.message_bus").critical("device %s", MAC)
+        worked = lock.unlock()
     finally:
         for n, level in levels.items():
             logging.getLogger(n).setLevel(level)
 
-    assert not caplog.records
+    assert worked is True
+    assert all(dropped), "the real lock leaves the BLE library's logs on"
+    assert not lock_leaks(caplog.text)
 
 
 def test_the_real_lock_needs_the_ble_library() -> None:

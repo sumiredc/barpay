@@ -153,8 +153,12 @@ class SwitchBotLock:
         """
         from bleak import BleakClient  # type: ignore[import-not-found]
 
+        return cls._over(keys, BleakClient)
+
+    @classmethod
+    def _over(cls, keys: Keys, client_class: Callable[..., Any]) -> "SwitchBotLock":
         _quiet_ble_library_logs()
-        return cls(keys, ble_connect(keys.mac, BleakClient))
+        return cls(keys, ble_connect(keys.mac, client_class))
 
     def unlock(self) -> bool:
         # Time spent waiting for another unlock counts toward this one's limit, so every unlock
