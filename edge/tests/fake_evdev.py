@@ -1,6 +1,6 @@
 """A stand-in for the evdev package, with only the part of evdev 2.0.0's API that the QR reader's
-part uses to read an input device. It is put in sys.modules ahead of the import, so the device
-library itself stays blocked.
+part uses to read an input device and to make a virtual keyboard. It is put in sys.modules ahead
+of the import, so the device library itself stays blocked.
 
 Each device has a pipe for its file descriptor, so select sees it readable while it holds
 events, as with a real input device.
@@ -11,7 +11,7 @@ import os
 import sys
 import threading
 from dataclasses import dataclass
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -69,11 +69,41 @@ class InputDevice:
             os.close(self._write)
 
 
+class _UInputDevice:
+    def __init__(self, path: str) -> None:
+        self.path = path
+
+
+class UInput:
+    """A virtual device made through uinput, keeping the key events written to it."""
+
+    def __init__(self, evdev: "Evdev", events: dict[int, list[int]], name: str) -> None:
+        self.events = events
+        self.name = name
+        self.device = _UInputDevice(f"/dev/input/event{90 + len(evdev.uinputs)}")
+        self.written: list[tuple[int, int, int]] = []
+        self.closed = False
+        evdev.uinputs.append(self)
+
+    def write(self, etype: int, code: int, value: int) -> None:
+        assert not self.closed, "written after it was closed"
+        self.written.append((etype, code, value))
+
+    def syn(self) -> None:
+        pass
+
+    def close(self) -> None:
+        self.closed = True
+
+
 class Evdev:
-    """Every device opened, in order; opening raises fail_open and grabbing fail_grab when set."""
+    """Every device opened and every virtual device made, in order; opening raises fail_open and
+    grabbing fail_grab when set.
+    """
 
     def __init__(self) -> None:
         self.devices: list[InputDevice] = []
+        self.uinputs: list[UInput] = []
         self.fail_open: OSError | None = None
         self.fail_grab: OSError | None = None
 
@@ -87,5 +117,7 @@ def install(monkeypatch: pytest.MonkeyPatch) -> Evdev:
     evdev = Evdev()
     module = ModuleType("evdev")
     module.InputDevice = evdev.open  # type: ignore[attr-defined]
+    module.UInput = lambda events, name: UInput(evdev, events, name)  # type: ignore[attr-defined]
+    module.ecodes = SimpleNamespace(EV_KEY=1)  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "evdev", module)
     return evdev

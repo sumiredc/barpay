@@ -6,7 +6,7 @@ import logging
 import fake_evdev
 import pytest
 from fake_evdev import InputEvent
-from keyboard import typed
+from keyboard import PRINTABLE_ASCII, typed
 
 from barpay_edge import qr_evdev
 from barpay_edge.qr import DROPPED, KEY_DOWN, KEY_UP, KeyEvent
@@ -156,3 +156,36 @@ def test_once_closed_nothing_comes_and_the_device_is_not_opened_again(
     assert keys.next(0.01) is None
     assert keys.next(0.01) is None
     assert len(evdev.devices) == 1
+
+
+# The virtual keyboard for checking the service by hand
+
+
+def test_the_virtual_keyboard_types_each_line_with_enter_as_a_qr_reader_would(
+    evdev: fake_evdev.Evdev, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("barpay_edge.qr_evdev.time.sleep", lambda seconds: None)
+
+    assert qr_evdev.keyboard([PRINTABLE_ASCII + "\n", "A\n"]) == 0
+
+    (virtual,) = evdev.uinputs
+    assert virtual.name == "barpay-edge-virtual-qr"
+    events = [KeyEvent(code, value) for etype, code, value in virtual.written if etype == EV_KEY]
+    assert events == typed(PRINTABLE_ASCII) + typed("A")
+    assert virtual.closed
+
+
+def test_the_virtual_keyboard_skips_a_line_it_has_no_keys_for(
+    evdev: fake_evdev.Evdev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("barpay_edge.qr_evdev.time.sleep", lambda seconds: None)
+
+    assert qr_evdev.keyboard(["caf\u00e9\n", "\tb\n", "ok\n"]) == 0
+
+    (virtual,) = evdev.uinputs
+    events = [KeyEvent(code, value) for etype, code, value in virtual.written if etype == EV_KEY]
+    assert events == typed("ok")
+    out = capsys.readouterr().out
+    assert out.count("not typed") == 2
+    # What is typed may be an exit token, so it is never printed.
+    assert "caf" not in out
