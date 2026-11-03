@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from fake_barpay import FakeBarPay
 from helpers import SECRET, device_libraries
+from real_barpay import RealBarPay, build, start
 from spec import Spec
 
 
@@ -58,3 +59,21 @@ def barpay(spec: Spec) -> Iterator[FakeBarPay]:
         assert not errors, (
             f"the fake BarPay gave {given.operation} an answer edge.yaml lacks: {errors}"
         )
+
+
+@pytest.fixture(scope="session")
+def real_barpay_binary(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The test BarPay, built once for the whole run."""
+    return build(tmp_path_factory.mktemp("barpay-test"))
+
+
+@pytest.fixture
+def real_barpay(real_barpay_binary: Path, tmp_path: Path) -> Iterator[RealBarPay]:
+    """A running test BarPay of its own for the test, stopped when the test ends. It must write
+    nothing besides its ready line, as its logs are discarded.
+    """
+    with start(real_barpay_binary, tmp_path) as barpay:
+        yield barpay
+    # A bool, so a failing assertion does not print what was written.
+    wrote = bool(barpay.output)
+    assert not wrote, "the test BarPay wrote something besides its ready line"
