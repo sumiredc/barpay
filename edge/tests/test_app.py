@@ -5,6 +5,7 @@ import threading
 import pytest
 from helpers import SECRET, leaks
 
+from barpay_edge import app
 from barpay_edge.app import (
     INDICATOR_ENV,
     LOCK_ENV,
@@ -15,6 +16,7 @@ from barpay_edge.app import (
     load_config,
     run,
 )
+from barpay_edge.fakes import FakeIndicator
 
 PARTS = {READER_ENV: "fake", LOCK_ENV: "fake", MICROPHONE_ENV: "fake", INDICATOR_ENV: "fake"}
 ENV = {SECRET_ENV: SECRET, URL_ENV: "http://127.0.0.1:8080"} | PARTS
@@ -114,3 +116,15 @@ def test_the_secret_is_not_in_the_error_when_a_setting_is_wrong(
 
 def test_the_secret_is_not_in_the_configs_repr() -> None:
     assert not leaks(repr(load_config(ENV)))
+
+
+def test_the_indicator_is_closed_when_the_edge_device_stops(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    indicator = FakeIndicator()
+    monkeypatch.setitem(app._INDICATORS, "fake", lambda: indicator)
+
+    code, _ = run_stopped(ENV)
+
+    assert code == 0
+    assert indicator.closed

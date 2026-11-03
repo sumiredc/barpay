@@ -120,7 +120,11 @@ def run(env: Mapping[str, str], stop: threading.Event, stderr: TextIO) -> int:
         config.microphone,
         config.indicator,
     )
-    stop.wait()
+    try:
+        stop.wait()
+    finally:
+        # Lights left on after the edge device stops would tell a customer it still runs.
+        edge.indicator.close()
     log.info("stopped")
     return 0
 
