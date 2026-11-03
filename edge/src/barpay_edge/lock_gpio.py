@@ -427,6 +427,9 @@ def low(settings: LockSettings) -> int:
     try:
         line.write(False)
         high = line.read()
+    except OSError as e:
+        print(f"FAIL lock line {settings.line} of {settings.chip} could not be set low: {e}")
+        return 1
     finally:
         line.release()
     print(

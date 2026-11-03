@@ -605,6 +605,20 @@ def test_low_fails_when_the_line_reads_back_high(monkeypatch: pytest.MonkeyPatch
     assert gpiod.requests[0].released
 
 
+def test_low_fails_when_the_line_cannot_be_written_and_still_releases_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gpiod = fake_gpiod.install(monkeypatch)
+
+    def fail(self: fake_gpiod.Request, line: int, value: fake_gpiod.Value) -> None:
+        raise OSError("the chip is gone")
+
+    monkeypatch.setattr(fake_gpiod.Request, "set_value", fail)
+
+    assert lock_gpio.main(["low"], LOW_ENV) == 1
+    assert gpiod.requests[0].released
+
+
 @pytest.mark.parametrize("lock", ["fake", ""])
 def test_low_touches_no_line_when_the_lock_is_not_the_gpio_lock(
     lock: str, monkeypatch: pytest.MonkeyPatch
