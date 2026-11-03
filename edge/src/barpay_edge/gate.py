@@ -160,9 +160,9 @@ class Gate:
                 if self._pending is None:
                     return
                 token, self._pending = self._pending, None
-            self._scan(token)
+            self._scan(token, stop)
 
-    def _scan(self, token: str) -> None:
+    def _scan(self, token: str, stop: threading.Event) -> None:
         try:
             result = self._barpay.scan(token, timeout=self._timing.scan_timeout)
         except NoAnswer as e:
@@ -182,6 +182,11 @@ class Gate:
             return
         shown = GateState(result.reader_message.value)
         with self._acting:
+            if stop.is_set():
+                # The lock is being closed; an answer that came too late opens nothing.
+                log.info("BarPay answered the scan as the edge device stops; nothing is done")
+                self._scanning = False
+                return
             if result.unlock and result.unlock_id is not None:
                 worked = self._lock.unlock()
                 log.info(
@@ -230,11 +235,16 @@ class Gate:
         if failing:
             log.info("waiting for an unlock by hand again")
         if unlock_id is not None:
-            self._unlock_by_hand(unlock_id)
+            self._unlock_by_hand(unlock_id, stop)
         return False
 
-    def _unlock_by_hand(self, unlock_id: str) -> None:
+    def _unlock_by_hand(self, unlock_id: str, stop: threading.Event) -> None:
         with self._acting:
+            if stop.is_set():
+                log.info(
+                    "staff unlocked by hand (%s) as the edge device stops; not unlocked", unlock_id
+                )
+                return
             self._indicator.show(GateState.WORKING)
             worked = self._lock.unlock()
             log.info("staff unlocked by hand (%s); the unlock worked: %s", unlock_id, worked)

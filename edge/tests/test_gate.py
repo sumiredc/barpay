@@ -494,14 +494,30 @@ def test_no_token_and_no_secret_in_the_logs(
 
 
 def test_the_gate_stops_while_a_scan_waits_for_barpay(barpay: FakeBarPay) -> None:
-    barpay.queue(
-        "scanExitToken", Answer(200, scan_answer(False, ReaderMessage.SEE_STAFF).body, delay=3)
-    )
+    late = Answer(200, scan_answer(True, ReaderMessage.THANK_YOU).body, delay=0.8)
+    barpay.queue("scanExitToken", late)
 
     with running(barpay) as g:
         g.read(TOKEN)
         assert eventually(lambda: g.scans() == [TOKEN])
-    # running asserts that the gate stopped.
+    # running asserts that the gate stopped; the answer comes after that, within the scan's
+    # time limit.
+
+    time.sleep(1.2)
+    assert g.lock.unlocks == 0
+
+
+def test_an_unlock_by_hand_that_comes_as_the_gate_stops_opens_nothing(
+    barpay: FakeBarPay,
+) -> None:
+    late = Answer(200, json.dumps({"unlock_id": UNLOCK_ID}).encode(), delay=0.8)
+    barpay.queue("waitForUnlock", late)
+
+    with running(barpay) as g:
+        assert eventually(lambda: len(barpay.calls("waitForUnlock")) == 1)
+
+    time.sleep(1.2)
+    assert g.lock.unlocks == 0
 
 
 class FailingOnce(Client):
