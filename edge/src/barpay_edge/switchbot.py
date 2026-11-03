@@ -125,7 +125,8 @@ Connect = Callable[[], AbstractAsyncContextManager[Link]]
 
 class SwitchBotLock:
     """A Lock (parts.py). Each unlock connects, unlocks and disconnects. Unlocks asked at once
-    from several threads run one after another, as the lock takes one connection at a time.
+    from several threads run one after another, as the lock takes one connection at a time; one
+    that cannot start within an unlock's time limit is not tried, and is False.
     """
 
     def __init__(
@@ -156,21 +157,31 @@ class SwitchBotLock:
         return cls(keys, ble_connect(keys.mac, BleakClient))
 
     def unlock(self) -> bool:
+        # Time spent waiting for another unlock counts toward this one's limit, so every unlock
+        # ends within it.
+        time_limit = self._attempts * self._attempt_time_limit
+        deadline = time.monotonic() + time_limit
+        if not self._mu.acquire(timeout=time_limit):
+            log.warning("unlock not tried: another unlock is in progress")
+            return False
         try:
-            with self._mu:
-                return asyncio.run(self._unlock())
+            return asyncio.run(self._unlock(deadline))
         except Exception as e:  # noqa: BLE001 - Lock.unlock never raises
             log.warning("unlock failed: %s", type(e).__name__)
             return False
+        finally:
+            self._mu.release()
 
-    async def _unlock(self) -> bool:
+    async def _unlock(self, deadline: float) -> bool:
         asyncio.get_running_loop().set_exception_handler(_log_background_error)
         for attempt in range(1, self._attempts + 1):
             answered: bool | None = None
             failure = ""
             started = time.monotonic()
+            if started >= deadline:
+                break
             try:
-                async with asyncio.timeout(self._attempt_time_limit):
+                async with asyncio.timeout(min(self._attempt_time_limit, deadline - started)):
                     async with self._connect() as link:
                         answered = await self._unlock_over(link)
             except TimeoutError:
@@ -191,7 +202,10 @@ class SwitchBotLock:
                 if not answered:
                     log.warning("the lock answered the unlock with a failure")
                 return answered
-        log.warning("unlock failed after %d attempts", self._attempts)
+        log.warning(
+            "unlock failed: no attempt worked within %g s",
+            self._attempts * self._attempt_time_limit,
+        )
         return False
 
     async def _unlock_over(self, link: Link) -> bool:

@@ -2,6 +2,7 @@ import asyncio
 import gc
 import logging
 import re
+import threading
 import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -160,6 +161,45 @@ def test_an_attempt_without_an_answer_ends_at_its_time_limit(peer: FakeLockPeer)
     _, took = timed_unlock(lock_for(peer))
 
     assert took >= ATTEMPTS * LIMIT
+
+
+def test_unlocks_at_once_each_end_within_the_time_limit(peer: FakeLockPeer) -> None:
+    peer.plan = [Connection.HANGS] * (2 * ATTEMPTS)
+    lock = lock_for(peer)
+    results: list[tuple[bool, float]] = []
+
+    def unlock() -> None:
+        results.append(timed_unlock(lock))
+
+    # The second starts halfway through the first, so it gets the lock with time left.
+    threads = [threading.Thread(target=unlock) for _ in range(2)]
+    threads[0].start()
+    time.sleep(ATTEMPTS * LIMIT / 2)
+    threads[1].start()
+    for t in threads:
+        t.join()
+
+    assert [worked for worked, _ in results] == [False, False]
+    assert all(took < ATTEMPTS * LIMIT + 0.1 for _, took in results)
+
+
+def test_an_unlock_that_cannot_start_in_time_is_not_tried(
+    peer: FakeLockPeer, caplog: pytest.LogCaptureFixture
+) -> None:
+    lock = lock_for(peer)
+    # As an unlock in another thread that ends well past this one's time limit.
+    lock._mu.acquire()
+    release = threading.Timer(2 * ATTEMPTS * LIMIT, lock._mu.release)
+    release.start()
+    try:
+        worked, took = timed_unlock(lock)
+    finally:
+        release.join()
+
+    assert worked is False
+    assert peer.connections == 0
+    assert took < ATTEMPTS * LIMIT + 0.1
+    assert "another unlock is in progress" in caplog.text
 
 
 def test_the_attempts_and_time_limit_are_the_prds() -> None:
