@@ -430,3 +430,12 @@ def test_a_run_with_the_gpio_lock_stops_with_its_line_low_and_released(
     assert request.config[24].output_value == fake_gpiod.Value.INACTIVE
     assert request.values[24] == fake_gpiod.Value.INACTIVE
     assert request.released
+
+
+def test_it_does_not_start_with_the_gpio_lock_and_a_malformed_indicator_line() -> None:
+    # The lock's line is checked against the indicator's lines whatever kind of indicator runs,
+    # so an indicator line that cannot be read refuses the start even with the fake indicator.
+    code, stderr = run_stopped(ENV | {LOCK_ENV: "gpio", RED_LINE_ENV: "five"})
+
+    assert code == 2
+    assert RED_LINE_ENV in stderr
