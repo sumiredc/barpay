@@ -5,9 +5,10 @@ import logging
 import threading
 import time
 
+import fake_evdev
 import fake_gpiod
 import pytest
-from fake_barpay import FakeBarPay
+from fake_barpay import FakeBarPay, answer
 from helpers import SECRET, leaks
 
 from barpay_edge import app
@@ -24,10 +25,12 @@ from barpay_edge.app import (
     load_config,
     run,
 )
-from barpay_edge.fakes import FakeIndicator, FakeLock, FakeMicrophone
+from barpay_edge.fakes import FakeIndicator, FakeLock, FakeMicrophone, FakeQrReader
 from barpay_edge.indicator import BUZZER_LINE_ENV, RED_LINE_ENV, GpioSettings
 from barpay_edge.liveliness import DEFAULT_LOUDEST_DBFS, DEFAULT_QUIET_DBFS, Meter, Tuning
 from barpay_edge.lock import LOCK_LINE_ENV, UNLOCK_SECONDS_ENV, LockSettings
+from barpay_edge.parts import GateState
+from barpay_edge.qr import QR_DEVICE_ENV
 
 PARTS = {READER_ENV: "fake", LOCK_ENV: "fake", MICROPHONE_ENV: "fake", INDICATOR_ENV: "fake"}
 ENV = {SECRET_ENV: SECRET, URL_ENV: "http://127.0.0.1:8080"} | PARTS
@@ -168,7 +171,7 @@ def test_the_secret_is_not_in_the_error_when_the_tuning_is_wrong() -> None:
 
 
 def run_until_a_request(barpay: FakeBarPay, env: dict[str, str], timeout: float) -> None:
-    """Run against barpay until it gets a request or timeout seconds pass."""
+    """Run against barpay until it gets liveliness or timeout seconds pass."""
     stop = threading.Event()
     thread = threading.Thread(
         target=run, args=(env | {URL_ENV: barpay.url}, stop, io.StringIO()), daemon=True
@@ -176,7 +179,7 @@ def run_until_a_request(barpay: FakeBarPay, env: dict[str, str], timeout: float)
     thread.start()
     try:
         deadline = time.monotonic() + timeout
-        while not barpay.requests and time.monotonic() < deadline:
+        while not barpay.calls("sendSignals") and time.monotonic() < deadline:
             time.sleep(0.01)
     finally:
         stop.set()
@@ -198,15 +201,16 @@ def test_a_run_sends_the_microphones_liveliness_to_barpay(
 
     run_until_a_request(barpay, ENV | {MICROPHONE_ENV: "silent"}, timeout=5)
 
-    assert barpay.requests, "the run sent nothing to BarPay"
-    assert json.loads(barpay.requests[0].body) == {"liveliness": 0.0}
+    sent = barpay.calls("sendSignals")
+    assert sent, "the run sent no liveliness to BarPay"
+    assert json.loads(sent[0].body) == {"liveliness": 0.0}
 
 
 @pytest.mark.usefixtures("short_interval")
 def test_a_run_with_the_fake_microphone_sends_no_liveliness(barpay: FakeBarPay) -> None:
     run_until_a_request(barpay, ENV, timeout=1)
 
-    assert barpay.requests == []
+    assert barpay.calls("sendSignals") == []
 
 
 @pytest.mark.parametrize(("kind", "logged"), [("fake", 1), ("silent", 0)])
@@ -439,3 +443,132 @@ def test_it_does_not_start_with_the_gpio_lock_and_a_malformed_indicator_line() -
 
     assert code == 2
     assert RED_LINE_ENV in stderr
+
+
+QR_DEVICE = "/dev/input/by-id/usb-reader-event-kbd"
+
+
+def test_the_evdev_qr_reader_takes_its_device_from_the_environment() -> None:
+    config = load_config(ENV | {READER_ENV: "evdev", QR_DEVICE_ENV: QR_DEVICE})
+
+    assert config.reader == "evdev"
+    assert config.qr_device == QR_DEVICE
+
+
+def test_the_qr_device_is_not_read_for_another_reader() -> None:
+    assert load_config(ENV | {QR_DEVICE_ENV: "not a path"}).qr_device is None
+
+
+@pytest.mark.parametrize("value", [None, "", "event3", "usb-reader-event-kbd"])
+def test_it_does_not_start_with_the_evdev_reader_without_a_device_path(value: str | None) -> None:
+    env = ENV | {READER_ENV: "evdev"}
+    if value is not None:
+        env[QR_DEVICE_ENV] = value
+
+    code, stderr = run_stopped(env)
+
+    assert code == 2
+    assert QR_DEVICE_ENV in stderr
+
+
+def test_it_does_not_start_with_the_evdev_reader_without_evdev() -> None:
+    # The device libraries are blocked in these tests, as where the extra is not installed.
+    code, stderr = run_stopped(ENV | {READER_ENV: "evdev", QR_DEVICE_ENV: QR_DEVICE})
+
+    assert code == 2
+    assert "--extra qr" in stderr
+
+
+def test_it_does_not_start_when_the_qr_device_cannot_be_grabbed(
+    monkeypatch: pytest.MonkeyPatch, parts: tuple[FakeLock, FakeIndicator]
+) -> None:
+    evdev = fake_evdev.install(monkeypatch)
+    evdev.fail_grab = OSError("the device is busy")
+
+    code, stderr = run_stopped(ENV | {READER_ENV: "evdev", QR_DEVICE_ENV: QR_DEVICE})
+
+    assert code == 2
+    assert READER_ENV in stderr
+    assert "the device is busy" in stderr
+    assert parts[0].closed
+
+
+def test_a_run_with_the_evdev_reader_grabs_the_device_and_gives_it_back_on_stop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evdev = fake_evdev.install(monkeypatch)
+    grabbed = []
+    stop = threading.Event()
+    env = ENV | {READER_ENV: "evdev", QR_DEVICE_ENV: QR_DEVICE}
+    thread = threading.Thread(target=run, args=(env, stop, io.StringIO()), daemon=True)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 5
+        while not evdev.devices and time.monotonic() < deadline:
+            time.sleep(0.01)
+        grabbed = [d.grabbed for d in evdev.devices]
+    finally:
+        stop.set()
+        thread.join(timeout=10)
+
+    assert grabbed == [True]
+    (device,) = evdev.devices
+    assert device.path == QR_DEVICE
+    assert not device.grabbed
+    assert device.closed
+
+
+@pytest.fixture
+def reader(monkeypatch: pytest.MonkeyPatch) -> FakeQrReader:
+    """The fake QR reader a run builds."""
+    fake = FakeQrReader()
+    monkeypatch.setitem(app._READERS, "fake", lambda config: fake)
+    return fake
+
+
+def test_the_qr_reader_is_closed_when_the_edge_device_stops(reader: FakeQrReader) -> None:
+    code, _ = run_stopped(ENV)
+
+    assert code == 0
+    assert reader.closed
+
+
+def test_the_qr_reader_is_closed_when_another_part_cannot_be_built(
+    reader: FakeQrReader, parts: tuple[FakeLock, FakeIndicator]
+) -> None:
+    # The device libraries are blocked in these tests, so the gpio indicator cannot be built.
+    code, _ = run_stopped(ENV | {INDICATOR_ENV: "gpio"})
+
+    assert code == 2
+    assert reader.closed
+    assert parts[0].closed
+
+
+def test_a_run_scans_what_the_qr_reader_reads_and_unlocks(
+    barpay: FakeBarPay, reader: FakeQrReader, parts: tuple[FakeLock, FakeIndicator]
+) -> None:
+    barpay.queue(
+        "scanExitToken",
+        answer(
+            200,
+            {"unlock": True, "unlock_id": "glk_0123456789abcdef", "reader_message": "Thank you"},
+        ),
+    )
+    stop = threading.Event()
+    env = ENV | {URL_ENV: barpay.url}
+    thread = threading.Thread(target=run, args=(env, stop, io.StringIO()), daemon=True)
+    thread.start()
+    try:
+        reader.feed("Ex1t-T0ken_0123456789")
+        deadline = time.monotonic() + 5
+        while not barpay.calls("reportUnlockResult") and time.monotonic() < deadline:
+            time.sleep(0.01)
+    finally:
+        stop.set()
+        thread.join(timeout=10)
+
+    (scan,) = barpay.calls("scanExitToken")
+    assert json.loads(scan.body) == {"token": "Ex1t-T0ken_0123456789"}
+    assert parts[0].unlocks == 1
+    assert parts[1].shown[-2:] == [GateState.WORKING, GateState.THANK_YOU]
+    assert barpay.calls("waitForUnlock"), "the run did not wait for an unlock by hand"
