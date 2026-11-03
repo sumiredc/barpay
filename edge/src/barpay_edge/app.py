@@ -11,6 +11,7 @@ import os
 import signal
 import sys
 import threading
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import FrameType
@@ -18,6 +19,7 @@ from typing import TextIO
 
 from barpay_edge.barpay import Client
 from barpay_edge.fakes import FakeIndicator, FakeLock, FakeMicrophone, FakeQrReader
+from barpay_edge.liveliness import DEFAULT_LOUDEST_DBFS, DEFAULT_QUIET_DBFS, Meter, Sender, Tuning
 from barpay_edge.parts import Indicator, Lock, Microphone, QrReader
 
 SECRET_ENV = "BARPAY_EDGE_SHARED_SECRET"  # noqa: S105 - the variable's name, not a secret
@@ -30,6 +32,11 @@ READER_ENV = "BARPAY_EDGE_QR_READER"
 LOCK_ENV = "BARPAY_EDGE_LOCK"
 MICROPHONE_ENV = "BARPAY_EDGE_MICROPHONE"
 INDICATOR_ENV = "BARPAY_EDGE_INDICATOR"
+
+# Not secrets. The store's tuning of the liveliness (Tuning), in dBFS, the PRD's starting values
+# when unset.
+QUIET_ENV = "BARPAY_EDGE_QUIET_DBFS"
+LOUDEST_ENV = "BARPAY_EDGE_LOUDEST_DBFS"
 
 _READERS: dict[str, Callable[[], QrReader]] = {"fake": FakeQrReader}
 _LOCKS: dict[str, Callable[[], Lock]] = {"fake": FakeLock}
@@ -51,6 +58,7 @@ class Config:
     lock: str
     microphone: str
     indicator: str
+    tuning: Tuning
 
 
 def load_config(env: Mapping[str, str]) -> Config:
@@ -67,6 +75,7 @@ def load_config(env: Mapping[str, str]) -> Config:
         lock=_choice(env, LOCK_ENV, _LOCKS),
         microphone=_choice(env, MICROPHONE_ENV, _MICROPHONES),
         indicator=_choice(env, INDICATOR_ENV, _INDICATORS),
+        tuning=_tuning(env),
     )
 
 
@@ -77,6 +86,25 @@ def _choice(env: Mapping[str, str], name: str, kinds: Mapping[str, object]) -> s
     if kind not in kinds:
         raise ConfigError(f"{name} must be one of: {', '.join(sorted(kinds))}")
     return kind
+
+
+def _tuning(env: Mapping[str, str]) -> Tuning:
+    quiet = _dbfs(env, QUIET_ENV, DEFAULT_QUIET_DBFS)
+    loudest = _dbfs(env, LOUDEST_ENV, DEFAULT_LOUDEST_DBFS)
+    try:
+        return Tuning(quiet, loudest)
+    except ValueError as e:
+        raise ConfigError(f"{QUIET_ENV} and {LOUDEST_ENV}: {e}") from None
+
+
+def _dbfs(env: Mapping[str, str], name: str, default: float) -> float:
+    text = env.get(name, "")
+    if not text:
+        return default
+    try:
+        return float(text)
+    except ValueError:
+        raise ConfigError(f"{name} must be a number of dBFS, such as -35") from None
 
 
 @dataclass(frozen=True)
@@ -120,7 +148,17 @@ def run(env: Mapping[str, str], stop: threading.Event, stderr: TextIO) -> int:
         config.microphone,
         config.indicator,
     )
+    sender = Sender(edge.barpay)
+    meter = Meter(edge.microphone, config.tuning, time.monotonic, sender.offer)
+    threads = [
+        threading.Thread(target=sender.run, args=(stop,), name="liveliness-sender", daemon=True),
+        threading.Thread(target=meter.run, args=(stop,), name="liveliness-meter", daemon=True),
+    ]
+    for t in threads:
+        t.start()
     stop.wait()
+    for t in threads:
+        t.join(timeout=1.0)
     log.info("stopped")
     return 0
 

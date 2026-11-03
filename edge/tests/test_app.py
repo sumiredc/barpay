@@ -1,20 +1,28 @@
+import functools
 import io
+import json
 import logging
 import threading
+import time
 
 import pytest
+from fake_barpay import FakeBarPay
 from helpers import SECRET, leaks
 
+from barpay_edge import app
 from barpay_edge.app import (
     INDICATOR_ENV,
     LOCK_ENV,
+    LOUDEST_ENV,
     MICROPHONE_ENV,
+    QUIET_ENV,
     READER_ENV,
     SECRET_ENV,
     URL_ENV,
     load_config,
     run,
 )
+from barpay_edge.liveliness import DEFAULT_LOUDEST_DBFS, DEFAULT_QUIET_DBFS, Meter, Tuning
 
 PARTS = {READER_ENV: "fake", LOCK_ENV: "fake", MICROPHONE_ENV: "fake", INDICATOR_ENV: "fake"}
 ENV = {SECRET_ENV: SECRET, URL_ENV: "http://127.0.0.1:8080"} | PARTS
@@ -114,3 +122,55 @@ def test_the_secret_is_not_in_the_error_when_a_setting_is_wrong(
 
 def test_the_secret_is_not_in_the_configs_repr() -> None:
     assert not leaks(repr(load_config(ENV)))
+
+
+def test_the_tuning_is_the_prds_starting_values_unless_set() -> None:
+    assert load_config(ENV).tuning == Tuning(DEFAULT_QUIET_DBFS, DEFAULT_LOUDEST_DBFS)
+    assert load_config(ENV | {QUIET_ENV: "-45.5"}).tuning == Tuning(-45.5, DEFAULT_LOUDEST_DBFS)
+    assert load_config(ENV | {QUIET_ENV: "-60", LOUDEST_ENV: "-30"}).tuning == Tuning(-60, -30)
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        (QUIET_ENV, "quiet"),
+        (LOUDEST_ENV, "-20dB"),
+        (QUIET_ENV, "-10"),
+        (LOUDEST_ENV, "3"),
+        (QUIET_ENV, "nan"),
+    ],
+)
+def test_it_does_not_start_with_a_tuning_that_is_not_one(name: str, value: str) -> None:
+    code, stderr = run_stopped(ENV | {name: value})
+
+    assert code == 2
+    assert name in stderr
+
+
+def test_the_secret_is_not_in_the_error_when_the_tuning_is_wrong() -> None:
+    code, stderr = run_stopped(ENV | {QUIET_ENV: SECRET})
+
+    assert code == 2
+    assert not leaks(stderr)
+
+
+def test_a_run_sends_the_microphones_liveliness_to_barpay(
+    barpay: FakeBarPay, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A short interval, so the test does not wait the 10 seconds of the PRD.
+    monkeypatch.setattr(app, "Meter", functools.partial(Meter, interval=0.3))
+    stop = threading.Event()
+    env = ENV | {URL_ENV: barpay.url}
+    thread = threading.Thread(target=run, args=(env, stop, io.StringIO()), daemon=True)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 5
+        while not barpay.requests and time.monotonic() < deadline:
+            time.sleep(0.01)
+    finally:
+        stop.set()
+        thread.join(timeout=5)
+
+    assert barpay.requests, "the run sent nothing to BarPay"
+    # The fake microphone gives silence.
+    assert json.loads(barpay.requests[0].body) == {"liveliness": 0.0}
