@@ -223,11 +223,17 @@ def test_it_never_raises_even_when_connecting_cannot_start(peer: FakeLockPeer) -
 
 
 @pytest.mark.filterwarnings("ignore:coroutine .* was never awaited:RuntimeWarning")
-def test_it_never_raises_even_when_it_cannot_run_its_event_loop(peer: FakeLockPeer) -> None:
+def test_it_never_raises_even_when_it_cannot_run_its_event_loop(
+    peer: FakeLockPeer, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
+
     async def inside_a_running_loop() -> bool:
         return lock_for(peer).unlock()
 
     assert asyncio.run(inside_a_running_loop()) is False
+    assert "unlock failed: RuntimeError" in caplog.text
+    assert not lock_leaks(caplog.text)
 
 
 @pytest.mark.parametrize(
