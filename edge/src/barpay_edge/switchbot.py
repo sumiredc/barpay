@@ -15,7 +15,7 @@ import re
 import threading
 import time
 from collections.abc import AsyncIterator, Callable, Mapping
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -120,7 +120,8 @@ class Link(Protocol):
         ...
 
 
-Connect = Callable[[], AbstractAsyncContextManager[Link]]
+# Takes the unlock's deadline, in time.monotonic() seconds, which bounds disconnecting too.
+Connect = Callable[[float], AbstractAsyncContextManager[Link]]
 
 
 class SwitchBotLock:
@@ -186,7 +187,7 @@ class SwitchBotLock:
                 break
             try:
                 async with asyncio.timeout(min(self._attempt_time_limit, deadline - started)):
-                    async with self._connect() as link:
+                    async with self._connect(deadline) as link:
                         answered = await self._unlock_over(link)
             except TimeoutError:
                 failure = "no answer in time"
@@ -207,8 +208,8 @@ class SwitchBotLock:
                     log.warning("the lock answered the unlock with a failure")
                 return answered
         log.warning(
-            "unlock failed: no attempt worked within %g s",
-            self._attempts * self._attempt_time_limit,
+            "unlock failed: no attempt worked in %.2f s",
+            time.monotonic() - (deadline - self._attempts * self._attempt_time_limit),
         )
         return False
 
@@ -221,13 +222,28 @@ def ble_connect(mac: str, client_class: Callable[..., Any]) -> Connect:
     """Connects with client_class, which is bleak's BleakClient on the edge device."""
 
     @asynccontextmanager
-    async def connect() -> AsyncIterator[Link]:
-        async with client_class(mac, services=[SERVICE_UUID]) as client:
+    async def connect(deadline: float) -> AsyncIterator[Link]:
+        client = client_class(mac, services=[SERVICE_UUID])
+        try:
+            await client.connect()
             link = _BleLink(client)
             await client.start_notify(NOTIFY_UUID, link.received)
             yield link
+        finally:
+            await _disconnect(client, deadline)
 
     return connect
+
+
+async def _disconnect(client: Any, deadline: float) -> None:
+    """Disconnects, but no later than the deadline. The attempt's time limit has already cancelled
+    the attempt once when it ends by it, and would not stop a disconnect that does not end.
+    A failure is ignored: the lock's answer, if it came, stands.
+    """
+    loop = asyncio.get_running_loop()
+    with suppress(Exception):
+        async with asyncio.timeout_at(loop.time() + deadline - time.monotonic()):
+            await client.disconnect()
 
 
 class _BleLink:

@@ -9,7 +9,6 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from types import TracebackType
 from typing import Any
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -68,6 +67,7 @@ class FakeLockPeer:
     plan: list[Connection] = field(default_factory=list)
     status: int = 0x01
     disconnect_fails: bool = False
+    disconnect_hangs: bool = False
     key_id: int = int(KEY_ID, 16)
     encryption_key: bytes = bytes.fromhex(ENCRYPTION_KEY)
     connections: int = 0
@@ -117,7 +117,7 @@ class _Client:
         self._iv: bytes | None = None
         self._notify: Callable[[object, bytearray], None] | None = None
 
-    async def __aenter__(self) -> "_Client":
+    async def connect(self, **kwargs: Any) -> None:
         if self._behavior is Connection.UNREACHABLE:
             # Real BLE errors name the device; the part must not pass this text on.
             raise OSError(f"device {self._address} was not found")
@@ -125,14 +125,10 @@ class _Client:
             # Far past the tests' attempt time limit, yet short enough that a part without one
             # fails the test rather than hanging it.
             await asyncio.sleep(5)
-        return self
 
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        tb: TracebackType | None,
-    ) -> None:
+    async def disconnect(self) -> None:
+        if self._peer.disconnect_hangs:
+            await asyncio.sleep(5)
         if self._peer.disconnect_fails:
             raise OSError(f"disconnecting {self._address} failed")
 

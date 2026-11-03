@@ -163,6 +163,16 @@ def test_an_attempt_without_an_answer_ends_at_its_time_limit(peer: FakeLockPeer)
     assert took >= ATTEMPTS * LIMIT
 
 
+def test_a_failed_unlock_is_logged_with_how_long_it_took(
+    peer: FakeLockPeer, caplog: pytest.LogCaptureFixture
+) -> None:
+    peer.plan = [Connection.UNREACHABLE] * ATTEMPTS
+
+    lock_for(peer).unlock()
+
+    assert re.search(r"unlock failed: no attempt worked in 0\.[01]\d s", caplog.text)
+
+
 def test_unlocks_at_once_each_end_within_the_time_limit(peer: FakeLockPeer) -> None:
     peer.plan = [Connection.HANGS] * (2 * ATTEMPTS)
     lock = lock_for(peer)
@@ -206,6 +216,18 @@ def test_the_attempts_and_time_limit_are_the_prds() -> None:
     assert (ATTEMPTS, ATTEMPT_TIME_LIMIT) == (3, 6.0)
 
 
+@pytest.mark.parametrize("failure", [Connection.SILENT, Connection.ANSWERS])
+def test_a_disconnect_that_does_not_end_stops_at_the_time_limit(
+    peer: FakeLockPeer, failure: Connection
+) -> None:
+    peer.plan = [failure] * ATTEMPTS
+    peer.disconnect_hangs = True
+
+    _, took = timed_unlock(lock_for(peer))
+
+    assert took < ATTEMPTS * LIMIT + 0.1
+
+
 def test_an_answer_stands_when_disconnecting_after_it_fails(peer: FakeLockPeer) -> None:
     peer.disconnect_fails = True
 
@@ -214,7 +236,7 @@ def test_an_answer_stands_when_disconnecting_after_it_fails(peer: FakeLockPeer) 
 
 
 def test_it_never_raises_even_when_connecting_cannot_start(peer: FakeLockPeer) -> None:
-    def broken() -> AbstractAsyncContextManager[Link]:
+    def broken(deadline: float) -> AbstractAsyncContextManager[Link]:
         raise RuntimeError(f"no adapter for {MAC}")
 
     lock = SwitchBotLock(KEYS, broken)
@@ -350,7 +372,7 @@ def test_an_error_left_in_the_background_is_logged_without_its_text(
         raise OSError(f"device {MAC} went away")
 
     @asynccontextmanager
-    async def connect() -> AsyncIterator[Link]:
+    async def connect(deadline: float) -> AsyncIterator[Link]:
         asyncio.get_running_loop().create_task(fail())
         await asyncio.sleep(0)
         raise OSError("no link")
