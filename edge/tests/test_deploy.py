@@ -91,9 +91,9 @@ def test_the_sample_names_the_qr_reader_link_and_the_gpio_chip_the_udev_rule_giv
     assert f'KERNEL=="{chip}"' in rules
 
 
-def test_the_service_sets_the_lock_line_low_after_every_stop_from_the_same_environment() -> None:
+def test_the_service_sets_its_gpio_lines_low_after_every_stop_from_the_same_environment() -> None:
     lines = [line.strip() for line in SERVICE.read_text().splitlines()]
     (environment,) = [line for line in lines if line.startswith("EnvironmentFile=")]
     assert environment == "EnvironmentFile=/etc/barpay-edge/barpay-edge.env"
     (after,) = [line for line in lines if line.startswith("ExecStopPost=")]
-    assert after.endswith("/.venv/bin/python -m barpay_edge.lock_gpio low")
+    assert after.endswith("/.venv/bin/python -m barpay_edge.after_stop")

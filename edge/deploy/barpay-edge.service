@@ -18,9 +18,10 @@ Group=barpay-edge
 EnvironmentFile=/etc/barpay-edge/barpay-edge.env
 ExecStart=/opt/barpay-edge/barpay/edge/.venv/bin/barpay-edge
 # Runs after every stop, however the edge device ended, with the same environment file. A
-# process killed with SIGKILL, such as after TimeoutStopSec, cannot set the lock's line low, and
-# on a Raspberry Pi 5 the line then stays high: this sets it low.
-ExecStopPost=/opt/barpay-edge/barpay/edge/.venv/bin/python -m barpay_edge.lock_gpio low
+# process killed with SIGKILL, such as after TimeoutStopSec, cannot set its GPIO lines low, and
+# on a Raspberry Pi 5 they then stay as they were, the lock's high while the gate was open: this
+# sets the lock's line and the indicator's lines low.
+ExecStopPost=/opt/barpay-edge/barpay/edge/.venv/bin/python -m barpay_edge.after_stop
 
 # Restarted after any end it did not get from systemctl stop. The wait is 2 s after the first
 # end and grows to 10 s over the next ones; systemd counts them from the last systemctl start,
