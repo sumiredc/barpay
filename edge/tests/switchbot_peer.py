@@ -14,11 +14,11 @@ from typing import Any
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-# Only test values; real keys never reach the tests.
-MAC = "02:5A:7D:E7:41:B3"
+# Placeholder values, obviously not a real lock's; real keys never reach the tests.
+MAC = "AA:BB:CC:DD:EE:FF"
 KEY_ID = "c9"
-ENCRYPTION_KEY = "0f1e2d3c4b5a69788796a5b4c3d2e1f0"
-OTHER_ENCRYPTION_KEY = "f0e1d2c3b4a5968778695a4b3c2d1e0f"
+ENCRYPTION_KEY = "0123456789abcdef0123456789abcdef"
+OTHER_ENCRYPTION_KEY = "fedcba9876543210fedcba9876543210"
 
 SERVICE_UUID = "cba20d00-224d-11e6-9fb8-0002a5d5c51b"
 WRITE_UUID = "cba20002-224d-11e6-9fb8-0002a5d5c51b"

@@ -69,7 +69,7 @@ def test_the_iv_request_is_the_plain_get_iv_command_with_the_key_id() -> None:
 def test_the_unlock_command_is_encrypted_with_aes_ctr_from_the_locks_iv() -> None:
     keys = Keys(mac=MAC, key_id=0xC9, encryption_key=bytes.fromhex(ENCRYPTION_KEY))
 
-    assert unlock_command(keys, IV) == bytes.fromhex("57c90011598c85f29fd6")
+    assert unlock_command(keys, IV) == bytes.fromhex("57c90011cfa427780773")
 
 
 def test_the_iv_is_the_16_bytes_after_the_status_and_three_bytes() -> None:
