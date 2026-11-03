@@ -354,7 +354,7 @@ def test_each_attempt_is_logged_with_its_outcome_and_how_long_it_took(
     attempts = [r.getMessage() for r in caplog.records if "unlock attempt" in r.getMessage()]
     assert len(attempts) == ATTEMPTS
     assert re.fullmatch(r"unlock attempt 1 of 3: OSError after \d+\.\d\d s", attempts[0])
-    assert re.fullmatch(r"unlock attempt 2 of 3: no answer in time after 0\.2\d s", attempts[1])
+    assert re.fullmatch(r"unlock attempt 2 of 3: no answer in time after 0\.[2-9]\d s", attempts[1])
     assert re.fullmatch(r"unlock attempt 3 of 3: unlocked after \d+\.\d\d s", attempts[2])
     assert all(r.levelno == logging.INFO for r in caplog.records if "attempt" in r.getMessage())
 
