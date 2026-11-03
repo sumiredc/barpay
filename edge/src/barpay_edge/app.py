@@ -1,9 +1,8 @@
 """The edge device's entry point: read the settings from the environment, put the parts together
 and run until stopped.
 
-The edge device holds two kinds of secret only, both from the environment: its shared secret
-with BarPay and the SwitchBot keys. It never reads BarPay's config file, which holds the other
-keys.
+The edge device holds one secret only, from the environment: its shared secret with BarPay. It
+never reads BarPay's config file, which holds the other keys.
 """
 
 import logging

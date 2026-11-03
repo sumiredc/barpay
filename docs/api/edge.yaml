@@ -265,7 +265,7 @@ components:
       required: [unlocked]
       properties:
         unlocked:
-          description: Whether the lock answered the unlock command with success.
+          description: Whether the unlock worked, as the PRD's Lock (Hardware in Fixed constraints) judges it; the edge device set the lock's line high and read it back as high.
           type: boolean
     Signals:
       type: object

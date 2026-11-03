@@ -1,4 +1,4 @@
-# Secrets: PayPal credentials, AI API key, SwitchBot keys
+# Secrets: PayPal credentials, AI API key
 .env
 .env.*
 !.env.example
