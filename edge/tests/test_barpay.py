@@ -290,6 +290,30 @@ def test_an_answer_edge_yaml_does_not_define_is_no_answer(
         CALLS[operation](client(barpay), TIMEOUT)
 
 
+# Deeper than the JSON decoder goes, yet far under the size the client reads.
+TOO_DEEP = b"[" * 100_000 + b"]" * 100_000
+
+
+@pytest.mark.parametrize("operation", ["scanExitToken", "waitForUnlock"])
+def test_an_answer_nested_too_deeply_to_decode_is_no_answer(
+    barpay: FakeBarPay, operation: str
+) -> None:
+    barpay.queue(operation, off_spec(200, TOO_DEEP))
+
+    with pytest.raises(NoAnswer):
+        CALLS[operation](client(barpay), TIMEOUT)
+
+
+@pytest.mark.parametrize("operation", ["scanExitToken", "reportUnlockResult"])
+def test_an_error_body_nested_too_deeply_to_decode_is_no_answer(
+    barpay: FakeBarPay, operation: str
+) -> None:
+    barpay.queue(operation, off_spec(400, TOO_DEEP))
+
+    with pytest.raises(NoAnswer):
+        CALLS[operation](client(barpay), TIMEOUT)
+
+
 def test_an_answer_larger_than_any_edge_yaml_defines_is_no_answer(barpay: FakeBarPay) -> None:
     padding = "x" * (2 << 20)
     body = {"unlock": False, "reader_message": "Thank you", "padding": padding}

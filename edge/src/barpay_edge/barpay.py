@@ -163,7 +163,8 @@ class Client:
             return None
         try:
             return json.loads(data)
-        except ValueError:
+        except (ValueError, RecursionError):
+            # A body nested too deeply for the decoder is not an answer edge.yaml defines either.
             raise NoAnswer("BarPay's answer is not JSON") from None
 
     def _send(
@@ -202,7 +203,7 @@ def _error(data: bytes) -> tuple[str, str] | None:
     """The code and message of edge.yaml's Error body, or None when data is not one."""
     try:
         body = json.loads(data)
-    except ValueError:
+    except (ValueError, RecursionError):
         return None
     err = body.get("error") if isinstance(body, dict) else None
     if not isinstance(err, dict):
