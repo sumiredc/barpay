@@ -72,11 +72,21 @@ class FakeMicrophone:
 
 
 class FakeIndicator:
-    """Keeps every state it was asked to show, in order."""
+    """Keeps every state it was asked to show, in order, and whether it was closed."""
 
     def __init__(self) -> None:
         self._shown: list[GateState] = []
+        self._closed = False
         self._mu = threading.Lock()
+
+    @property
+    def closed(self) -> bool:
+        with self._mu:
+            return self._closed
+
+    def close(self) -> None:
+        with self._mu:
+            self._closed = True
 
     @property
     def shown(self) -> list[GateState]:

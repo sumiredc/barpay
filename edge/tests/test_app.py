@@ -6,6 +6,7 @@ import pytest
 from helpers import SECRET, leaks
 from switchbot_peer import ENCRYPTION_KEY, KEY_ID, MAC, lock_leaks
 
+from barpay_edge import app
 from barpay_edge.app import (
     INDICATOR_ENV,
     LOCK_ENV,
@@ -16,6 +17,8 @@ from barpay_edge.app import (
     load_config,
     run,
 )
+from barpay_edge.fakes import FakeIndicator
+from barpay_edge.indicator import BUZZER_LINE_ENV, RED_LINE_ENV, GpioSettings
 from barpay_edge.switchbot import ENCRYPTION_KEY_ENV, KEY_ID_ENV, MAC_ENV, keys_from_env
 
 PARTS = {READER_ENV: "fake", LOCK_ENV: "fake", MICROPHONE_ENV: "fake", INDICATOR_ENV: "fake"}
@@ -167,3 +170,43 @@ def test_the_switchbot_lock_does_not_start_without_the_ble_library(
 
 def test_the_switchbot_keys_are_not_in_the_configs_repr() -> None:
     assert not lock_leaks(repr(load_config(SWITCHBOT_ENV)))
+
+
+def test_the_indicator_is_closed_when_the_edge_device_stops(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    indicator = FakeIndicator()
+    monkeypatch.setitem(app._INDICATORS, "fake", lambda config: indicator)
+
+    code, _ = run_stopped(ENV)
+
+    assert code == 0
+    assert indicator.closed
+
+
+def test_the_gpio_indicator_takes_its_lines_from_the_environment() -> None:
+    config = load_config(ENV | {INDICATOR_ENV: "gpio", RED_LINE_ENV: "5", BUZZER_LINE_ENV: "6"})
+
+    assert config.gpio == GpioSettings("/dev/gpiochip0", red=5, green=27, blue=22, buzzer=6)
+
+
+@pytest.mark.parametrize("value", ["", "five", "-5"])
+def test_it_does_not_start_with_a_malformed_gpio_line(value: str) -> None:
+    code, stderr = run_stopped(ENV | {INDICATOR_ENV: "gpio", RED_LINE_ENV: value})
+
+    assert code == 2
+    assert RED_LINE_ENV in stderr
+
+
+def test_it_does_not_start_with_the_gpio_indicator_without_libgpiod() -> None:
+    # The device libraries are blocked in these tests, as where the extra is not installed.
+    code, stderr = run_stopped(ENV | {INDICATOR_ENV: "gpio"})
+
+    assert code == 2
+    assert "--extra indicator" in stderr
+
+
+def test_the_gpio_settings_are_not_read_for_another_indicator() -> None:
+    config = load_config(ENV | {RED_LINE_ENV: "five"})
+
+    assert config.gpio is None

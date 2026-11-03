@@ -53,4 +53,10 @@ class Microphone(Protocol):
 
 
 class Indicator(Protocol):
-    def show(self, state: GateState) -> None: ...
+    def show(self, state: GateState) -> None:
+        """Show state from now on, stopping what the last state was showing at once."""
+        ...
+
+    def close(self) -> None:
+        """Turn the LED and the buzzer off for good, as the edge device stops."""
+        ...
