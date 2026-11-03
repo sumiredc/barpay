@@ -22,14 +22,17 @@ ExecStart=/opt/barpay-edge/barpay/edge/.venv/bin/barpay-edge
 # on a Raspberry Pi 5 the line then stays high: this sets it low.
 ExecStopPost=/opt/barpay-edge/barpay/edge/.venv/bin/python -m barpay_edge.lock_gpio low
 
-# Restarted after any end it did not get from systemctl stop, 2 s after the first and up to 30 s
-# after repeated ones, so a start that keeps failing, such as without the QR reader, costs the
-# Raspberry Pi one start every 30 s. The lock's line is set low by ExecStopPost before the
-# wait, and again by the next start, which comes well within the 60 s an unlock may last.
+# Restarted after any end it did not get from systemctl stop. The wait is 2 s after the first
+# end and grows to 10 s over the next ones; systemd counts them from the last systemctl start,
+# not from the last end, so it then stays at 10 s. A start that keeps failing, such as without
+# the QR reader, thus costs the Raspberry Pi one start every 10 s, and a crash leaves the gate
+# without scans and unlocks by hand for at most about 10 s. The lock's line is set low by
+# ExecStopPost before the wait, and again by the next start, well within the 60 s an unlock may
+# last.
 Restart=always
 RestartSec=2s
-RestartSteps=4
-RestartMaxDelaySec=30s
+RestartSteps=3
+RestartMaxDelaySec=10s
 # A stop waits up to 5 s for each of the edge device's 3 threads, and about 1 s for the lock.
 TimeoutStopSec=20s
 
