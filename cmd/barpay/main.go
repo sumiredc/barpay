@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/sumiredc/barpay/internal/alert"
+	_ "github.com/sumiredc/barpay/internal/barpaytest"
 	"github.com/sumiredc/barpay/internal/clock"
 	"github.com/sumiredc/barpay/internal/config"
 	"github.com/sumiredc/barpay/internal/evaluation"
