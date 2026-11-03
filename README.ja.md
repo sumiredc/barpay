@@ -165,6 +165,14 @@ sudoedit /etc/barpay-edge/barpay-edge.env
 
 `BARPAY_URL` と `BARPAY_EDGE_SHARED_SECRET`（`barpay.toml` の `keys.edge_shared_secret`）を埋める。`BARPAY_URL` は `https` でなければならない。平文の `http` では、ネットワーク上の誰でも共有シークレットを読め、BarPay の答え（解錠を含む）を読むことも偽ることもできる。`BARPAY_EDGE_MICROPHONE_DEVICE` にはマイクのカードを指定する。ALSA の既定の機器はマイクのカードとは限らない。各変数が何を取るかはファイルのコメントにある。ほかの値は、Raspberry Pi 5 と下の配線に合わせて入れてある。値が無いか形が違えば、エッジ端末はどの値かをログに出し、起動しない。
 
+サービスが動き始めた後は、ファイルを変える前にサービスを止め、変えた後に起動する。止まった後の処理はファイルを読み直すので、動いている間に線の番号を変えると、その処理は新しい線を low にし、古い線はそのままにしてしまう。
+
+```sh
+sudo systemctl stop barpay-edge
+sudoedit /etc/barpay-edge/barpay-edge.env
+sudo systemctl start barpay-edge
+```
+
 ### 権限
 
 サービスのユーザーは、udev の規則 [`edge/deploy/99-barpay-edge.rules`](edge/deploy/99-barpay-edge.rules) で、そのグループを通じて 3 つの機器だけを使える。QR リーダーのキーボードの機器、マイクのカードの制御と録音の機器、ヘッダーの GPIO のチップ（ロック、LED、ブザーの線を含む）。ほかの入力や音の機器と `uinput` は使えない。QR リーダーの `ID_SERIAL` と、マイクのカードの ID（角かっこの中）を調べる。

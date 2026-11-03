@@ -165,6 +165,14 @@ sudoedit /etc/barpay-edge/barpay-edge.env
 
 Fill in `BARPAY_URL` and `BARPAY_EDGE_SHARED_SECRET` (`keys.edge_shared_secret` in `barpay.toml`). `BARPAY_URL` must use `https`: over plain `http`, anyone on the network can read the shared secret and read or forge BarPay's answers, including an unlock. Set `BARPAY_EDGE_MICROPHONE_DEVICE` to the microphone's card, which ALSA's default device may not be. The comments in the file say what each variable takes; the other values are filled in for the Raspberry Pi 5 and the wiring below. When a value is missing or malformed, the edge device logs which one and does not start.
 
+Once the service runs, stop it before changing the file and start it after. The step it runs after a stop reads the file again, so with a line number changed while it runs, that step would set the new line low and leave the old one as it was.
+
+```sh
+sudo systemctl stop barpay-edge
+sudoedit /etc/barpay-edge/barpay-edge.env
+sudo systemctl start barpay-edge
+```
+
 ### Permissions
 
 The service's user gets three devices only, through its group, by the udev rule [`edge/deploy/99-barpay-edge.rules`](edge/deploy/99-barpay-edge.rules): the QR reader's keyboard device, the microphone card's control and capture devices, and the GPIO chip of the header, whose lines include the lock's, the LED's and the buzzer's. It gets no other input or sound device and not `uinput`. Find the QR reader's `ID_SERIAL` and the microphone's card ID (in brackets):
