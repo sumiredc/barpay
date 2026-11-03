@@ -239,7 +239,10 @@ components:
           description: Set when `unlock` is `true`; report how the unlock went under it.
           $ref: '#/components/schemas/UnlockId'
         reader_message:
-          description: What the reader shows. In English; the edge device may show it in another language.
+          description: |
+            What the reader shows: the edge device shows it through its LED
+            and buzzer as the indicator table in `docs/PRD.md` (Fixed
+            constraints → Hardware) sets.
           type: string
           enum:
             - Thank you
@@ -262,7 +265,7 @@ components:
       required: [unlocked]
       properties:
         unlocked:
-          description: Whether the gate unlocked.
+          description: Whether the lock answered the unlock command with success.
           type: boolean
     Signals:
       type: object
