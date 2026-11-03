@@ -84,9 +84,10 @@ class Meter:
     """Reads the microphone and hands send one liveliness per window of SEND_INTERVAL seconds.
 
     clock gives monotonic seconds. A window ends with the first block read once the clock is
-    interval or more past the window's start, and the next window starts then. A window in which
-    the microphone could not be read is dropped unsent, and the next one starts once a read is
-    tried again, so a value is only ever sent for a window read whole.
+    interval or more past the window's start, and the next window starts then. A window with a
+    failed read is dropped unsent, and the next one starts after waiting retry_delay seconds, so
+    a value is only sent for a window read without a failed read. An overrun is not a failed
+    read: the microphone gives an empty block for it.
     """
 
     def __init__(

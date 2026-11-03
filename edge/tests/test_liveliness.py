@@ -211,8 +211,38 @@ def test_nothing_is_handed_on_while_the_microphone_cannot_be_read() -> None:
 def test_a_window_with_a_failed_read_is_dropped_and_the_next_starts_after_it() -> None:
     sent = meter_sends([tone(-20)] * 9 + [FAIL] + [tone(-42.5)] * 9 + [tone(-42.5)])
 
-    # Only the 10 seconds read whole after the failure, none of the loud ones before it.
+    # Only the 10 seconds read after the failure, none of the loud ones before it.
     assert sent == pytest.approx([0.25])
+
+
+class WaitingStop(threading.Event):
+    """A stop whose waits pass on the fake clock, and are recorded."""
+
+    def __init__(self, clock: FakeClock) -> None:
+        super().__init__()
+        self._clock = clock
+        self.waits: list[float | None] = []
+
+    def wait(self, timeout: float | None = None) -> bool:
+        self.waits.append(timeout)
+        self._clock.now += timeout or 0
+        return self.is_set()
+
+
+@pytest.mark.parametrize(("reads_after", "sends"), [(9, 0), (10, 1)])
+def test_after_a_failed_read_it_waits_the_retry_delay_and_the_next_window_starts_then(
+    reads_after: int, sends: int
+) -> None:
+    clock = FakeClock()
+    stop = WaitingStop(clock)
+    sent: list[float] = []
+    mic = ScriptedMicrophone(clock, stop, [FAIL] + [tone(-35)] * reads_after)
+
+    Meter(mic, TUNING, clock, sent.append, interval=10.0, retry_delay=5.0).run(stop)
+
+    assert stop.waits == [5.0]
+    # The window is the 10 seconds after the wait, not counted from the failed read.
+    assert len(sent) == sends
 
 
 def test_a_window_without_samples_is_not_handed_on() -> None:
