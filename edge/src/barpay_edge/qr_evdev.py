@@ -4,8 +4,10 @@ the console.
 
 Run as a module, it checks the part on the real input subsystem, with a virtual keyboard made
 through uinput standing in for the QR reader. It needs to open /dev/uinput and the input device,
-so it runs as root, and it calls BarPay at the URL and with the shared secret of the edge
-device's environment variables: the test BarPay or a BarPay on the PayPal sandbox.
+so it runs as root through sudo; that is for a one-off check by an operator only, and the
+permissions the edge device runs with as a service are set up apart from it. It calls BarPay
+at the URL and with the shared secret of the edge device's environment variables: the test
+BarPay or a BarPay on the PayPal sandbox.
 
     uv sync --locked --extra qr
     sudo --preserve-env=BARPAY_URL,BARPAY_EDGE_SHARED_SECRET \\
