@@ -64,6 +64,9 @@ version = "0.1.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
+indicator = [
+    { name = "gpiod", marker = "sys_platform == 'linux'" },
+]
 microphone = [
     { name = "pyalsaaudio", marker = "sys_platform == 'linux'" },
 ]
@@ -80,8 +83,11 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pyalsaaudio", marker = "sys_platform == 'linux' and extra == 'microphone'", specifier = "==0.11.0" }]
-provides-extras = ["microphone"]
+requires-dist = [
+    { name = "gpiod", marker = "sys_platform == 'linux' and extra == 'indicator'", specifier = "==2.5.0" },
+    { name = "pyalsaaudio", marker = "sys_platform == 'linux' and extra == 'microphone'", specifier = "==0.11.0" },
+]
+provides-extras = ["microphone", "indicator"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -101,6 +107,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d8/53/6f443c9a4a8358a93a6792e2acffb9d9d5cb0a5cfd8802644b7b1c9a02e4/colorama-0.4.6.tar.gz", hash = "sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44", size = 27697, upload-time = "2022-10-25T02:36:22.414Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl", hash = "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6", size = 25335, upload-time = "2022-10-25T02:36:20.889Z" },
+]
+
+[[package]]
+name = "gpiod"
+version = "2.5.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fc/c2/c7bc26965855f39ae3e1b09b404a1fdc3b172dac371012c316f5b9b6a314/gpiod-2.5.0.tar.gz", hash = "sha256:53ae5a1f14d6388c155b591ca0fc0cfa73b44d4f6d8d117e8a9e68f5902d187a", size = 75527, upload-time = "2026-06-17T07:46:25.985Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/46/6b/43f99cb8c3929463e2a75cc24516b20cb96f1aa8342ad77a42bdf838a45f/gpiod-2.5.0-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:c6b51959d24461d55fbafc1a6d1accd0904bb1de76182f7479b2bc473d86cfc8", size = 115036, upload-time = "2026-06-17T07:46:11.455Z" },
+    { url = "https://files.pythonhosted.org/packages/75/3b/78f62278cae19ad43b4df89ba534d470d3c05a6852c0352c604ac0169cef/gpiod-2.5.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:2122147b7946af80753ca25c23cf3a4dc8f0ef808f8c0bfdfacdfd523e8c385e", size = 114558, upload-time = "2026-06-17T07:46:12.581Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/ef/455114c0fe94bee96272af68c1ab02d59ee934509cfe583876c116d9443f/gpiod-2.5.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:4ddf72333749924f29d341d9c36ab09b6de4a31d7e6106fdfcd995ad07d8296b", size = 113450, upload-time = "2026-06-17T07:46:13.895Z" },
+    { url = "https://files.pythonhosted.org/packages/a6/b2/0218a8253319216ccf40b7649af08acb709f0d27b0d11436f09c649ac54d/gpiod-2.5.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:960a16c48471440eb72d8f0c45894936e14ad329a9347748a82811c0bdfff6f2", size = 113282, upload-time = "2026-06-17T07:46:15.392Z" },
 ]
 
 [[package]]

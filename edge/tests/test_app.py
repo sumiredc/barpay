@@ -23,7 +23,8 @@ from barpay_edge.app import (
     load_config,
     run,
 )
-from barpay_edge.fakes import FakeMicrophone
+from barpay_edge.fakes import FakeIndicator, FakeMicrophone
+from barpay_edge.indicator import BUZZER_LINE_ENV, RED_LINE_ENV, GpioSettings
 from barpay_edge.liveliness import DEFAULT_LOUDEST_DBFS, DEFAULT_QUIET_DBFS, Meter, Tuning
 
 PARTS = {READER_ENV: "fake", LOCK_ENV: "fake", MICROPHONE_ENV: "fake", INDICATOR_ENV: "fake"}
@@ -217,3 +218,43 @@ def test_a_run_with_the_fake_microphone_says_once_that_no_liveliness_is_sent(
 
     assert code == 0
     assert caplog.text.count("the fake microphone hears nothing; no liveliness is sent") == logged
+
+
+def test_the_indicator_is_closed_when_the_edge_device_stops(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    indicator = FakeIndicator()
+    monkeypatch.setitem(app._INDICATORS, "fake", lambda config: indicator)
+
+    code, _ = run_stopped(ENV)
+
+    assert code == 0
+    assert indicator.closed
+
+
+def test_the_gpio_indicator_takes_its_lines_from_the_environment() -> None:
+    config = load_config(ENV | {INDICATOR_ENV: "gpio", RED_LINE_ENV: "5", BUZZER_LINE_ENV: "6"})
+
+    assert config.gpio == GpioSettings("/dev/gpiochip0", red=5, green=27, blue=22, buzzer=6)
+
+
+@pytest.mark.parametrize("value", ["", "five", "-5"])
+def test_it_does_not_start_with_a_malformed_gpio_line(value: str) -> None:
+    code, stderr = run_stopped(ENV | {INDICATOR_ENV: "gpio", RED_LINE_ENV: value})
+
+    assert code == 2
+    assert RED_LINE_ENV in stderr
+
+
+def test_it_does_not_start_with_the_gpio_indicator_without_libgpiod() -> None:
+    # The device libraries are blocked in these tests, as where the extra is not installed.
+    code, stderr = run_stopped(ENV | {INDICATOR_ENV: "gpio"})
+
+    assert code == 2
+    assert "--extra indicator" in stderr
+
+
+def test_the_gpio_settings_are_not_read_for_another_indicator() -> None:
+    config = load_config(ENV | {RED_LINE_ENV: "five"})
+
+    assert config.gpio is None

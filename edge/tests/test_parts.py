@@ -95,3 +95,12 @@ def test_the_fake_indicator_keeps_what_it_showed_in_order() -> None:
     indicator.show(GateState.THANK_YOU)
 
     assert fake.shown == [GateState.WORKING, GateState.THANK_YOU]
+
+
+def test_the_fake_indicator_keeps_whether_it_was_closed() -> None:
+    fake = FakeIndicator()
+    indicator: Indicator = fake
+
+    assert not fake.closed
+    indicator.close()
+    assert fake.closed
