@@ -185,6 +185,8 @@ class Assembler:
             return tuple(ended)
         self._last = now
         if event.code == DROPPED:
+            # A lost event may have been a Shift going up or down.
+            self._shift.clear()
             self._spoil(ReadProblem.LOST)
         elif event.value != KEY_DOWN:
             self._spoil(ReadProblem.REPEATED)
@@ -211,10 +213,9 @@ class Assembler:
     def _end(self, *, stopped: bool) -> Read | None:
         chars, problem = self._chars, self._problem
         self._chars, self._problem, self._last = [], None, None
-        if stopped:
-            # A reader does not hold Shift for the whole gap, so a Shift whose release was lost
-            # does not change the next read.
-            self._shift.clear()
+        # A reader does not hold Shift from one read into the next, so a Shift whose release
+        # was lost does not change the next read.
+        self._shift.clear()
         if problem is not None:
             return problem
         if not chars:

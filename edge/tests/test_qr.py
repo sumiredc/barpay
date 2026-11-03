@@ -168,6 +168,12 @@ def test_a_shift_whose_release_was_lost_does_not_hold_into_the_next_read() -> No
     assert reads == [ReadProblem.NO_ENTER, "b"]
 
 
+def test_a_shift_still_held_at_enter_does_not_hold_into_the_next_read() -> None:
+    events = [KeyEvent(KEY_LEFTSHIFT, KEY_DOWN), *keys("a"), *press(KEY_ENTER), *typed("b")]
+
+    assert feed(Assembler(), events) == ["A", "b"]
+
+
 def test_a_problem_never_holds_the_text_read() -> None:
     for problem in ReadProblem:
         assert "abc" not in problem.value
