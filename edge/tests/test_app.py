@@ -251,7 +251,7 @@ def test_it_does_not_start_with_the_gpio_indicator_without_libgpiod() -> None:
     code, stderr = run_stopped(ENV | {INDICATOR_ENV: "gpio"})
 
     assert code == 2
-    assert "--extra indicator" in stderr
+    assert "--extra gpio" in stderr
 
 
 def test_the_gpio_settings_are_not_read_for_another_indicator() -> None:
