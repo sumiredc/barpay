@@ -50,6 +50,8 @@ class Request:
     # Out of the repr, so a failing assertion on requests does not print the shared secret.
     headers: dict[str, str] = field(repr=False)
     body: bytes = b""
+    # When it arrived, by time.monotonic.
+    at: float = field(default_factory=time.monotonic)
 
 
 @dataclass(frozen=True)
@@ -66,6 +68,9 @@ class FakeBarPay:
         self.secret = secret
         self.prefix = prefix
         self.requests: list[Request] = []
+        # Seconds the default answer to waitForUnlock waits before its 204, as BarPay holds the
+        # call until an unlock comes; 0 answers at once.
+        self.unlock_wait = 0.0
         self.given: list[Given] = []
         self._queued: dict[str, deque[Answer]] = {}
         # The unlock IDs given in answers, which reportUnlockResult takes.
@@ -96,6 +101,17 @@ class FakeBarPay:
         with self._mu:
             self._queued.setdefault(operation, deque()).extend(answers)
 
+    def calls(self, operation: str) -> list[Request]:
+        """The requests made to operation, in the order they came."""
+        with self._mu:
+            requests = list(self.requests)
+        found = []
+        for r in requests:
+            op = self.spec.find(r.method, r.path.removeprefix(self.prefix + self.spec.prefix))
+            if op is not None and op[0].id == operation:
+                found.append(r)
+        return found
+
     def _respond(self, method: str, path: str, headers: dict[str, str], body: bytes) -> Given:
         with self._mu:
             self.requests.append(Request(method, path, headers, body))
@@ -122,6 +138,8 @@ class FakeBarPay:
                 given = queued.popleft()
             elif op.id == "reportUnlockResult" and params["unlock_id"] not in self._unlocks:
                 given = error(404, "unlock_not_found")
+            elif op.id == "waitForUnlock":
+                given = Answer(204, delay=self.unlock_wait)
             else:
                 given = self._default(op.id)
             if op.id in ("scanExitToken", "waitForUnlock") and given.status == 200:
