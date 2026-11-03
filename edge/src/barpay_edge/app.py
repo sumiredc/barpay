@@ -11,15 +11,18 @@ import os
 import signal
 import sys
 import threading
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import FrameType
 from typing import TextIO
 
 from barpay_edge import indicator_gpio
+from barpay_edge.alsa_microphone import AlsaMicrophone
 from barpay_edge.barpay import Client
 from barpay_edge.fakes import FakeIndicator, FakeLock, FakeMicrophone, FakeQrReader
 from barpay_edge.indicator import GpioSettings, load_gpio_settings
+from barpay_edge.liveliness import DEFAULT_LOUDEST_DBFS, DEFAULT_QUIET_DBFS, Meter, Sender, Tuning
 from barpay_edge.parts import Indicator, Lock, Microphone, QrReader
 
 SECRET_ENV = "BARPAY_EDGE_SHARED_SECRET"  # noqa: S105 - the variable's name, not a secret
@@ -33,9 +36,18 @@ LOCK_ENV = "BARPAY_EDGE_LOCK"
 MICROPHONE_ENV = "BARPAY_EDGE_MICROPHONE"
 INDICATOR_ENV = "BARPAY_EDGE_INDICATOR"
 
+# Not secrets. The ALSA capture device, "default" when unset, and the store's tuning of the
+# liveliness (Tuning), in dBFS, the PRD's starting values when unset.
+MICROPHONE_DEVICE_ENV = "BARPAY_EDGE_MICROPHONE_DEVICE"
+QUIET_ENV = "BARPAY_EDGE_QUIET_DBFS"
+LOUDEST_ENV = "BARPAY_EDGE_LOUDEST_DBFS"
+
 _READERS: dict[str, Callable[[], QrReader]] = {"fake": FakeQrReader}
 _LOCKS: dict[str, Callable[[], Lock]] = {"fake": FakeLock}
-_MICROPHONES: dict[str, Callable[[], Microphone]] = {"fake": FakeMicrophone}
+_MICROPHONES: dict[str, Callable[["Config"], Microphone]] = {
+    "fake": lambda config: FakeMicrophone(),
+    "alsa": lambda config: AlsaMicrophone(config.microphone_device),
+}
 _INDICATORS: dict[str, Callable[["Config"], Indicator]] = {
     "fake": lambda config: FakeIndicator(),
     "gpio": lambda config: _gpio_indicator(config),
@@ -56,6 +68,8 @@ class Config:
     lock: str
     microphone: str
     indicator: str
+    microphone_device: str
+    tuning: Tuning
     # Only for the gpio indicator.
     gpio: GpioSettings | None = None
 
@@ -75,6 +89,8 @@ def load_config(env: Mapping[str, str]) -> Config:
         lock=_choice(env, LOCK_ENV, _LOCKS),
         microphone=_choice(env, MICROPHONE_ENV, _MICROPHONES),
         indicator=indicator,
+        microphone_device=env.get(MICROPHONE_DEVICE_ENV) or "default",
+        tuning=_tuning(env),
         gpio=_gpio_settings(env) if indicator == "gpio" else None,
     )
 
@@ -104,6 +120,25 @@ def _choice(env: Mapping[str, str], name: str, kinds: Mapping[str, object]) -> s
     return kind
 
 
+def _tuning(env: Mapping[str, str]) -> Tuning:
+    quiet = _dbfs(env, QUIET_ENV, DEFAULT_QUIET_DBFS)
+    loudest = _dbfs(env, LOUDEST_ENV, DEFAULT_LOUDEST_DBFS)
+    try:
+        return Tuning(quiet, loudest)
+    except ValueError as e:
+        raise ConfigError(f"{QUIET_ENV} and {LOUDEST_ENV}: {e}") from None
+
+
+def _dbfs(env: Mapping[str, str], name: str, default: float) -> float:
+    text = env.get(name, "")
+    if not text:
+        return default
+    try:
+        return float(text)
+    except ValueError:
+        raise ConfigError(f"{name} must be a number of dBFS, such as -35") from None
+
+
 @dataclass(frozen=True)
 class Edge:
     """The edge device put together: the client of BarPay and one of each part."""
@@ -124,7 +159,7 @@ def build(config: Config) -> Edge:
         barpay=barpay,
         reader=_READERS[config.reader](),
         lock=_LOCKS[config.lock](),
-        microphone=_MICROPHONES[config.microphone](),
+        microphone=_MICROPHONES[config.microphone](config),
         indicator=_INDICATORS[config.indicator](config),
     )
 
@@ -145,9 +180,27 @@ def run(env: Mapping[str, str], stop: threading.Event, stderr: TextIO) -> int:
         config.microphone,
         config.indicator,
     )
+    threads = []
+    # The fake microphone hears nothing, so it would send BarPay the liveliness of an empty
+    # room; with it, BarPay has no liveliness signal, as without the edge device.
+    if config.microphone == "fake":
+        log.info("the fake microphone hears nothing; no liveliness is sent")
+    else:
+        sender = Sender(edge.barpay)
+        meter = Meter(edge.microphone, config.tuning, time.monotonic, sender.offer)
+        threads = [
+            threading.Thread(
+                target=sender.run, args=(stop,), name="liveliness-sender", daemon=True
+            ),
+            threading.Thread(target=meter.run, args=(stop,), name="liveliness-meter", daemon=True),
+        ]
+    for t in threads:
+        t.start()
     try:
         stop.wait()
     finally:
+        for t in threads:
+            t.join(timeout=1.0)
         # Lights left on after the edge device stops would tell a customer it still runs.
         edge.indicator.close()
     log.info("stopped")

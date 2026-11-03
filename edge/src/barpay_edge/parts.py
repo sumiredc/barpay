@@ -41,6 +41,10 @@ class Lock(Protocol):
         ...
 
 
+class MicrophoneError(Exception):
+    """The microphone could not be read. Its text never holds a sample."""
+
+
 class Microphone(Protocol):
     @property
     def sample_rate(self) -> int:
@@ -48,7 +52,10 @@ class Microphone(Protocol):
         ...
 
     def read(self) -> Sequence[float]:
-        """The next block of samples, each from -1 to 1, waiting until it is recorded."""
+        """The next block of samples, each from -1 to 1, waiting until it is recorded.
+
+        Raises MicrophoneError when the microphone cannot be read; the next call tries again.
+        """
         ...
 
 

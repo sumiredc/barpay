@@ -2,6 +2,9 @@ version = 1
 revision = 3
 requires-python = "==3.13.*"
 
+[manifest]
+build-constraints = [{ name = "setuptools", specifier = "==84.2.1" }]
+
 [[package]]
 name = "ast-serialize"
 version = "0.13.1"
@@ -64,6 +67,9 @@ source = { editable = "." }
 indicator = [
     { name = "gpiod", marker = "sys_platform == 'linux'" },
 ]
+microphone = [
+    { name = "pyalsaaudio", marker = "sys_platform == 'linux'" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -77,8 +83,11 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "gpiod", marker = "sys_platform == 'linux' and extra == 'indicator'", specifier = "==2.5.0" }]
-provides-extras = ["indicator"]
+requires-dist = [
+    { name = "gpiod", marker = "sys_platform == 'linux' and extra == 'indicator'", specifier = "==2.5.0" },
+    { name = "pyalsaaudio", marker = "sys_platform == 'linux' and extra == 'microphone'", specifier = "==0.11.0" },
+]
+provides-extras = ["microphone", "indicator"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -229,6 +238,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/bf/db/7fc19e6f2dc92a966
 wheels = [
     { url = "https://files.pythonhosted.org/packages/40/9e/2b38731e0fc536806f16490e1a12d7f0dc2a1235aa8cc07bcc75416a7daa/pluggy-1.7.0-py3-none-any.whl", hash = "sha256:7dd7b0d8832ba3cb632c306926ded123429211b83641b35dc5c41ad2d34f9bec", size = 27082, upload-time = "2026-10-15T09:50:56.808Z" },
 ]
+
+[[package]]
+name = "pyalsaaudio"
+version = "0.11.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/21/a6/3d833079b030d449345e35ce0e2874e330d3612135734f07b9ceace25bcf/pyalsaaudio-0.11.0.tar.gz", hash = "sha256:a78a9dca33524b2c9064b34e21f5ab874272313cf324a9a77592f396a5e0fddc", size = 311152, upload-time = "2024-05-30T21:35:57.928Z" }
 
 [[package]]
 name = "pygments"

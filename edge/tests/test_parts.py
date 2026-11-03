@@ -1,11 +1,13 @@
 import importlib
 import pkgutil
+import struct
 import time
 
 import pytest
 from helpers import device_libraries
 
 import barpay_edge
+from barpay_edge.alsa_microphone import samples_from_s16le
 from barpay_edge.barpay import ReaderMessage
 from barpay_edge.fakes import FakeIndicator, FakeLock, FakeMicrophone, FakeQrReader
 from barpay_edge.parts import GateState, Indicator, Lock, Microphone, QrReader
@@ -77,6 +79,12 @@ def test_the_fake_microphone_takes_a_blocks_time_to_give_silence() -> None:
     mic.read()
 
     assert time.monotonic() - started >= 0.1
+
+
+def test_the_alsa_microphones_16_bit_samples_are_read_as_minus_1_to_1() -> None:
+    data = struct.pack("<4h", 0, 16384, -32768, 32767)
+
+    assert samples_from_s16le(data) == [0.0, 0.5, -1.0, 32767 / 32768]
 
 
 def test_the_fake_indicator_keeps_what_it_showed_in_order() -> None:
