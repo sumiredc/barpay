@@ -6,24 +6,58 @@ They hold what they are given in memory and touch no device.
 import queue
 import threading
 import time
+from collections import deque
 from collections.abc import Iterable, Sequence
 
-from barpay_edge.parts import GateState
+from barpay_edge.parts import GateState, QrReadError
 
 
 class FakeQrReader:
-    def __init__(self) -> None:
-        self._reads: queue.Queue[str] = queue.Queue()
+    """Gives the reads fed to it in order, and keeps whether it was closed."""
 
-    def feed(self, text: str) -> None:
-        """Make text the next QR read."""
-        self._reads.put(text)
+    def __init__(self) -> None:
+        self._reads: deque[str | QrReadError] = deque()
+        self._closed = False
+        # Whether a call to read is waiting with nothing left to give.
+        self._waiting = False
+        self._changed = threading.Condition()
+
+    @property
+    def closed(self) -> bool:
+        with self._changed:
+            return self._closed
+
+    def feed(self, read: str | QrReadError) -> None:
+        """Make read the next QR read: its text, or the error of a read that is not a token."""
+        with self._changed:
+            self._reads.append(read)
+            self._changed.notify_all()
+
+    def wait_idle(self, timeout: float) -> bool:
+        """Wait until every read fed was taken and read was called again, which a caller that
+        reads in a loop does once it has handled the last one; False when timeout seconds
+        passed first.
+        """
+        with self._changed:
+            return self._changed.wait_for(lambda: not self._reads and self._waiting, timeout)
 
     def read(self, timeout: float) -> str | None:
-        try:
-            return self._reads.get(timeout=timeout)
-        except queue.Empty:
-            return None
+        with self._changed:
+            self._waiting = True
+            self._changed.notify_all()
+            try:
+                if not self._changed.wait_for(lambda: bool(self._reads), timeout):
+                    return None
+                read = self._reads.popleft()
+            finally:
+                self._waiting = False
+        if isinstance(read, QrReadError):
+            raise read
+        return read
+
+    def close(self) -> None:
+        with self._changed:
+            self._closed = True
 
 
 class FakeLock:

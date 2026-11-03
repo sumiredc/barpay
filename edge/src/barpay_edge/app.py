@@ -16,14 +16,16 @@ from dataclasses import dataclass, field
 from types import FrameType
 from typing import TextIO
 
-from barpay_edge import indicator_gpio, lock_gpio
+from barpay_edge import indicator_gpio, lock_gpio, qr_evdev
 from barpay_edge.alsa_microphone import AlsaMicrophone
 from barpay_edge.barpay import Client
 from barpay_edge.fakes import FakeIndicator, FakeLock, FakeMicrophone, FakeQrReader
+from barpay_edge.gate import Gate
 from barpay_edge.indicator import GpioSettings, load_gpio_settings
 from barpay_edge.liveliness import DEFAULT_LOUDEST_DBFS, DEFAULT_QUIET_DBFS, Meter, Sender, Tuning
 from barpay_edge.lock import LockSettings, load_lock_settings
 from barpay_edge.parts import Indicator, Lock, Microphone, QrReader
+from barpay_edge.qr import QR_DEVICE_ENV
 
 SECRET_ENV = "BARPAY_EDGE_SHARED_SECRET"  # noqa: S105 - the variable's name, not a secret
 URL_ENV = "BARPAY_URL"
@@ -42,7 +44,10 @@ MICROPHONE_DEVICE_ENV = "BARPAY_EDGE_MICROPHONE_DEVICE"
 QUIET_ENV = "BARPAY_EDGE_QUIET_DBFS"
 LOUDEST_ENV = "BARPAY_EDGE_LOUDEST_DBFS"
 
-_READERS: dict[str, Callable[[], QrReader]] = {"fake": FakeQrReader}
+_READERS: dict[str, Callable[["Config"], QrReader]] = {
+    "fake": lambda config: FakeQrReader(),
+    "evdev": lambda config: _evdev_reader(config),
+}
 _LOCKS: dict[str, Callable[["Config"], Lock]] = {
     "fake": lambda config: FakeLock(),
     "gpio": lambda config: _gpio_lock(config),
@@ -77,6 +82,8 @@ class Config:
     gpio: GpioSettings | None = None
     # Only for the gpio lock.
     lock_gpio: LockSettings | None = None
+    # Only for the evdev QR reader: the path of its input device.
+    qr_device: str | None = None
 
 
 def load_config(env: Mapping[str, str]) -> Config:
@@ -86,12 +93,13 @@ def load_config(env: Mapping[str, str]) -> Config:
     url = env.get(URL_ENV, "")
     if not url:
         raise ConfigError(f"set {URL_ENV} to BarPay's base URL, such as http://127.0.0.1:8080")
+    reader = _choice(env, READER_ENV, _READERS)
     lock = _choice(env, LOCK_ENV, _LOCKS)
     indicator = _choice(env, INDICATOR_ENV, _INDICATORS)
     return Config(
         barpay_url=url,
         secret=secret,
-        reader=_choice(env, READER_ENV, _READERS),
+        reader=reader,
         lock=lock,
         microphone=_choice(env, MICROPHONE_ENV, _MICROPHONES),
         indicator=indicator,
@@ -99,7 +107,27 @@ def load_config(env: Mapping[str, str]) -> Config:
         tuning=_tuning(env),
         gpio=_gpio_settings(env) if indicator == "gpio" else None,
         lock_gpio=_lock_settings(env) if lock == "gpio" else None,
+        qr_device=_qr_device(env) if reader == "evdev" else None,
     )
+
+
+def _qr_device(env: Mapping[str, str]) -> str:
+    path = env.get(QR_DEVICE_ENV, "")
+    if not path.startswith("/"):
+        raise ConfigError(
+            f"set {QR_DEVICE_ENV} to the path of the QR reader's input device, such as one "
+            "under /dev/input/by-id/"
+        )
+    return path
+
+
+def _evdev_reader(config: Config) -> QrReader:
+    if config.qr_device is None:
+        raise ConfigError(f"{READER_ENV}=evdev needs {QR_DEVICE_ENV}")
+    try:
+        return qr_evdev.build(config.qr_device)
+    except qr_evdev.QrReaderUnavailable as e:
+        raise ConfigError(f"{READER_ENV}=evdev: {e}") from None
 
 
 def _gpio_settings(env: Mapping[str, str]) -> GpioSettings:
@@ -180,17 +208,26 @@ def build(config: Config) -> Edge:
         raise ConfigError(f"{SECRET_ENV} or {URL_ENV}: {e}") from None
     lock = _LOCKS[config.lock](config)
     try:
+        reader = _READERS[config.reader](config)
+    except BaseException:
+        # A part that could not be built leaves the edge device unstarted, with the lock closed
+        # as on any stop.
+        lock.close()
+        raise
+    try:
         return Edge(
             barpay=barpay,
-            reader=_READERS[config.reader](),
+            reader=reader,
             lock=lock,
             microphone=_MICROPHONES[config.microphone](config),
             indicator=_INDICATORS[config.indicator](config),
         )
     except BaseException:
-        # A part that could not be built leaves the edge device unstarted, with the lock closed
-        # as on any stop.
-        lock.close()
+        try:
+            lock.close()
+        finally:
+            # The QR reader's device is given back, so its keys reach the console again.
+            reader.close()
         raise
 
 
@@ -209,8 +246,11 @@ def run(env: Mapping[str, str], stop: threading.Event, stderr: TextIO) -> int:
             # A line left high after the edge device stops would leave the gate open.
             edge.lock.close()
         finally:
-            # Lights left on after the edge device stops would tell a customer it still runs.
-            edge.indicator.close()
+            try:
+                # Lights left on after the edge device stops would tell a customer it still runs.
+                edge.indicator.close()
+            finally:
+                edge.reader.close()
     log.info("stopped")
     return 0
 
@@ -224,7 +264,10 @@ def _run_parts(config: Config, edge: Edge, stop: threading.Event) -> None:
         config.microphone,
         config.indicator,
     )
-    threads = []
+    # Set once the run ends, also when waiting for stop fails, so the parts stop either way.
+    halt = threading.Event()
+    gate = Gate(edge.barpay, edge.reader, edge.lock, edge.indicator)
+    threads = [threading.Thread(target=gate.run, args=(halt,), name="gate", daemon=True)]
     # The fake microphone hears nothing, so it would send BarPay the liveliness of an empty
     # room; with it, BarPay has no liveliness signal, as without the edge device.
     if config.microphone == "fake":
@@ -232,19 +275,21 @@ def _run_parts(config: Config, edge: Edge, stop: threading.Event) -> None:
     else:
         sender = Sender(edge.barpay)
         meter = Meter(edge.microphone, config.tuning, time.monotonic, sender.offer)
-        threads = [
+        threads += [
             threading.Thread(
-                target=sender.run, args=(stop,), name="liveliness-sender", daemon=True
+                target=sender.run, args=(halt,), name="liveliness-sender", daemon=True
             ),
-            threading.Thread(target=meter.run, args=(stop,), name="liveliness-meter", daemon=True),
+            threading.Thread(target=meter.run, args=(halt,), name="liveliness-meter", daemon=True),
         ]
     for t in threads:
         t.start()
     try:
         stop.wait()
     finally:
+        halt.set()
         for t in threads:
-            t.join(timeout=1.0)
+            # The gate waits for each of its own threads for up to a second.
+            t.join(timeout=5.0)
 
 
 def main() -> None:

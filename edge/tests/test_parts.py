@@ -10,7 +10,7 @@ import barpay_edge
 from barpay_edge.alsa_microphone import samples_from_s16le
 from barpay_edge.barpay import ReaderMessage
 from barpay_edge.fakes import FakeIndicator, FakeLock, FakeMicrophone, FakeQrReader
-from barpay_edge.parts import GateState, Indicator, Lock, Microphone, QrReader
+from barpay_edge.parts import GateState, Indicator, Lock, Microphone, QrReader, QrReadError
 
 
 @pytest.mark.parametrize("name", sorted(device_libraries()))
@@ -50,6 +50,19 @@ def test_the_fake_qr_reader_gives_what_it_was_fed_then_none() -> None:
 
     assert reader.read(timeout=0.01) == "exit-token-0123456789"
     assert reader.read(timeout=0.01) is None
+
+
+def test_the_fake_qr_reader_raises_a_read_error_it_was_fed_and_keeps_being_closed() -> None:
+    fake = FakeQrReader()
+    reader: QrReader = fake
+    fake.feed(QrReadError("the read stopped before Enter"))
+    fake.feed("exit-token-0123456789")
+
+    with pytest.raises(QrReadError):
+        reader.read(timeout=0.01)
+    assert reader.read(timeout=0.01) == "exit-token-0123456789"
+    reader.close()
+    assert fake.closed
 
 
 def test_the_fake_lock_unlocks_unless_set_to_fail() -> None:

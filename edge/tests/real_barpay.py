@@ -23,8 +23,11 @@ from helpers import SECRET
 
 _REPO = Path(__file__).resolve().parents[2]
 
-# The test BarPay's store API key: a fixed test value it has no setting for.
+# The test BarPay's store API key and admin API key: fixed test values it has no setting for.
 STORE_KEY = "test-store-key"
+ADMIN_KEY = "test-admin-key"
+# The staff member the admin calls name.
+STAFF_ID = "staff-1"
 
 _START_TIMEOUT = 30.0
 _STOP_TIMEOUT = 10.0
@@ -72,6 +75,41 @@ class RealBarPay:
         shown = data if status >= 400 else b""
         assert status == want, f"{method} {path}: {status} {shown!r}, want {want}"
         return json.loads(data) if data else None
+
+    def admin(self, method: str, path: str, body: Any = None, *, want: int = 200) -> Any:
+        """The store app calling BarPay's admin API for a staff member; returns the decoded JSON
+        answer, if any.
+        """
+        status, data = self._admin(method, path, body)
+        shown = data if status >= 400 else b""
+        assert status == want, f"{method} /admin{path}: {status} {shown!r}, want {want}"
+        return json.loads(data) if data else None
+
+    def unlock_gate(self) -> int:
+        """Staff opening the gate by hand (unlockGate); returns BarPay's status, 202 when the
+        unlock was sent to the edge device and 503 when none is connected.
+        """
+        status, _ = self._admin("POST", "/gate/unlock", {})
+        assert status in (202, 503), f"POST /admin/gate/unlock: {status}"
+        return status
+
+    def _admin(self, method: str, path: str, body: Any) -> tuple[int, bytes]:
+        headers = {
+            "Authorization": "Bearer " + ADMIN_KEY,
+            "BarPay-Staff-Id": STAFF_ID,
+            "Idempotency-Key": f"key-{next(self._keys)}",
+        }
+        status, _, data = self._send(method, "/v1/admin" + path, body, headers)
+        return status, data
+
+    def state(self, session: str) -> str:
+        """The session's state, as the store app reads it."""
+        state: str = self.store("GET", f"/sessions/{session}")["state"]
+        return state
+
+    def alerts(self) -> list[str]:
+        """The kinds of the alerts BarPay raised, newest first."""
+        return [a["kind"] for a in self.admin("GET", "/alerts")["alerts"]]
 
     def browse(self, url: str) -> str:
         """The member's browser opening url, a BarPay URL, with no key; returns where it is sent."""
