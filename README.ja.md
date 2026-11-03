@@ -109,7 +109,15 @@ pyalsaaudio と evdev は Raspberry Pi 5 の上でソースから組み立てる
 sudo apt install git build-essential libasound2-dev linux-libc-dev
 ```
 
-自分のユーザーに [uv](https://docs.astral.sh/uv/) を入れる。コードと uv が入れる Python は、自分が持ち主の `/opt/barpay-edge` の下に置く。サービスのユーザーは読めるが、書き換えられない。
+自分のユーザーに [uv](https://docs.astral.sh/uv/) の 0.12.6 以降を入れ、ログインし直すか、その環境を読み込む。
+
+```sh
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.local/bin/env
+uv --version
+```
+
+コードと uv が入れる Python は、自分が持ち主の `/opt/barpay-edge` の下に置く。サービスのユーザーは読めるが、書き換えられない。
 
 ```sh
 sudo install -d -o "$USER" -g "$USER" -m 755 /opt/barpay-edge
