@@ -6,7 +6,7 @@ each line back after every write, and checks the values change as the table says
 and are all off at the end. It takes about a minute and exits 0 only when every check passed. It
 reads the chip and the line numbers from the same environment variables as the edge device:
 
-    uv sync --locked --extra indicator
+    uv sync --locked --extra gpio
     uv run --no-sync python -m barpay_edge.indicator_gpio
 """
 
@@ -45,8 +45,7 @@ class GpiodLines:
             from gpiod.line import Direction, Value  # type: ignore[import-not-found, unused-ignore]
         except ModuleNotFoundError:
             raise IndicatorUnavailable(
-                "the GPIO indicator needs libgpiod's Python package: "
-                "uv sync --locked --extra indicator"
+                "the GPIO indicator needs libgpiod's Python package: uv sync --locked --extra gpio"
             ) from None
         self._active = Value.ACTIVE
         self._inactive = Value.INACTIVE

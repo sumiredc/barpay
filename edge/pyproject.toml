@@ -8,12 +8,13 @@ requires-python = "==3.13.*"
 # Nothing at run time beyond the standard library, until a device part needs its library.
 dependencies = []
 
-# Each device's library goes in its own extra, with a marker for the OS it installs on, for
-# example `lock = ["bleak==X.Y.Z; sys_platform == 'linux'"]`. The fake-device tests and CI install
+# Each device library goes in one extra, with a marker for the OS it installs on; parts that share
+# a library share its extra, so its version is written once. The fake-device tests and CI install
 # no extra, so they never have a device library to import.
 [project.optional-dependencies]
 microphone = ["pyalsaaudio==0.11.0; sys_platform == 'linux'"]
-indicator = ["gpiod==2.5.0; sys_platform == 'linux'"]
+# The indicator's and the lock's GPIO lines.
+gpio = ["gpiod==2.5.0; sys_platform == 'linux'"]
 
 [project.scripts]
 barpay-edge = "barpay_edge.app:main"
@@ -45,7 +46,7 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "UP", "SIM", "PT", "RUF", "S", "BLE", "TID"]
 # assert is how pytest checks, and the tests' secrets are test values.
-per-file-ignores = { "tests/**" = ["S101", "S105", "S106"], "src/barpay_edge/alsa_microphone.py" = ["TID251"], "src/barpay_edge/indicator_gpio.py" = ["TID251"] }
+per-file-ignores = { "tests/**" = ["S101", "S105", "S106"], "src/barpay_edge/alsa_microphone.py" = ["TID251"], "src/barpay_edge/indicator_gpio.py" = ["TID251"], "src/barpay_edge/lock_gpio.py" = ["TID251"] }
 
 # The device libraries. Only each device part's own module may import its library; that module is
 # added to per-file-ignores with TID251. tests/conftest.py reads this list and makes importing any
@@ -54,13 +55,10 @@ per-file-ignores = { "tests/**" = ["S101", "S105", "S106"], "src/barpay_edge/als
 "evdev".msg = "a device library: import it only in the QR reader's part"
 "alsaaudio".msg = "a device library: import it only in the microphone's part"
 "sounddevice".msg = "a device library: import it only in the microphone's part"
-"gpiod".msg = "a device library: import it only in the indicator's part"
-"gpiozero".msg = "a device library: import it only in the indicator's part"
-"lgpio".msg = "a device library: import it only in the indicator's part"
-"RPi".msg = "a device library: import it only in the indicator's part"
-"bleak".msg = "a device library: import it only in the lock's part"
-"bluepy".msg = "a device library: import it only in the lock's part"
-"dbus_fast".msg = "a device library: import it only in the lock's part"
+"gpiod".msg = "a device library: import it only in the indicator's and the lock's GPIO parts"
+"gpiozero".msg = "a device library: import it only in the indicator's and the lock's GPIO parts"
+"lgpio".msg = "a device library: import it only in the indicator's and the lock's GPIO parts"
+"RPi".msg = "a device library: import it only in the indicator's and the lock's GPIO parts"
 
 [tool.mypy]
 strict = true

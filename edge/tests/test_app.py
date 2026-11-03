@@ -5,6 +5,7 @@ import logging
 import threading
 import time
 
+import fake_gpiod
 import pytest
 from fake_barpay import FakeBarPay
 from helpers import SECRET, leaks
@@ -23,9 +24,10 @@ from barpay_edge.app import (
     load_config,
     run,
 )
-from barpay_edge.fakes import FakeIndicator, FakeMicrophone
+from barpay_edge.fakes import FakeIndicator, FakeLock, FakeMicrophone
 from barpay_edge.indicator import BUZZER_LINE_ENV, RED_LINE_ENV, GpioSettings
 from barpay_edge.liveliness import DEFAULT_LOUDEST_DBFS, DEFAULT_QUIET_DBFS, Meter, Tuning
+from barpay_edge.lock import LOCK_LINE_ENV, UNLOCK_SECONDS_ENV, LockSettings
 
 PARTS = {READER_ENV: "fake", LOCK_ENV: "fake", MICROPHONE_ENV: "fake", INDICATOR_ENV: "fake"}
 ENV = {SECRET_ENV: SECRET, URL_ENV: "http://127.0.0.1:8080"} | PARTS
@@ -220,16 +222,92 @@ def test_a_run_with_the_fake_microphone_says_once_that_no_liveliness_is_sent(
     assert caplog.text.count("the fake microphone hears nothing; no liveliness is sent") == logged
 
 
-def test_the_indicator_is_closed_when_the_edge_device_stops(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.fixture
+def parts(monkeypatch: pytest.MonkeyPatch) -> tuple[FakeLock, FakeIndicator]:
+    """The fake lock and indicator a run builds."""
+    lock = FakeLock()
     indicator = FakeIndicator()
+    monkeypatch.setitem(app._LOCKS, "fake", lambda config: lock)
     monkeypatch.setitem(app._INDICATORS, "fake", lambda config: indicator)
+    return lock, indicator
 
+
+def test_the_lock_and_the_indicator_are_closed_when_the_edge_device_stops(
+    parts: tuple[FakeLock, FakeIndicator],
+) -> None:
     code, _ = run_stopped(ENV)
 
     assert code == 0
+    assert parts[0].closed
+    assert parts[1].closed
+
+
+class FailingStop(threading.Event):
+    """A stop whose wait fails, as when the run is interrupted."""
+
+    def wait(self, timeout: float | None = None) -> bool:
+        raise KeyboardInterrupt
+
+
+def test_the_lock_and_the_indicator_are_closed_when_the_run_fails(
+    parts: tuple[FakeLock, FakeIndicator],
+) -> None:
+    with pytest.raises(KeyboardInterrupt):
+        run(ENV, FailingStop(), io.StringIO())
+
+    assert parts[0].closed
+    assert parts[1].closed
+
+
+class FailingLock(FakeLock):
+    def close(self) -> None:
+        super().close()
+        raise OSError("the lock could not be closed")
+
+
+class FailingIndicator(FakeIndicator):
+    def close(self) -> None:
+        super().close()
+        raise OSError("the indicator could not be closed")
+
+
+def test_the_indicator_is_closed_when_closing_the_lock_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    indicator = FakeIndicator()
+    monkeypatch.setitem(app._LOCKS, "fake", lambda config: FailingLock())
+    monkeypatch.setitem(app._INDICATORS, "fake", lambda config: indicator)
+
+    with pytest.raises(OSError, match="lock"):
+        run_stopped(ENV)
+
     assert indicator.closed
+
+
+def test_the_lock_is_closed_when_closing_the_indicator_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lock = FakeLock()
+    monkeypatch.setitem(app._LOCKS, "fake", lambda config: lock)
+    monkeypatch.setitem(app._INDICATORS, "fake", lambda config: FailingIndicator())
+
+    with pytest.raises(OSError, match="indicator"):
+        run_stopped(ENV)
+
+    assert lock.closed
+
+
+def test_the_lock_is_closed_when_another_part_cannot_be_built(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lock = FakeLock()
+    monkeypatch.setitem(app._LOCKS, "fake", lambda config: lock)
+
+    # The device libraries are blocked in these tests, so the gpio indicator cannot be built.
+    code, _ = run_stopped(ENV | {INDICATOR_ENV: "gpio"})
+
+    assert code == 2
+    assert lock.closed
 
 
 def test_the_gpio_indicator_takes_its_lines_from_the_environment() -> None:
@@ -251,10 +329,113 @@ def test_it_does_not_start_with_the_gpio_indicator_without_libgpiod() -> None:
     code, stderr = run_stopped(ENV | {INDICATOR_ENV: "gpio"})
 
     assert code == 2
-    assert "--extra indicator" in stderr
+    assert "--extra gpio" in stderr
 
 
 def test_the_gpio_settings_are_not_read_for_another_indicator() -> None:
     config = load_config(ENV | {RED_LINE_ENV: "five"})
 
     assert config.gpio is None
+
+
+def test_the_gpio_lock_takes_its_line_and_unlock_time_from_the_environment() -> None:
+    config = load_config(ENV | {LOCK_ENV: "gpio", LOCK_LINE_ENV: "5", UNLOCK_SECONDS_ENV: "2.5"})
+
+    assert config.lock_gpio == LockSettings("/dev/gpiochip0", 5, 2_500_000_000)
+
+
+def test_the_gpio_lock_takes_line_24_and_5_seconds_unless_set() -> None:
+    config = load_config(ENV | {LOCK_ENV: "gpio"})
+
+    assert config.lock_gpio == LockSettings("/dev/gpiochip0", 24, 5_000_000_000)
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        (LOCK_LINE_ENV, "five"),
+        (LOCK_LINE_ENV, ""),
+        (UNLOCK_SECONDS_ENV, "nan"),
+        (UNLOCK_SECONDS_ENV, "inf"),
+        (UNLOCK_SECONDS_ENV, "five"),
+        (UNLOCK_SECONDS_ENV, "0"),
+        (UNLOCK_SECONDS_ENV, "-1"),
+        (UNLOCK_SECONDS_ENV, "60.5"),
+        (UNLOCK_SECONDS_ENV, "5000"),
+    ],
+)
+def test_it_does_not_start_with_a_malformed_gpio_lock_setting(name: str, value: str) -> None:
+    code, stderr = run_stopped(ENV | {LOCK_ENV: "gpio", name: value})
+
+    assert code == 2
+    assert name in stderr
+
+
+def test_the_gpio_lock_settings_are_not_read_for_another_lock() -> None:
+    env = ENV | {LOCK_LINE_ENV: "17", UNLOCK_SECONDS_ENV: "nan"}
+
+    code, _ = run_stopped(env)
+
+    assert code == 0
+    assert load_config(env).lock_gpio is None
+
+
+@pytest.mark.parametrize("indicator", ["fake", "gpio"])
+@pytest.mark.parametrize(
+    "lines",
+    [
+        pytest.param({LOCK_LINE_ENV: "23"}, id="a-default-indicator-line"),
+        pytest.param({RED_LINE_ENV: "24"}, id="a-set-indicator-line"),
+    ],
+)
+def test_it_does_not_start_with_the_lock_on_an_indicator_line(
+    indicator: str, lines: dict[str, str]
+) -> None:
+    code, stderr = run_stopped(ENV | {LOCK_ENV: "gpio", INDICATOR_ENV: indicator} | lines)
+
+    assert code == 2
+    assert LOCK_LINE_ENV in stderr
+
+
+def test_it_does_not_start_with_the_gpio_lock_without_libgpiod() -> None:
+    # The device libraries are blocked in these tests, as where the extra is not installed.
+    code, stderr = run_stopped(ENV | {LOCK_ENV: "gpio"})
+
+    assert code == 2
+    assert "--extra gpio" in stderr
+
+
+def test_it_does_not_start_when_the_lock_line_cannot_be_requested(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gpiod = fake_gpiod.install(monkeypatch)
+    gpiod.fail = OSError("the line is in use")
+
+    code, stderr = run_stopped(ENV | {LOCK_ENV: "gpio"})
+
+    assert code == 2
+    assert LOCK_ENV in stderr
+    assert "line is in use" in stderr
+
+
+def test_a_run_with_the_gpio_lock_stops_with_its_line_low_and_released(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gpiod = fake_gpiod.install(monkeypatch)
+
+    code, _ = run_stopped(ENV | {LOCK_ENV: "gpio"})
+
+    assert code == 0
+    (request,) = gpiod.requests
+    assert request.config[24].output_value == fake_gpiod.Value.INACTIVE
+    assert request.values[24] == fake_gpiod.Value.INACTIVE
+    assert request.released
+
+
+def test_it_does_not_start_with_the_gpio_lock_and_a_malformed_indicator_line() -> None:
+    # The lock's line is checked against the indicator's lines whatever kind of indicator runs,
+    # so an indicator line that cannot be read refuses the start even with the fake indicator.
+    code, stderr = run_stopped(ENV | {LOCK_ENV: "gpio", RED_LINE_ENV: "five"})
+
+    assert code == 2
+    assert RED_LINE_ENV in stderr

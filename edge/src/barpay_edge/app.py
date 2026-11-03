@@ -1,9 +1,8 @@
 """The edge device's entry point: read the settings from the environment, put the parts together
 and run until stopped.
 
-The edge device holds two kinds of secret only, both from the environment: its shared secret
-with BarPay and the SwitchBot keys. It never reads BarPay's config file, which holds the other
-keys.
+The edge device holds one secret only, from the environment: its shared secret with BarPay. It
+never reads BarPay's config file, which holds the other keys.
 """
 
 import logging
@@ -17,12 +16,13 @@ from dataclasses import dataclass, field
 from types import FrameType
 from typing import TextIO
 
-from barpay_edge import indicator_gpio
+from barpay_edge import indicator_gpio, lock_gpio
 from barpay_edge.alsa_microphone import AlsaMicrophone
 from barpay_edge.barpay import Client
 from barpay_edge.fakes import FakeIndicator, FakeLock, FakeMicrophone, FakeQrReader
 from barpay_edge.indicator import GpioSettings, load_gpio_settings
 from barpay_edge.liveliness import DEFAULT_LOUDEST_DBFS, DEFAULT_QUIET_DBFS, Meter, Sender, Tuning
+from barpay_edge.lock import LockSettings, load_lock_settings
 from barpay_edge.parts import Indicator, Lock, Microphone, QrReader
 
 SECRET_ENV = "BARPAY_EDGE_SHARED_SECRET"  # noqa: S105 - the variable's name, not a secret
@@ -43,7 +43,10 @@ QUIET_ENV = "BARPAY_EDGE_QUIET_DBFS"
 LOUDEST_ENV = "BARPAY_EDGE_LOUDEST_DBFS"
 
 _READERS: dict[str, Callable[[], QrReader]] = {"fake": FakeQrReader}
-_LOCKS: dict[str, Callable[[], Lock]] = {"fake": FakeLock}
+_LOCKS: dict[str, Callable[["Config"], Lock]] = {
+    "fake": lambda config: FakeLock(),
+    "gpio": lambda config: _gpio_lock(config),
+}
 _MICROPHONES: dict[str, Callable[["Config"], Microphone]] = {
     "fake": lambda config: FakeMicrophone(),
     "alsa": lambda config: AlsaMicrophone(config.microphone_device),
@@ -72,6 +75,8 @@ class Config:
     tuning: Tuning
     # Only for the gpio indicator.
     gpio: GpioSettings | None = None
+    # Only for the gpio lock.
+    lock_gpio: LockSettings | None = None
 
 
 def load_config(env: Mapping[str, str]) -> Config:
@@ -81,17 +86,19 @@ def load_config(env: Mapping[str, str]) -> Config:
     url = env.get(URL_ENV, "")
     if not url:
         raise ConfigError(f"set {URL_ENV} to BarPay's base URL, such as http://127.0.0.1:8080")
+    lock = _choice(env, LOCK_ENV, _LOCKS)
     indicator = _choice(env, INDICATOR_ENV, _INDICATORS)
     return Config(
         barpay_url=url,
         secret=secret,
         reader=_choice(env, READER_ENV, _READERS),
-        lock=_choice(env, LOCK_ENV, _LOCKS),
+        lock=lock,
         microphone=_choice(env, MICROPHONE_ENV, _MICROPHONES),
         indicator=indicator,
         microphone_device=env.get(MICROPHONE_DEVICE_ENV) or "default",
         tuning=_tuning(env),
         gpio=_gpio_settings(env) if indicator == "gpio" else None,
+        lock_gpio=_lock_settings(env) if lock == "gpio" else None,
     )
 
 
@@ -109,6 +116,22 @@ def _gpio_indicator(config: Config) -> Indicator:
         return indicator_gpio.build(config.gpio)
     except indicator_gpio.IndicatorUnavailable as e:
         raise ConfigError(f"{INDICATOR_ENV}=gpio: {e}") from None
+
+
+def _lock_settings(env: Mapping[str, str]) -> LockSettings:
+    try:
+        return load_lock_settings(env)
+    except ValueError as e:
+        raise ConfigError(str(e)) from None
+
+
+def _gpio_lock(config: Config) -> Lock:
+    if config.lock_gpio is None:
+        raise ConfigError(f"{LOCK_ENV}=gpio needs its GPIO settings")
+    try:
+        return lock_gpio.build(config.lock_gpio)
+    except lock_gpio.LockUnavailable as e:
+        raise ConfigError(f"{LOCK_ENV}=gpio: {e}") from None
 
 
 def _choice(env: Mapping[str, str], name: str, kinds: Mapping[str, object]) -> str:
@@ -155,13 +178,20 @@ def build(config: Config) -> Edge:
         barpay = Client(config.barpay_url, config.secret)
     except ValueError as e:
         raise ConfigError(f"{SECRET_ENV} or {URL_ENV}: {e}") from None
-    return Edge(
-        barpay=barpay,
-        reader=_READERS[config.reader](),
-        lock=_LOCKS[config.lock](),
-        microphone=_MICROPHONES[config.microphone](config),
-        indicator=_INDICATORS[config.indicator](config),
-    )
+    lock = _LOCKS[config.lock](config)
+    try:
+        return Edge(
+            barpay=barpay,
+            reader=_READERS[config.reader](),
+            lock=lock,
+            microphone=_MICROPHONES[config.microphone](config),
+            indicator=_INDICATORS[config.indicator](config),
+        )
+    except BaseException:
+        # A part that could not be built leaves the edge device unstarted, with the lock closed
+        # as on any stop.
+        lock.close()
+        raise
 
 
 def run(env: Mapping[str, str], stop: threading.Event, stderr: TextIO) -> int:
@@ -172,6 +202,20 @@ def run(env: Mapping[str, str], stop: threading.Event, stderr: TextIO) -> int:
     except ConfigError as e:
         print(f"barpay-edge: {e}", file=stderr)
         return 2
+    try:
+        _run_parts(config, edge, stop)
+    finally:
+        try:
+            # A line left high after the edge device stops would leave the gate open.
+            edge.lock.close()
+        finally:
+            # Lights left on after the edge device stops would tell a customer it still runs.
+            edge.indicator.close()
+    log.info("stopped")
+    return 0
+
+
+def _run_parts(config: Config, edge: Edge, stop: threading.Event) -> None:
     log.info(
         "started: BarPay at %r; parts: QR reader %s, lock %s, microphone %s, indicator %s",
         edge.barpay,
@@ -201,10 +245,6 @@ def run(env: Mapping[str, str], stop: threading.Event, stderr: TextIO) -> int:
     finally:
         for t in threads:
             t.join(timeout=1.0)
-        # Lights left on after the edge device stops would tell a customer it still runs.
-        edge.indicator.close()
-    log.info("stopped")
-    return 0
 
 
 def main() -> None:

@@ -33,10 +33,18 @@ class QrReader(Protocol):
 
 class Lock(Protocol):
     def unlock(self) -> bool:
-        """Unlock once; True only when the lock answered the unlock command with success.
+        """Unlock once, returning without waiting for the gate to lock again; True only when the
+        unlock worked as the PRD's Lock (Hardware in Fixed constraints) says: the lock's line was
+        set high and read back high.
 
-        Any failure, including no answer from the lock in time, is False and never raises, since
-        the caller reports False to BarPay either way.
+        Any failure is False and never raises, since the caller reports False to BarPay either
+        way.
+        """
+        ...
+
+    def close(self) -> None:
+        """Set the lock's line low and release it for good, as the edge device stops, so the
+        gate is not left open; an unlock after that does not work.
         """
         ...
 
