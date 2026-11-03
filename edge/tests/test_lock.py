@@ -15,6 +15,7 @@ from barpay_edge.indicator import (
     RED_LINE_ENV,
 )
 from barpay_edge.lock import (
+    CLOSE_TRIES,
     LOCK_LINE_ENV,
     LOW_RETRY_NS,
     UNLOCK_SECONDS_ENV,
@@ -80,12 +81,15 @@ class FakeLine:
 
 
 class Unlocking:
-    """An unlocker on a fake line and a fake clock, with an unlock time of 5 seconds."""
+    """An unlocker on a fake line and a fake clock, with an unlock time of 5 seconds; its sleeps
+    are kept, not slept.
+    """
 
     def __init__(self) -> None:
         self.clock = FakeClock()
         self.line = FakeLine()
-        self.unlocker = Unlocker(self.line, OPEN, self.clock)
+        self.sleeps: list[float] = []
+        self.unlocker = Unlocker(self.line, OPEN, self.clock, self.sleeps.append)
 
     def at(self, ns: int) -> None:
         """Move the clock to ns and tick, as the lock's thread does when it wakes."""
@@ -413,15 +417,35 @@ def test_closing_the_line_lock_while_open_sets_the_line_low_and_releases_it() ->
     assert line.released
 
 
-def test_closing_releases_the_line_when_setting_it_low_fails(
+def test_closing_tries_a_failing_write_of_low_a_bounded_number_of_times_then_releases(
     u: Unlocking, caplog: pytest.LogCaptureFixture
 ) -> None:
     u.unlock_at(0)
-    u.line.fail_lows = 1
+    u.line.fail_lows = 1000
 
     u.unlocker.close()
 
+    assert u.line.tries == [True] + [False] * CLOSE_TRIES
+    assert u.sleeps == [LOW_RETRY_NS / S] * (CLOSE_TRIES - 1)
+    assert sum(u.sleeps) < 1
     assert "could not be set low on close" in caplog.text
+    assert u.line.released
+
+
+def test_closing_sets_the_line_low_on_a_later_try_when_the_first_fails(
+    u: Unlocking, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    u.unlock_at(0)
+    u.line.fail_lows = 2
+
+    u.unlocker.close()
+
+    assert u.line.tries == [True, False, False, False]
+    assert u.line.value is False
+    assert u.sleeps == [LOW_RETRY_NS / S] * 2
+    assert "set low on close after failing" in caplog.text
+    assert "could not be set low on close" not in caplog.text
     assert u.line.released
 
 

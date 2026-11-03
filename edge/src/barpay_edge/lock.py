@@ -35,6 +35,9 @@ _NS_PER_S = 1_000_000_000
 # trying ten times a second costs the Raspberry Pi nothing, and the gate stays open at most this
 # much longer than the line can be written.
 LOW_RETRY_NS = 100_000_000
+# How many times close tries to write low before it releases the line anyway: about a second, so
+# that a stop never hangs on a line that cannot be written.
+CLOSE_TRIES = 10
 
 _LINE_NUMBER = re.compile(r"[0-9]{1,4}")
 # Digits only, so nan, inf and exponents are not numbers here.
@@ -109,10 +112,17 @@ class Unlocker:
     threads at once.
     """
 
-    def __init__(self, line: Line, open_ns: int, clock: Callable[[], int]) -> None:
+    def __init__(
+        self,
+        line: Line,
+        open_ns: int,
+        clock: Callable[[], int],
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
         self._line = line
         self._open_ns = open_ns
         self._clock = clock
+        self._sleep = sleep
         # When the line goes low, from the last unlock that worked; None while it is not high
         # for an unlock.
         self._closes_at: int | None = None
@@ -161,16 +171,32 @@ class Unlocker:
         return None if self._closed or not due else min(due)
 
     def close(self) -> None:
-        """Set the line low and release it, for good."""
+        """Set the line low and release it, for good. A write of low that fails is tried again
+        every LOW_RETRY_NS, CLOSE_TRIES times in all; the line is released either way.
+        """
         if self._closed:
             return
         self._closed = True
         self._closes_at = None
         self._retry_at = None
         try:
-            self._line.write(False)
-        except Exception as e:  # noqa: BLE001 - the line is released either way
-            log.error("the lock's GPIO line could not be set low on close: %s", e)
+            for tries in range(1, CLOSE_TRIES + 1):
+                try:
+                    self._line.write(False)
+                except Exception as e:  # noqa: BLE001 - tried again, then released either way
+                    error = e
+                else:
+                    if tries > 1:
+                        log.info("the lock's GPIO line is set low on close after failing")
+                    return
+                if tries < CLOSE_TRIES:
+                    self._sleep(LOW_RETRY_NS / _NS_PER_S)
+            log.error(
+                "the lock's GPIO line could not be set low on close in %s tries, so the gate "
+                "may be open: %s",
+                CLOSE_TRIES,
+                error,
+            )
         finally:
             self._line.release()
 
