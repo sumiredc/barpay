@@ -16,8 +16,10 @@ from dataclasses import dataclass, field
 from types import FrameType
 from typing import TextIO
 
+from barpay_edge import indicator_gpio
 from barpay_edge.barpay import Client
 from barpay_edge.fakes import FakeIndicator, FakeLock, FakeMicrophone, FakeQrReader
+from barpay_edge.indicator import GpioSettings, load_gpio_settings
 from barpay_edge.parts import Indicator, Lock, Microphone, QrReader
 
 SECRET_ENV = "BARPAY_EDGE_SHARED_SECRET"  # noqa: S105 - the variable's name, not a secret
@@ -34,7 +36,10 @@ INDICATOR_ENV = "BARPAY_EDGE_INDICATOR"
 _READERS: dict[str, Callable[[], QrReader]] = {"fake": FakeQrReader}
 _LOCKS: dict[str, Callable[[], Lock]] = {"fake": FakeLock}
 _MICROPHONES: dict[str, Callable[[], Microphone]] = {"fake": FakeMicrophone}
-_INDICATORS: dict[str, Callable[[], Indicator]] = {"fake": FakeIndicator}
+_INDICATORS: dict[str, Callable[["Config"], Indicator]] = {
+    "fake": lambda config: FakeIndicator(),
+    "gpio": lambda config: _gpio_indicator(config),
+}
 
 log = logging.getLogger("barpay_edge")
 
@@ -51,6 +56,8 @@ class Config:
     lock: str
     microphone: str
     indicator: str
+    # Only for the gpio indicator.
+    gpio: GpioSettings | None = None
 
 
 def load_config(env: Mapping[str, str]) -> Config:
@@ -60,14 +67,32 @@ def load_config(env: Mapping[str, str]) -> Config:
     url = env.get(URL_ENV, "")
     if not url:
         raise ConfigError(f"set {URL_ENV} to BarPay's base URL, such as http://127.0.0.1:8080")
+    indicator = _choice(env, INDICATOR_ENV, _INDICATORS)
     return Config(
         barpay_url=url,
         secret=secret,
         reader=_choice(env, READER_ENV, _READERS),
         lock=_choice(env, LOCK_ENV, _LOCKS),
         microphone=_choice(env, MICROPHONE_ENV, _MICROPHONES),
-        indicator=_choice(env, INDICATOR_ENV, _INDICATORS),
+        indicator=indicator,
+        gpio=_gpio_settings(env) if indicator == "gpio" else None,
     )
+
+
+def _gpio_settings(env: Mapping[str, str]) -> GpioSettings:
+    try:
+        return load_gpio_settings(env)
+    except ValueError as e:
+        raise ConfigError(str(e)) from None
+
+
+def _gpio_indicator(config: Config) -> Indicator:
+    if config.gpio is None:
+        raise ConfigError(f"{INDICATOR_ENV}=gpio needs its GPIO settings")
+    try:
+        return indicator_gpio.build(config.gpio)
+    except indicator_gpio.IndicatorUnavailable as e:
+        raise ConfigError(f"{INDICATOR_ENV}=gpio: {e}") from None
 
 
 def _choice(env: Mapping[str, str], name: str, kinds: Mapping[str, object]) -> str:
@@ -100,7 +125,7 @@ def build(config: Config) -> Edge:
         reader=_READERS[config.reader](),
         lock=_LOCKS[config.lock](),
         microphone=_MICROPHONES[config.microphone](),
-        indicator=_INDICATORS[config.indicator](),
+        indicator=_INDICATORS[config.indicator](config),
     )
 
 
@@ -120,7 +145,11 @@ def run(env: Mapping[str, str], stop: threading.Event, stderr: TextIO) -> int:
         config.microphone,
         config.indicator,
     )
-    stop.wait()
+    try:
+        stop.wait()
+    finally:
+        # Lights left on after the edge device stops would tell a customer it still runs.
+        edge.indicator.close()
     log.info("stopped")
     return 0
 
