@@ -155,12 +155,18 @@ def run(env: Mapping[str, str], stop: threading.Event, stderr: TextIO) -> int:
         config.microphone,
         config.indicator,
     )
-    sender = Sender(edge.barpay)
-    meter = Meter(edge.microphone, config.tuning, time.monotonic, sender.offer)
-    threads = [
-        threading.Thread(target=sender.run, args=(stop,), name="liveliness-sender", daemon=True),
-        threading.Thread(target=meter.run, args=(stop,), name="liveliness-meter", daemon=True),
-    ]
+    threads = []
+    # The fake microphone hears nothing, so it would send BarPay the liveliness of an empty
+    # room; with it, BarPay has no liveliness signal, as without the edge device.
+    if config.microphone != "fake":
+        sender = Sender(edge.barpay)
+        meter = Meter(edge.microphone, config.tuning, time.monotonic, sender.offer)
+        threads = [
+            threading.Thread(
+                target=sender.run, args=(stop,), name="liveliness-sender", daemon=True
+            ),
+            threading.Thread(target=meter.run, args=(stop,), name="liveliness-meter", daemon=True),
+        ]
     for t in threads:
         t.start()
     stop.wait()

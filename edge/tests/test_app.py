@@ -23,6 +23,7 @@ from barpay_edge.app import (
     load_config,
     run,
 )
+from barpay_edge.fakes import FakeMicrophone
 from barpay_edge.liveliness import DEFAULT_LOUDEST_DBFS, DEFAULT_QUIET_DBFS, Meter, Tuning
 
 PARTS = {READER_ENV: "fake", LOCK_ENV: "fake", MICROPHONE_ENV: "fake", INDICATOR_ENV: "fake"}
@@ -163,23 +164,43 @@ def test_the_secret_is_not_in_the_error_when_the_tuning_is_wrong() -> None:
     assert not leaks(stderr)
 
 
-def test_a_run_sends_the_microphones_liveliness_to_barpay(
-    barpay: FakeBarPay, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # A short interval, so the test does not wait the 10 seconds of the PRD.
-    monkeypatch.setattr(app, "Meter", functools.partial(Meter, interval=0.3))
+def run_until_a_request(barpay: FakeBarPay, env: dict[str, str], timeout: float) -> None:
+    """Run against barpay until it gets a request or timeout seconds pass."""
     stop = threading.Event()
-    env = ENV | {URL_ENV: barpay.url}
-    thread = threading.Thread(target=run, args=(env, stop, io.StringIO()), daemon=True)
+    thread = threading.Thread(
+        target=run, args=(env | {URL_ENV: barpay.url}, stop, io.StringIO()), daemon=True
+    )
     thread.start()
     try:
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + timeout
         while not barpay.requests and time.monotonic() < deadline:
             time.sleep(0.01)
     finally:
         stop.set()
         thread.join(timeout=5)
 
+
+@pytest.fixture
+def short_interval(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A short interval, so the tests do not wait the 10 seconds of the PRD."""
+    monkeypatch.setattr(app, "Meter", functools.partial(Meter, interval=0.2))
+
+
+@pytest.mark.usefixtures("short_interval")
+def test_a_run_sends_the_microphones_liveliness_to_barpay(
+    barpay: FakeBarPay, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A microphone that is not the fake kind, which hears silence.
+    monkeypatch.setitem(app._MICROPHONES, "silent", lambda config: FakeMicrophone())
+
+    run_until_a_request(barpay, ENV | {MICROPHONE_ENV: "silent"}, timeout=5)
+
     assert barpay.requests, "the run sent nothing to BarPay"
-    # The fake microphone gives silence.
     assert json.loads(barpay.requests[0].body) == {"liveliness": 0.0}
+
+
+@pytest.mark.usefixtures("short_interval")
+def test_a_run_with_the_fake_microphone_sends_no_liveliness(barpay: FakeBarPay) -> None:
+    run_until_a_request(barpay, ENV, timeout=1)
+
+    assert barpay.requests == []
