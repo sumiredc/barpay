@@ -206,7 +206,11 @@ def closed_port() -> int:
     "failure",
     [
         pytest.param("unreachable", id="not-reached"),
-        pytest.param(off_spec(200, delay=1.5), id="no-answer-in-time"),
+        # An unlock that comes too late must not open the gate.
+        pytest.param(
+            Answer(200, scan_answer(True, ReaderMessage.THANK_YOU).body, delay=1.5),
+            id="no-answer-in-time",
+        ),
         pytest.param(off_spec(200, hang_up=True), id="hung-up"),
         pytest.param(off_spec(503, b"unavailable"), id="5xx"),
         pytest.param(off_spec(200, b"not json"), id="unreadable"),
