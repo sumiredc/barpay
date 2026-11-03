@@ -94,7 +94,7 @@ def test_a_read_with_a_key_held_until_it_repeats_is_not_a_token() -> None:
     a = keys("a")[0].code
     events = [KeyEvent(a, KEY_DOWN), KeyEvent(a, KEY_REPEAT), KeyEvent(a, KEY_UP)]
 
-    assert feed(Assembler(), [*events, *press(KEY_ENTER)]) == [ReadProblem.UNKNOWN_KEY]
+    assert feed(Assembler(), [*events, *press(KEY_ENTER)]) == [ReadProblem.REPEATED]
 
 
 def test_a_read_whose_events_were_lost_is_not_a_token() -> None:

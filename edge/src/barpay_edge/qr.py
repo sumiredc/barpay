@@ -115,6 +115,7 @@ class ReadProblem(Enum):
 
     NO_ENTER = "the read stopped before Enter"
     UNKNOWN_KEY = "the read has a key that types no printable ASCII character"
+    REPEATED = "the read has a key held until it repeats"
     TOO_LONG = f"the read is longer than {MAX_TOKEN_LENGTH} characters"
     LOST = "key events of the read were lost before they were read"
 
@@ -186,7 +187,7 @@ class Assembler:
         if event.code == DROPPED:
             self._spoil(ReadProblem.LOST)
         elif event.value != KEY_DOWN:
-            self._spoil(ReadProblem.UNKNOWN_KEY)
+            self._spoil(ReadProblem.REPEATED)
         elif event.code in _ENTERS:
             read = self._end(stopped=False)
             if read is not None:

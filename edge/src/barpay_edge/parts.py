@@ -27,8 +27,8 @@ class GateState(StrEnum):
 
 class QrReadError(Exception):
     """A read that is not a token: it stopped before Enter, has a key that types no printable
-    ASCII character, or is too long for edge.yaml's ScanRequest. Its text says which, never what
-    was read.
+    ASCII character, has a key held until it repeats, has key events lost before they were read,
+    or is too long for edge.yaml's ScanRequest. Its text says which, never what was read.
     """
 
 
