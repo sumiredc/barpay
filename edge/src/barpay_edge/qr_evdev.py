@@ -74,7 +74,8 @@ def _evdev() -> Any:
 class EvdevKeys:
     """The key events of the input device at path, which is grabbed while it is open. When the
     device cannot be read, such as when the reader is unplugged, it is opened again every
-    reopen_pause seconds; a read under way then stops before Enter.
+    reopen_pause seconds; a read under way then stops before Enter. Once closed, it gives no
+    event and never opens the device again.
     """
 
     def __init__(self, path: str, *, reopen_pause: float = REOPEN_PAUSE) -> None:
@@ -84,6 +85,7 @@ class EvdevKeys:
         self._events: deque[KeyEvent] = deque()
         self._device: Any = self._open()
         self._reopen_at = 0.0
+        self._closed = False
 
     def _open(self) -> Any:
         try:
@@ -100,17 +102,24 @@ class EvdevKeys:
         return device
 
     def next(self, timeout: float) -> KeyEvent | None:
+        if self._closed:
+            time.sleep(timeout)
+            return None
         if self._events:
             return self._events.popleft()
         if self._device is None and not self._reopen(timeout):
             return None
+        # Read once, as close may drop it from another thread meanwhile.
+        device = self._device
         try:
-            ready, _, _ = select.select([self._device.fd], [], [], timeout)
+            ready, _, _ = select.select([device.fd], [], [], timeout)
             if ready:
-                self._take(self._device.read())
+                self._take(device.read())
         except BlockingIOError:
             pass
-        except OSError as e:
+        except (OSError, ValueError) as e:
+            if self._closed:
+                return None
             log.error(
                 "the QR reader's input device cannot be read; opening it again every %s s: %s",
                 self._reopen_pause,
@@ -128,6 +137,8 @@ class EvdevKeys:
                 self._events.append(KeyEvent(DROPPED, KEY_DOWN))
 
     def _reopen(self, timeout: float) -> bool:
+        if self._closed:
+            return False
         wait = self._reopen_at - time.monotonic()
         if wait > 0:
             time.sleep(min(wait, timeout))
@@ -151,6 +162,7 @@ class EvdevKeys:
             device.close()
 
     def close(self) -> None:
+        self._closed = True
         self._drop()
 
 

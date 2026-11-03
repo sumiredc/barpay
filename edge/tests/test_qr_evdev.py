@@ -143,3 +143,16 @@ def test_a_device_still_gone_is_tried_again_after_each_pause(
     for _ in range(4):
         keys.next(0.05)
     assert "open again" in caplog.text
+
+
+def test_once_closed_nothing_comes_and_the_device_is_not_opened_again(
+    evdev: fake_evdev.Evdev,
+) -> None:
+    keys = EvdevKeys(PATH, reopen_pause=0.0)
+    evdev.devices[0].push(key(30, KEY_DOWN))
+
+    keys.close()
+
+    assert keys.next(0.01) is None
+    assert keys.next(0.01) is None
+    assert len(evdev.devices) == 1
