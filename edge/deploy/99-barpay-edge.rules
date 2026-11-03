@@ -1,0 +1,19 @@
+# The devices the edge device's service may use, given to its group, barpay-edge, and to no other
+# device. Install to /etc/udev/rules.d/ and replace the two placeholders in angle brackets; how to
+# find them is in README.md, "Running the edge device". A placeholder left in matches no device.
+
+# The QR reader's input device, also linked as /dev/input/barpay-edge-qr, the path the sample
+# environment file gives the edge device. Matched by the reader's ID_SERIAL, as
+# `udevadm info /dev/input/by-id/<the reader>-event-kbd` prints it, and only on its keyboard
+# device, as a reader may have other input devices with the same ID_SERIAL. To check with the
+# virtual QR reader (python -m barpay_edge.qr_evdev keyboard), match
+# ATTRS{name}=="barpay-edge-virtual-qr" in place of ENV{ID_SERIAL}.
+SUBSYSTEM=="input", KERNEL=="event[0-9]*", ENV{ID_INPUT_KEYBOARD}=="1", ENV{ID_SERIAL}=="<QR reader's ID_SERIAL>", GROUP="barpay-edge", MODE="0660", SYMLINK+="input/barpay-edge-qr"
+
+# The sound card of the microphone, matched by its ID, as /proc/asound/cards prints it in
+# brackets: its control device and its capture devices only, not its playback devices.
+SUBSYSTEM=="sound", KERNEL=="controlC[0-9]*|pcmC[0-9]*D[0-9]*c", ATTRS{id}=="<microphone's card ID>", GROUP="barpay-edge", MODE="0660"
+
+# The GPIO chip of the Raspberry Pi 5's header, BARPAY_EDGE_GPIO_CHIP in the environment file,
+# whose lines are the lock's, the LED's and the buzzer's.
+SUBSYSTEM=="gpio", KERNEL=="gpiochip0", GROUP="barpay-edge", MODE="0660"
