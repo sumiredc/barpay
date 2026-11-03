@@ -191,7 +191,9 @@ class _Keyboard:
     """A virtual US keyboard made through uinput, typing as a QR reader does."""
 
     def __init__(self, evdev: Any, name: str = "barpay-edge-check") -> None:
-        codes = sorted({*US_LAYOUT, KEY_LEFTSHIFT, KEY_ENTER})
+        # Keys 1 to 31 too, which udev requires to tell a keyboard (ID_INPUT_KEYBOARD), as a QR
+        # reader is one; only the US layout's keys, Shift and Enter are typed.
+        codes = sorted({*range(1, 32), *US_LAYOUT, KEY_LEFTSHIFT, KEY_ENTER})
         self._ecodes = evdev.ecodes
         self._uinput = evdev.UInput({self._ecodes.EV_KEY: codes}, name=name)
         self.path: str = self._uinput.device.path

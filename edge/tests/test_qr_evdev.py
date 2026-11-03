@@ -170,6 +170,8 @@ def test_the_virtual_keyboard_types_each_line_with_enter_as_a_qr_reader_would(
 
     (virtual,) = evdev.uinputs
     assert virtual.name == "barpay-edge-virtual-qr"
+    # udev tells a keyboard by keys 1 to 31, and the service's rule matches only a keyboard.
+    assert set(range(1, 32)) <= set(virtual.events[EV_KEY])
     events = [KeyEvent(code, value) for etype, code, value in virtual.written if etype == EV_KEY]
     assert events == typed(PRINTABLE_ASCII) + typed("A")
     assert virtual.closed
