@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from types import FrameType
 from typing import TextIO
 
+from barpay_edge.alsa_microphone import AlsaMicrophone
 from barpay_edge.barpay import Client
 from barpay_edge.fakes import FakeIndicator, FakeLock, FakeMicrophone, FakeQrReader
 from barpay_edge.liveliness import DEFAULT_LOUDEST_DBFS, DEFAULT_QUIET_DBFS, Meter, Sender, Tuning
@@ -33,14 +34,18 @@ LOCK_ENV = "BARPAY_EDGE_LOCK"
 MICROPHONE_ENV = "BARPAY_EDGE_MICROPHONE"
 INDICATOR_ENV = "BARPAY_EDGE_INDICATOR"
 
-# Not secrets. The store's tuning of the liveliness (Tuning), in dBFS, the PRD's starting values
-# when unset.
+# Not secrets. The ALSA capture device, "default" when unset, and the store's tuning of the
+# liveliness (Tuning), in dBFS, the PRD's starting values when unset.
+MICROPHONE_DEVICE_ENV = "BARPAY_EDGE_MICROPHONE_DEVICE"
 QUIET_ENV = "BARPAY_EDGE_QUIET_DBFS"
 LOUDEST_ENV = "BARPAY_EDGE_LOUDEST_DBFS"
 
 _READERS: dict[str, Callable[[], QrReader]] = {"fake": FakeQrReader}
 _LOCKS: dict[str, Callable[[], Lock]] = {"fake": FakeLock}
-_MICROPHONES: dict[str, Callable[[], Microphone]] = {"fake": FakeMicrophone}
+_MICROPHONES: dict[str, Callable[["Config"], Microphone]] = {
+    "fake": lambda config: FakeMicrophone(),
+    "alsa": lambda config: AlsaMicrophone(config.microphone_device),
+}
 _INDICATORS: dict[str, Callable[[], Indicator]] = {"fake": FakeIndicator}
 
 log = logging.getLogger("barpay_edge")
@@ -58,6 +63,7 @@ class Config:
     lock: str
     microphone: str
     indicator: str
+    microphone_device: str
     tuning: Tuning
 
 
@@ -75,6 +81,7 @@ def load_config(env: Mapping[str, str]) -> Config:
         lock=_choice(env, LOCK_ENV, _LOCKS),
         microphone=_choice(env, MICROPHONE_ENV, _MICROPHONES),
         indicator=_choice(env, INDICATOR_ENV, _INDICATORS),
+        microphone_device=env.get(MICROPHONE_DEVICE_ENV) or "default",
         tuning=_tuning(env),
     )
 
@@ -127,7 +134,7 @@ def build(config: Config) -> Edge:
         barpay=barpay,
         reader=_READERS[config.reader](),
         lock=_LOCKS[config.lock](),
-        microphone=_MICROPHONES[config.microphone](),
+        microphone=_MICROPHONES[config.microphone](config),
         indicator=_INDICATORS[config.indicator](),
     )
 

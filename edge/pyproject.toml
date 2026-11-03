@@ -12,6 +12,7 @@ dependencies = []
 # example `lock = ["bleak==X.Y.Z; sys_platform == 'linux'"]`. The fake-device tests and CI install
 # no extra, so they never have a device library to import.
 [project.optional-dependencies]
+microphone = ["pyalsaaudio==0.11.0; sys_platform == 'linux'"]
 
 [project.scripts]
 barpay-edge = "barpay_edge.app:main"
@@ -40,7 +41,7 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "UP", "SIM", "PT", "RUF", "S", "BLE", "TID"]
 # assert is how pytest checks, and the tests' secrets are test values.
-per-file-ignores = { "tests/**" = ["S101", "S105", "S106"] }
+per-file-ignores = { "tests/**" = ["S101", "S105", "S106"], "src/barpay_edge/alsa_microphone.py" = ["TID251"] }
 
 # The device libraries. Only each device part's own module may import its library; that module is
 # added to per-file-ignores with TID251. tests/conftest.py reads this list and makes importing any

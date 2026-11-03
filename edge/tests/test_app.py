@@ -14,6 +14,7 @@ from barpay_edge.app import (
     INDICATOR_ENV,
     LOCK_ENV,
     LOUDEST_ENV,
+    MICROPHONE_DEVICE_ENV,
     MICROPHONE_ENV,
     QUIET_ENV,
     READER_ENV,
@@ -122,6 +123,14 @@ def test_the_secret_is_not_in_the_error_when_a_setting_is_wrong(
 
 def test_the_secret_is_not_in_the_configs_repr() -> None:
     assert not leaks(repr(load_config(ENV)))
+
+
+def test_the_alsa_microphone_is_chosen_by_name_with_its_device() -> None:
+    default = load_config(ENV | {MICROPHONE_ENV: "alsa"})
+    named = load_config(ENV | {MICROPHONE_ENV: "alsa", MICROPHONE_DEVICE_ENV: "hw:Loopback,1,0"})
+
+    assert (default.microphone, default.microphone_device) == ("alsa", "default")
+    assert named.microphone_device == "hw:Loopback,1,0"
 
 
 def test_the_tuning_is_the_prds_starting_values_unless_set() -> None:
