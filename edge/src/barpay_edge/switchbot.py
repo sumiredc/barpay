@@ -82,6 +82,10 @@ class BadAnswer(Exception):
     """The lock's answer is not one of the forms it answers with."""
 
 
+class UnsupportedEncryption(BadAnswer):
+    """The lock expects an encryption other than AES-CTR, the only one this part speaks."""
+
+
 def iv_request(key_id: int) -> bytes:
     """The command that asks the lock for the IV of this connection. It is not encrypted."""
     return bytes([_HEADER, 0, 0, 0]) + _GET_IV + bytes([key_id])
@@ -94,7 +98,7 @@ def iv_from_answer(answer: bytes) -> bytes:
     # The third byte is the encryption the lock expects. This part speaks only AES-CTR; a command
     # in it to a lock that expects another would not be understood.
     if answer[2] != _CTR:
-        raise BadAnswer
+        raise UnsupportedEncryption
     return answer[4:]
 
 

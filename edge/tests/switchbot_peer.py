@@ -68,6 +68,8 @@ class FakeLockPeer:
     status: int = 0x01
     disconnect_fails: bool = False
     disconnect_hangs: bool = False
+    # The encryption it says it expects with the IV: 0x00 is AES-CTR.
+    iv_mode: int = 0x00
     key_id: int = int(KEY_ID, 16)
     encryption_key: bytes = bytes.fromhex(ENCRYPTION_KEY)
     connections: int = 0
@@ -94,7 +96,7 @@ class FakeLockPeer:
         """The answer to frame, and the connection's IV after it."""
         if frame == _GET_IV + bytes([self.key_id]):
             iv = os.urandom(16)
-            return bytes([0x01, 0, 0, 0]) + iv, iv
+            return bytes([0x01, 0, self.iv_mode, 0]) + iv, iv
         if iv is None or len(frame) < 4 or frame[:2] != bytes([0x57, self.key_id]):
             return bytes([_ERROR]), iv
         if frame[2:4] != iv[:2]:

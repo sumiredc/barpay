@@ -30,6 +30,7 @@ from barpay_edge.switchbot import (
     Keys,
     Link,
     SwitchBotLock,
+    UnsupportedEncryption,
     ble_connect,
     iv_from_answer,
     iv_request,
@@ -82,7 +83,6 @@ def test_the_iv_is_the_16_bytes_after_the_status_and_three_bytes() -> None:
     "answer",
     [
         pytest.param(bytes([0x05, 0, 0, 0]) + IV, id="error-status"),
-        pytest.param(bytes([0x01, 0, 0x01, 0]) + IV, id="not-ctr"),
         pytest.param(bytes([0x01, 0, 0, 0]) + IV[:15], id="short"),
         pytest.param(bytes([0x01, 0, 0, 0]) + IV + b"\x00", id="long"),
         pytest.param(b"", id="empty"),
@@ -91,6 +91,20 @@ def test_the_iv_is_the_16_bytes_after_the_status_and_three_bytes() -> None:
 def test_an_iv_answer_of_another_form_is_a_bad_answer(answer: bytes) -> None:
     with pytest.raises(BadAnswer):
         iv_from_answer(answer)
+
+
+def test_a_lock_that_does_not_expect_aes_ctr_is_named_as_such(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with pytest.raises(UnsupportedEncryption):
+        iv_from_answer(bytes([0x01, 0, 0x01, 0]) + IV)
+
+    peer = FakeLockPeer(iv_mode=0x01)
+    caplog.set_level(logging.INFO, logger="barpay_edge.switchbot")
+
+    assert lock_for(peer).unlock() is False
+    assert peer.connections == ATTEMPTS
+    assert "unlock attempt 1 of 3: UnsupportedEncryption after" in caplog.text
 
 
 def test_an_unlock_sends_the_iv_request_then_the_unlock_command_only(peer: FakeLockPeer) -> None:
