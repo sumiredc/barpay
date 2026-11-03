@@ -240,7 +240,7 @@ sudo systemctl enable --now barpay-edge
 systemctl status barpay-edge
 ```
 
-The service starts at boot without waiting for the network or the clock. After any end other than `systemctl stop`, it starts again 2 seconds later at first; the wait grows over the next ends to 10 seconds and stays there until the service is next started with `systemctl`, and it never gives up. After every stop, also a crash or `kill -9`, it sets the lock's line low, so the gate does not stay open while the edge device is not running.
+The service starts at boot without waiting for the network or the clock. After any end other than `systemctl stop`, it starts again 2 seconds later at first; the wait grows over the next ends to 10 seconds and stays there until the service is next started with `systemctl`, and it never gives up. After every stop, also a crash or `kill -9`, it sets the lock's line and the LED's and the buzzer's lines low, so the gate does not stay open and no state stays showing while the edge device is not running.
 
 ```sh
 sudo systemctl restart barpay-edge
