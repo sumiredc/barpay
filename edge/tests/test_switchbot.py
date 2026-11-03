@@ -228,6 +228,13 @@ def test_a_disconnect_that_does_not_end_stops_at_the_time_limit(
     assert took < ATTEMPTS * LIMIT + 0.1
 
 
+def test_no_attempt_starts_past_the_deadline(peer: FakeLockPeer) -> None:
+    lock = lock_for(peer)
+
+    assert asyncio.run(lock._unlock(time.monotonic())) is False
+    assert peer.connections == 0
+
+
 def test_an_answer_stands_when_disconnecting_after_it_fails(peer: FakeLockPeer) -> None:
     peer.disconnect_fails = True
 
