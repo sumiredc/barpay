@@ -204,3 +204,16 @@ def test_a_run_with_the_fake_microphone_sends_no_liveliness(barpay: FakeBarPay) 
     run_until_a_request(barpay, ENV, timeout=1)
 
     assert barpay.requests == []
+
+
+@pytest.mark.parametrize(("kind", "logged"), [("fake", 1), ("silent", 0)])
+def test_a_run_with_the_fake_microphone_says_once_that_no_liveliness_is_sent(
+    kind: str, logged: int, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(app._MICROPHONES, "silent", lambda config: FakeMicrophone())
+    caplog.set_level(logging.INFO)
+
+    code, _ = run_stopped(ENV | {MICROPHONE_ENV: kind})
+
+    assert code == 0
+    assert caplog.text.count("the fake microphone hears nothing; no liveliness is sent") == logged
