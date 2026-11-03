@@ -36,6 +36,15 @@ PARTS = {READER_ENV: "fake", LOCK_ENV: "fake", MICROPHONE_ENV: "fake", INDICATOR
 ENV = {SECRET_ENV: SECRET, URL_ENV: "http://127.0.0.1:8080"} | PARTS
 
 
+@pytest.fixture(autouse=True)
+def fake_barpay_url(barpay: FakeBarPay, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every run calls the fake BarPay, never a real port: the gate waits for unlocks by hand as
+    soon as it starts. The fake holds each wait a little, as BarPay does.
+    """
+    barpay.unlock_wait = 0.05
+    monkeypatch.setitem(ENV, URL_ENV, barpay.url)
+
+
 def run_stopped(env: dict[str, str]) -> tuple[int, str]:
     """Run with stop already set, so a run that starts returns at once."""
     stop = threading.Event()
@@ -58,7 +67,7 @@ def test_it_does_not_start_without_the_shared_secret(
     secret: str | None, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.INFO)
-    env = {URL_ENV: "http://127.0.0.1:8080"} | PARTS
+    env = {URL_ENV: ENV[URL_ENV]} | PARTS
     if secret is not None:
         env[SECRET_ENV] = secret
 
