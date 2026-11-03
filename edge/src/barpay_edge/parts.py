@@ -25,9 +25,23 @@ class GateState(StrEnum):
     UNLOCKED_BY_HAND = "Unlocked by hand"
 
 
+class QrReadError(Exception):
+    """A read that is not a token: it stopped before Enter, has a key that types no printable
+    ASCII character, or is too long for edge.yaml's ScanRequest. Its text says which, never what
+    was read.
+    """
+
+
 class QrReader(Protocol):
     def read(self, timeout: float) -> str | None:
-        """The text of the next QR read, or None when none was read within timeout seconds."""
+        """The text of the next QR read, or None when none was read within timeout seconds.
+
+        Raises QrReadError for a read that is not a token; the next call reads the next one.
+        """
+        ...
+
+    def close(self) -> None:
+        """Give the QR reader's device back, as the edge device stops."""
         ...
 
 
