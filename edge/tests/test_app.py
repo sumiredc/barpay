@@ -23,7 +23,7 @@ from barpay_edge.app import (
     load_config,
     run,
 )
-from barpay_edge.fakes import FakeIndicator, FakeMicrophone
+from barpay_edge.fakes import FakeIndicator, FakeLock, FakeMicrophone
 from barpay_edge.indicator import BUZZER_LINE_ENV, RED_LINE_ENV, GpioSettings
 from barpay_edge.liveliness import DEFAULT_LOUDEST_DBFS, DEFAULT_QUIET_DBFS, Meter, Tuning
 
@@ -220,16 +220,92 @@ def test_a_run_with_the_fake_microphone_says_once_that_no_liveliness_is_sent(
     assert caplog.text.count("the fake microphone hears nothing; no liveliness is sent") == logged
 
 
-def test_the_indicator_is_closed_when_the_edge_device_stops(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.fixture
+def parts(monkeypatch: pytest.MonkeyPatch) -> tuple[FakeLock, FakeIndicator]:
+    """The fake lock and indicator a run builds."""
+    lock = FakeLock()
     indicator = FakeIndicator()
+    monkeypatch.setitem(app._LOCKS, "fake", lambda config: lock)
     monkeypatch.setitem(app._INDICATORS, "fake", lambda config: indicator)
+    return lock, indicator
 
+
+def test_the_lock_and_the_indicator_are_closed_when_the_edge_device_stops(
+    parts: tuple[FakeLock, FakeIndicator],
+) -> None:
     code, _ = run_stopped(ENV)
 
     assert code == 0
+    assert parts[0].closed
+    assert parts[1].closed
+
+
+class FailingStop(threading.Event):
+    """A stop whose wait fails, as when the run is interrupted."""
+
+    def wait(self, timeout: float | None = None) -> bool:
+        raise KeyboardInterrupt
+
+
+def test_the_lock_and_the_indicator_are_closed_when_the_run_fails(
+    parts: tuple[FakeLock, FakeIndicator],
+) -> None:
+    with pytest.raises(KeyboardInterrupt):
+        run(ENV, FailingStop(), io.StringIO())
+
+    assert parts[0].closed
+    assert parts[1].closed
+
+
+class FailingLock(FakeLock):
+    def close(self) -> None:
+        super().close()
+        raise OSError("the lock could not be closed")
+
+
+class FailingIndicator(FakeIndicator):
+    def close(self) -> None:
+        super().close()
+        raise OSError("the indicator could not be closed")
+
+
+def test_the_indicator_is_closed_when_closing_the_lock_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    indicator = FakeIndicator()
+    monkeypatch.setitem(app._LOCKS, "fake", lambda config: FailingLock())
+    monkeypatch.setitem(app._INDICATORS, "fake", lambda config: indicator)
+
+    with pytest.raises(OSError, match="lock"):
+        run_stopped(ENV)
+
     assert indicator.closed
+
+
+def test_the_lock_is_closed_when_closing_the_indicator_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lock = FakeLock()
+    monkeypatch.setitem(app._LOCKS, "fake", lambda config: lock)
+    monkeypatch.setitem(app._INDICATORS, "fake", lambda config: FailingIndicator())
+
+    with pytest.raises(OSError, match="indicator"):
+        run_stopped(ENV)
+
+    assert lock.closed
+
+
+def test_the_lock_is_closed_when_another_part_cannot_be_built(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lock = FakeLock()
+    monkeypatch.setitem(app._LOCKS, "fake", lambda config: lock)
+
+    # The device libraries are blocked in these tests, so the gpio indicator cannot be built.
+    code, _ = run_stopped(ENV | {INDICATOR_ENV: "gpio"})
+
+    assert code == 2
+    assert lock.closed
 
 
 def test_the_gpio_indicator_takes_its_lines_from_the_environment() -> None:

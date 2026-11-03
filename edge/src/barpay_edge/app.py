@@ -43,7 +43,7 @@ QUIET_ENV = "BARPAY_EDGE_QUIET_DBFS"
 LOUDEST_ENV = "BARPAY_EDGE_LOUDEST_DBFS"
 
 _READERS: dict[str, Callable[[], QrReader]] = {"fake": FakeQrReader}
-_LOCKS: dict[str, Callable[[], Lock]] = {"fake": FakeLock}
+_LOCKS: dict[str, Callable[["Config"], Lock]] = {"fake": lambda config: FakeLock()}
 _MICROPHONES: dict[str, Callable[["Config"], Microphone]] = {
     "fake": lambda config: FakeMicrophone(),
     "alsa": lambda config: AlsaMicrophone(config.microphone_device),
@@ -155,13 +155,20 @@ def build(config: Config) -> Edge:
         barpay = Client(config.barpay_url, config.secret)
     except ValueError as e:
         raise ConfigError(f"{SECRET_ENV} or {URL_ENV}: {e}") from None
-    return Edge(
-        barpay=barpay,
-        reader=_READERS[config.reader](),
-        lock=_LOCKS[config.lock](),
-        microphone=_MICROPHONES[config.microphone](config),
-        indicator=_INDICATORS[config.indicator](config),
-    )
+    lock = _LOCKS[config.lock](config)
+    try:
+        return Edge(
+            barpay=barpay,
+            reader=_READERS[config.reader](),
+            lock=lock,
+            microphone=_MICROPHONES[config.microphone](config),
+            indicator=_INDICATORS[config.indicator](config),
+        )
+    except BaseException:
+        # A part that could not be built leaves the edge device unstarted, with the lock closed
+        # as on any stop.
+        lock.close()
+        raise
 
 
 def run(env: Mapping[str, str], stop: threading.Event, stderr: TextIO) -> int:
@@ -172,6 +179,20 @@ def run(env: Mapping[str, str], stop: threading.Event, stderr: TextIO) -> int:
     except ConfigError as e:
         print(f"barpay-edge: {e}", file=stderr)
         return 2
+    try:
+        _run_parts(config, edge, stop)
+    finally:
+        try:
+            # A line left high after the edge device stops would leave the gate open.
+            edge.lock.close()
+        finally:
+            # Lights left on after the edge device stops would tell a customer it still runs.
+            edge.indicator.close()
+    log.info("stopped")
+    return 0
+
+
+def _run_parts(config: Config, edge: Edge, stop: threading.Event) -> None:
     log.info(
         "started: BarPay at %r; parts: QR reader %s, lock %s, microphone %s, indicator %s",
         edge.barpay,
@@ -201,10 +222,6 @@ def run(env: Mapping[str, str], stop: threading.Event, stderr: TextIO) -> int:
     finally:
         for t in threads:
             t.join(timeout=1.0)
-        # Lights left on after the edge device stops would tell a customer it still runs.
-        edge.indicator.close()
-    log.info("stopped")
-    return 0
 
 
 def main() -> None:

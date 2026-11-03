@@ -62,6 +62,16 @@ def test_the_fake_lock_unlocks_unless_set_to_fail() -> None:
     assert fake.unlocks == 2
 
 
+def test_the_fake_lock_keeps_whether_it_was_closed_and_does_not_unlock_after() -> None:
+    fake = FakeLock()
+    lock: Lock = fake
+
+    assert not fake.closed
+    lock.close()
+    assert fake.closed
+    assert lock.unlock() is False
+
+
 def test_the_fake_microphone_gives_its_blocks_then_silence() -> None:
     fake = FakeMicrophone(sample_rate=8000, block_size=8)
     mic: Microphone = fake

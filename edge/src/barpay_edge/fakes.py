@@ -27,11 +27,14 @@ class FakeQrReader:
 
 
 class FakeLock:
-    """Unlocks unless set to fail, and counts the unlocks asked of it."""
+    """Unlocks unless set to fail or closed, counts the unlocks asked of it, and keeps whether
+    it was closed.
+    """
 
     def __init__(self, *, fail: bool = False) -> None:
         self.fail = fail
         self._unlocks = 0
+        self._closed = False
         self._mu = threading.Lock()
 
     @property
@@ -39,10 +42,19 @@ class FakeLock:
         with self._mu:
             return self._unlocks
 
+    @property
+    def closed(self) -> bool:
+        with self._mu:
+            return self._closed
+
+    def close(self) -> None:
+        with self._mu:
+            self._closed = True
+
     def unlock(self) -> bool:
         with self._mu:
             self._unlocks += 1
-            return not self.fail
+            return not self.fail and not self._closed
 
 
 class FakeMicrophone:
