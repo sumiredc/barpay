@@ -204,23 +204,34 @@ class Gate:
         failing = False
         while not stop.is_set():
             try:
-                unlock_id = self._barpay.wait_for_unlock(timeout=self._timing.wait_timeout)
-            except BarPayError as e:
-                if not failing:
-                    log.warning(
-                        "waiting for an unlock by hand failed, so staff cannot open the gate by "
-                        "hand until it works again; trying again every %s s: %s",
-                        self._timing.wait_pause,
-                        e,
-                    )
-                    failing = True
+                failing = self._wait_once(stop, failing)
+            except Exception as e:  # noqa: BLE001 - staff must stay able to open the gate by hand
+                log.error(
+                    "waiting for an unlock by hand failed with %s; trying again in %s s",
+                    type(e).__name__,
+                    self._timing.wait_pause,
+                )
                 stop.wait(self._timing.wait_pause)
-                continue
-            if failing:
-                log.info("waiting for an unlock by hand again")
-                failing = False
-            if unlock_id is not None:
-                self._unlock_by_hand(unlock_id)
+
+    def _wait_once(self, stop: threading.Event, failing: bool) -> bool:
+        """Wait for one unlock by hand and unlock for it; returns whether the wait failed."""
+        try:
+            unlock_id = self._barpay.wait_for_unlock(timeout=self._timing.wait_timeout)
+        except BarPayError as e:
+            if not failing:
+                log.warning(
+                    "waiting for an unlock by hand failed, so staff cannot open the gate by "
+                    "hand until it works again; trying again every %s s: %s",
+                    self._timing.wait_pause,
+                    e,
+                )
+            stop.wait(self._timing.wait_pause)
+            return True
+        if failing:
+            log.info("waiting for an unlock by hand again")
+        if unlock_id is not None:
+            self._unlock_by_hand(unlock_id)
+        return False
 
     def _unlock_by_hand(self, unlock_id: str) -> None:
         with self._acting:
@@ -239,7 +250,14 @@ class Gate:
                 unlock_id, worked = self._reports.get(timeout=_POLL)
             except queue.Empty:
                 continue
-            self._report(unlock_id, worked, stop)
+            try:
+                self._report(unlock_id, worked, stop)
+            except Exception as e:  # noqa: BLE001 - the next unlock must still be reported
+                log.error(
+                    "the report of %s failed with %s; it is not sent again",
+                    unlock_id,
+                    type(e).__name__,
+                )
 
     def _report(self, unlock_id: str, worked: bool, stop: threading.Event) -> None:
         attempts = self._timing.report_attempts

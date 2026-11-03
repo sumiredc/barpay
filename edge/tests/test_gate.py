@@ -99,11 +99,12 @@ def running(
     url: str | None = None,
     lock: FakeLock | None = None,
     timing: Timing = FAST,
+    client: Client | None = None,
 ) -> Iterator[Running]:
     """A gate running against barpay until the block ends."""
     r = Running(barpay, FakeQrReader(), lock or FakeLock(), FakeIndicator(), FakeClock())
     gate = Gate(
-        Client(url or barpay.url, SECRET),
+        client or Client(url or barpay.url, SECRET),
         r.reader,
         r.lock,
         r.indicator,
@@ -501,3 +502,51 @@ def test_the_gate_stops_while_a_scan_waits_for_barpay(barpay: FakeBarPay) -> Non
         g.read(TOKEN)
         assert eventually(lambda: g.scans() == [TOKEN])
     # running asserts that the gate stopped.
+
+
+class FailingOnce(Client):
+    """A client whose first wait and first report fail as no BarPayError does."""
+
+    def __init__(self, base_url: str) -> None:
+        super().__init__(base_url, SECRET)
+        self.wait_failed = False
+        self.report_failed = False
+
+    def wait_for_unlock(self, *, timeout: float) -> str | None:
+        if not self.wait_failed:
+            self.wait_failed = True
+            raise RuntimeError("unexpected")
+        return super().wait_for_unlock(timeout=timeout)
+
+    def report_unlock(self, unlock_id: str, unlocked: bool, *, timeout: float) -> None:
+        if not self.report_failed:
+            self.report_failed = True
+            raise RuntimeError("unexpected")
+        super().report_unlock(unlock_id, unlocked, timeout=timeout)
+
+
+def test_the_wait_and_the_reports_go_on_after_an_unexpected_failure(
+    barpay: FakeBarPay, caplog: pytest.LogCaptureFixture
+) -> None:
+    barpay.queue(
+        "waitForUnlock",
+        answer(200, {"unlock_id": UNLOCK_ID}),
+        answer(200, {"unlock_id": OTHER_UNLOCK_ID}),
+    )
+    client = FailingOnce(barpay.url)
+
+    with running(barpay, client=client) as g:
+        assert eventually(lambda: g.reports() == [(OTHER_UNLOCK_ID, True)])
+
+    assert client.wait_failed
+    assert client.report_failed
+    assert g.lock.unlocks == 2
+    assert "RuntimeError" in caplog.text
+
+
+def test_the_gate_waits_again_after_an_answer_too_deep_to_decode(barpay: FakeBarPay) -> None:
+    deep = b"[" * 100_000 + b"]" * 100_000
+    barpay.queue("waitForUnlock", off_spec(200, deep), answer(200, {"unlock_id": UNLOCK_ID}))
+
+    with running(barpay) as g:
+        assert eventually(lambda: g.lock.unlocks == 1)
