@@ -232,17 +232,18 @@ To drive the lock instead, move the LED's place to the lock: connect the lock's 
 
 ### Keeping the QR reader off the console
 
-The QR reader is a keyboard. The edge device holds it while it runs, but at boot, between a crash and the restart, and just after the reader is plugged in, what it types goes to the console, where a login prompt would log an exit token as a user name and a logged-in shell would run it as a command. A udev rule cannot stop the kernel sending a keyboard's keys to the console, so no virtual terminal runs a login prompt instead: [`edge/deploy/logind/barpay-edge.conf`](edge/deploy/logind/barpay-edge.conf) stops logind starting them, and the prompt on tty1 is masked. Logging in over SSH is not affected. Run these steps over SSH and log out of every console first, since a shell already logged in on a console keeps running until the reboot ends it:
+The QR reader is a keyboard. The edge device holds it while it runs, but at boot, between a crash and the restart, and just after the reader is plugged in, what it types goes to the console, where a login prompt would log an exit token as a user name and a logged-in shell would run it as a command. A udev rule cannot stop the kernel sending a keyboard's keys to the console, so no virtual terminal runs a login prompt instead: [`edge/deploy/logind/barpay-edge.conf`](edge/deploy/logind/barpay-edge.conf) stops logind starting them, and the prompt on tty1 and the fallback prompts of `getty-static.service` are masked. Logging in over SSH is not affected. Run these steps over SSH and log out of every console first, since a shell already logged in on a console keeps running until the reboot ends it:
 
 ```sh
 sudo install -D -m 644 /opt/barpay-edge/barpay/edge/deploy/logind/barpay-edge.conf /etc/systemd/logind.conf.d/barpay-edge.conf
-sudo systemctl mask getty@tty1.service
+sudo systemctl mask getty@tty1.service getty-static.service
 sudo reboot
 ```
 
-After the reboot, no session is on a console (every session `loginctl` lists has no TTY or a `pts/` one) and no process runs on tty1:
+After the reboot, no login prompt unit is active, no session is on a console (every session `loginctl` lists has no TTY or a `pts/` one) and no process runs on tty1:
 
 ```sh
+systemctl list-units --all 'getty@*' 'autovt@*' getty-static.service
 loginctl list-sessions
 ps -t tty1
 ```

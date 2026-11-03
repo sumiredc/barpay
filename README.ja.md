@@ -232,17 +232,18 @@ LED は解錠のたびに解錠の秒数（`BARPAY_EDGE_UNLOCK_SECONDS`）だけ
 
 ### QR リーダーをコンソールから切り離す
 
-QR リーダーはキーボード。エッジ端末は動いている間それを専有するが、起動の途中、落ちてから立ち上げ直すまで、QR リーダーを差した直後は、打った文字がコンソールに届く。ログインの画面に届けば退店トークンがユーザー名としてログに残り、ログインしたままのシェルに届けばコマンドとして動く。udev の規則では、カーネルがキーボードのキーをコンソールに送るのを止められないので、代わりにどの仮想端末でもログインの画面を動かさない。[`edge/deploy/logind/barpay-edge.conf`](edge/deploy/logind/barpay-edge.conf) で logind がそれを立ち上げないようにし、tty1 のログインの画面はマスクする。SSH でのログインには影響しない。コンソールにログインしたままのシェルは再起動まで動き続けるので、この手順は SSH から動かし、先にすべてのコンソールからログアウトしておく。
+QR リーダーはキーボード。エッジ端末は動いている間それを専有するが、起動の途中、落ちてから立ち上げ直すまで、QR リーダーを差した直後は、打った文字がコンソールに届く。ログインの画面に届けば退店トークンがユーザー名としてログに残り、ログインしたままのシェルに届けばコマンドとして動く。udev の規則では、カーネルがキーボードのキーをコンソールに送るのを止められないので、代わりにどの仮想端末でもログインの画面を動かさない。[`edge/deploy/logind/barpay-edge.conf`](edge/deploy/logind/barpay-edge.conf) で logind がそれを立ち上げないようにし、tty1 のログインの画面と、`getty-static.service` の予備のログインの画面はマスクする。SSH でのログインには影響しない。コンソールにログインしたままのシェルは再起動まで動き続けるので、この手順は SSH から動かし、先にすべてのコンソールからログアウトしておく。
 
 ```sh
 sudo install -D -m 644 /opt/barpay-edge/barpay/edge/deploy/logind/barpay-edge.conf /etc/systemd/logind.conf.d/barpay-edge.conf
-sudo systemctl mask getty@tty1.service
+sudo systemctl mask getty@tty1.service getty-static.service
 sudo reboot
 ```
 
-再起動の後、コンソールのセッションは無く（`loginctl` が示すセッションは、TTY が無いか `pts/` のもの）、tty1 で動くプロセスも無い。
+再起動の後、動いているログインの画面のユニットは無く、コンソールのセッションも無く（`loginctl` が示すセッションは、TTY が無いか `pts/` のもの）、tty1 で動くプロセスも無い。
 
 ```sh
+systemctl list-units --all 'getty@*' 'autovt@*' getty-static.service
 loginctl list-sessions
 ps -t tty1
 ```
