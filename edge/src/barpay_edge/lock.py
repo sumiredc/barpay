@@ -219,6 +219,9 @@ class LineLock:
 
     def unlock(self) -> bool:
         with self._changed:
+            # From the start of close, not only its end, so no unlock works while it stops.
+            if self._closed:
+                return False
             worked = self._unlocker.unlock()
             self._changed.notify()
             return worked

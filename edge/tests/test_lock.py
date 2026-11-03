@@ -442,6 +442,27 @@ def test_the_line_lock_does_not_unlock_after_closing() -> None:
     assert line.tries == [False]
 
 
+def test_an_unlock_while_the_line_lock_closes_does_not_work_and_writes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    line = FakeLine()
+    lock = LineLock(line, LockSettings("/dev/gpiochip0", 24, OPEN))
+    join = lock._thread.join
+    during: list[bool] = []
+
+    def unlock_then_join(timeout: float | None = None) -> None:
+        # Close waits here for the lock's thread, after it began and before the line is set low.
+        during.append(lock.unlock())
+        join(timeout)
+
+    monkeypatch.setattr(lock._thread, "join", unlock_then_join)
+
+    lock.close()
+
+    assert during == [False]
+    assert line.tries == [False]
+
+
 def test_the_end_of_an_unlock_time_is_not_written_after_closing(u: Unlocking) -> None:
     u.unlock_at(0)
     u.unlocker.close()
