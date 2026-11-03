@@ -1,6 +1,7 @@
 import asyncio
 import gc
 import logging
+import re
 import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -265,6 +266,33 @@ def test_a_failure_is_logged_by_its_kind_without_its_text(
 
     assert "OSError" in caplog.text
     assert "was not found" not in caplog.text
+
+
+def test_each_attempt_is_logged_with_its_outcome_and_how_long_it_took(
+    peer: FakeLockPeer, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="barpay_edge.switchbot")
+    peer.plan = [Connection.UNREACHABLE, Connection.SILENT]
+
+    lock_for(peer).unlock()
+
+    attempts = [r.getMessage() for r in caplog.records if "unlock attempt" in r.getMessage()]
+    assert len(attempts) == ATTEMPTS
+    assert re.fullmatch(r"unlock attempt 1 of 3: OSError after \d+\.\d\d s", attempts[0])
+    assert re.fullmatch(r"unlock attempt 2 of 3: no answer in time after 0\.2\d s", attempts[1])
+    assert re.fullmatch(r"unlock attempt 3 of 3: unlocked after \d+\.\d\d s", attempts[2])
+    assert all(r.levelno == logging.INFO for r in caplog.records if "attempt" in r.getMessage())
+
+
+def test_a_failure_answer_is_logged_as_the_locks(
+    peer: FakeLockPeer, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="barpay_edge.switchbot")
+    peer.status = 0x05
+
+    lock_for(peer).unlock()
+
+    assert "unlock attempt 1 of 3: the lock answered a failure after" in caplog.text
 
 
 def test_an_error_left_in_the_background_is_logged_without_its_text(

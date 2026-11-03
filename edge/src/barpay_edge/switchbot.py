@@ -13,6 +13,7 @@ import asyncio
 import logging
 import re
 import threading
+import time
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
@@ -166,31 +167,31 @@ class SwitchBotLock:
         asyncio.get_running_loop().set_exception_handler(_log_background_error)
         for attempt in range(1, self._attempts + 1):
             answered: bool | None = None
+            failure = ""
+            started = time.monotonic()
             try:
                 async with asyncio.timeout(self._attempt_time_limit):
                     async with self._connect() as link:
                         answered = await self._unlock_over(link)
             except TimeoutError:
-                if answered is None:
-                    log.warning(
-                        "unlock attempt %d of %d: no answer within %s s",
-                        attempt,
-                        self._attempts,
-                        self._attempt_time_limit,
-                    )
+                failure = "no answer in time"
             except Exception as e:  # noqa: BLE001 - any failure of the BLE library is retried
-                if answered is None:
-                    log.warning(
-                        "unlock attempt %d of %d failed: %s",
-                        attempt,
-                        self._attempts,
-                        type(e).__name__,
-                    )
+                failure = type(e).__name__
             # An answer stands even when disconnecting after it failed.
+            outcome = {True: "unlocked", False: "the lock answered a failure", None: failure}
+            # How long each attempt took, so the limits can be checked against a real lock.
+            log.info(
+                "unlock attempt %d of %d: %s after %.2f s",
+                attempt,
+                self._attempts,
+                outcome[answered],
+                time.monotonic() - started,
+            )
             if answered is not None:
                 if not answered:
                     log.warning("the lock answered the unlock with a failure")
                 return answered
+        log.warning("unlock failed after %d attempts", self._attempts)
         return False
 
     async def _unlock_over(self, link: Link) -> bool:
