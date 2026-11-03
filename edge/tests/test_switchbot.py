@@ -51,7 +51,7 @@ def peer() -> Iterator[FakeLockPeer]:
     fake = FakeLockPeer()
     yield fake
     assert fake.locks == 0, "the part sent the lock command"
-    assert not fake.mistakes, "the part used a wrong address or UUID"
+    assert not fake.mistakes, "the part used a wrong address, UUID or kind of write"
 
 
 def lock_for(peer: FakeLockPeer, keys: Keys = KEYS) -> SwitchBotLock:

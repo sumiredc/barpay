@@ -146,6 +146,8 @@ class _Client:
 
     async def write_gatt_char(self, uuid: str, data: bytes, response: bool | None = None) -> None:
         self._peer.written.append(bytes(data))
+        if response is not False:
+            self._peer.mistakes.append("write with response")
         if uuid != WRITE_UUID:
             self._peer.mistakes.append(uuid)
             return
