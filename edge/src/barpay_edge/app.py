@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from types import FrameType
 from typing import TextIO
 
+from barpay_edge import switchbot
 from barpay_edge.barpay import Client
 from barpay_edge.fakes import FakeIndicator, FakeLock, FakeMicrophone, FakeQrReader
 from barpay_edge.parts import Indicator, Lock, Microphone, QrReader
@@ -32,7 +33,11 @@ MICROPHONE_ENV = "BARPAY_EDGE_MICROPHONE"
 INDICATOR_ENV = "BARPAY_EDGE_INDICATOR"
 
 _READERS: dict[str, Callable[[], QrReader]] = {"fake": FakeQrReader}
-_LOCKS: dict[str, Callable[[], Lock]] = {"fake": FakeLock}
+# A lock is built from the config, as the real one needs the SwitchBot keys.
+_LOCKS: dict[str, Callable[["Config"], Lock]] = {
+    "fake": lambda config: FakeLock(),
+    "switchbot": lambda config: _switchbot_lock(config),
+}
 _MICROPHONES: dict[str, Callable[[], Microphone]] = {"fake": FakeMicrophone}
 _INDICATORS: dict[str, Callable[[], Indicator]] = {"fake": FakeIndicator}
 
@@ -51,6 +56,8 @@ class Config:
     lock: str
     microphone: str
     indicator: str
+    # Only for the switchbot lock, which does not start without them.
+    switchbot_keys: switchbot.Keys | None = field(default=None, repr=False)
 
 
 def load_config(env: Mapping[str, str]) -> Config:
@@ -60,14 +67,23 @@ def load_config(env: Mapping[str, str]) -> Config:
     url = env.get(URL_ENV, "")
     if not url:
         raise ConfigError(f"set {URL_ENV} to BarPay's base URL, such as http://127.0.0.1:8080")
+    lock = _choice(env, LOCK_ENV, _LOCKS)
     return Config(
         barpay_url=url,
         secret=secret,
         reader=_choice(env, READER_ENV, _READERS),
-        lock=_choice(env, LOCK_ENV, _LOCKS),
+        lock=lock,
         microphone=_choice(env, MICROPHONE_ENV, _MICROPHONES),
         indicator=_choice(env, INDICATOR_ENV, _INDICATORS),
+        switchbot_keys=_switchbot_keys(env) if lock == "switchbot" else None,
     )
+
+
+def _switchbot_keys(env: Mapping[str, str]) -> switchbot.Keys:
+    try:
+        return switchbot.keys_from_env(env)
+    except ValueError as e:
+        raise ConfigError(str(e)) from None
 
 
 def _choice(env: Mapping[str, str], name: str, kinds: Mapping[str, object]) -> str:
@@ -98,10 +114,22 @@ def build(config: Config) -> Edge:
     return Edge(
         barpay=barpay,
         reader=_READERS[config.reader](),
-        lock=_LOCKS[config.lock](),
+        lock=_LOCKS[config.lock](config),
         microphone=_MICROPHONES[config.microphone](),
         indicator=_INDICATORS[config.indicator](),
     )
+
+
+def _switchbot_lock(config: Config) -> Lock:
+    if config.switchbot_keys is None:
+        raise ConfigError(f"{LOCK_ENV} is not switchbot")
+    try:
+        return switchbot.SwitchBotLock.over_ble(config.switchbot_keys)
+    except ModuleNotFoundError:
+        raise ConfigError(
+            "the switchbot lock needs the BLE library: install the lock extra "
+            "(uv sync --locked --extra lock)"
+        ) from None
 
 
 def run(env: Mapping[str, str], stop: threading.Event, stderr: TextIO) -> int:
