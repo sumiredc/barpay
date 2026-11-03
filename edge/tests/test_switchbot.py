@@ -53,6 +53,7 @@ def peer() -> Iterator[FakeLockPeer]:
     yield fake
     assert fake.locks == 0, "the part sent the lock command"
     assert not fake.mistakes, "the part used a wrong address, UUID or kind of write"
+    assert fake.disconnects == fake.connections, "the part left a connection open"
 
 
 def lock_for(peer: FakeLockPeer, keys: Keys = KEYS) -> SwitchBotLock:
@@ -240,6 +241,18 @@ def test_a_disconnect_that_does_not_end_stops_at_the_time_limit(
     _, took = timed_unlock(lock_for(peer))
 
     assert took < ATTEMPTS * LIMIT + 0.1
+
+
+def test_a_failed_disconnect_does_not_hide_why_the_attempt_failed(
+    peer: FakeLockPeer, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="barpay_edge.switchbot")
+    peer.plan = [Connection.SILENT]
+    peer.disconnect_fails = True
+
+    lock_for(peer).unlock()
+
+    assert "unlock attempt 1 of 3: no answer in time after" in caplog.text
 
 
 def test_no_attempt_starts_past_the_deadline(peer: FakeLockPeer) -> None:

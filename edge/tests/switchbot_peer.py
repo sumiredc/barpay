@@ -73,6 +73,7 @@ class FakeLockPeer:
     key_id: int = int(KEY_ID, 16)
     encryption_key: bytes = bytes.fromhex(ENCRYPTION_KEY)
     connections: int = 0
+    disconnects: int = 0
     written: list[bytes] = field(default_factory=list)
     commands: list[bytes] = field(default_factory=list)
     mistakes: list[str] = field(default_factory=list)
@@ -129,6 +130,7 @@ class _Client:
             await asyncio.sleep(5)
 
     async def disconnect(self) -> None:
+        self._peer.disconnects += 1
         if self._peer.disconnect_hangs:
             await asyncio.sleep(5)
         if self._peer.disconnect_fails:
