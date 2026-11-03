@@ -80,6 +80,7 @@ def test_the_iv_is_the_16_bytes_after_the_status_and_three_bytes() -> None:
     "answer",
     [
         pytest.param(bytes([0x05, 0, 0, 0]) + IV, id="error-status"),
+        pytest.param(bytes([0x01, 0, 0x01, 0]) + IV, id="not-ctr"),
         pytest.param(bytes([0x01, 0, 0, 0]) + IV[:15], id="short"),
         pytest.param(bytes([0x01, 0, 0, 0]) + IV + b"\x00", id="long"),
         pytest.param(b"", id="empty"),

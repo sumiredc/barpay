@@ -41,6 +41,7 @@ _OK = 0x01
 # The lock answers 0x06 when it did the command but its battery is low.
 _UNLOCK_OK = frozenset({0x01, 0x06})
 _IV_SIZE = 16
+_CTR = 0x00
 
 _MAC = re.compile(r"[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}")
 _KEY_ID = re.compile(r"[0-9A-Fa-f]{2}")
@@ -88,6 +89,10 @@ def iv_request(key_id: int) -> bytes:
 def iv_from_answer(answer: bytes) -> bytes:
     """The IV in the lock's answer to iv_request. Raises BadAnswer for anything else."""
     if len(answer) != 4 + _IV_SIZE or answer[0] != _OK:
+        raise BadAnswer
+    # The third byte is the encryption the lock expects. This part speaks only AES-CTR; a command
+    # in it to a lock that expects another would not be understood.
+    if answer[2] != _CTR:
         raise BadAnswer
     return answer[4:]
 
