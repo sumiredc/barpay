@@ -174,6 +174,11 @@ def test_a_shift_still_held_at_enter_does_not_hold_into_the_next_read() -> None:
     assert feed(Assembler(), events) == ["A", "b"]
 
 
+def test_the_values_are_the_prds() -> None:
+    assert READ_GAP_NS == 500_000_000
+    assert MAX_TOKEN_LENGTH == 128
+
+
 def test_a_problem_never_holds_the_text_read() -> None:
     for problem in ReadProblem:
         assert "abc" not in problem.value
