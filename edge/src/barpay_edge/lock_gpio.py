@@ -2,8 +2,10 @@
 the indicator's part import.
 
 Run as a module, it checks the lock on the real line, with nothing on the line but a jumper to an
-input line that another process reads. It reads the chip, the lock's line and the unlock time
-from the same environment variables as the edge device; --seconds sets the unlock time instead.
+input line that another process reads. Never run it with the relay on the line: it opens the gate,
+and hold leaves the line as a killed process leaves it. It reads the chip, the lock's line and the
+unlock time from the same environment variables as the edge device; --seconds sets the unlock time
+instead.
 
     uv sync --locked --extra gpio
     uv run --no-sync python -m barpay_edge.lock_gpio check --input-line N [--seconds S]
@@ -15,10 +17,15 @@ unlock for the unlock time, within 50 ms, and then go low, and stopping sets bot
 line is released.
 
 What the line does when the process holding it is killed is observed in steps. hold unlocks and
-waits to be killed, read prints the input line's value, and start requests the line as the edge
-device does and exits 0 only when it and the input line read low:
+waits to be killed, giving up after 10 times the unlock time with the lock closed and exit code
+1; read prints the input line's value; start requests the line as the edge device does and exits
+0 only when it and the input line read low. Python is run directly so that $! is its process, not
+uv's, and the sleep before the kill must be shorter than the unlock time S, so that the line is
+still high when it is killed:
 
-    .venv/bin/python -m barpay_edge.lock_gpio hold & sleep 2; kill -9 $!
+    .venv/bin/python -m barpay_edge.lock_gpio hold [--seconds S] & sleep 1; kill -9 $!
+    uv run --no-sync python -m barpay_edge.lock_gpio read --input-line N
+    sleep <2*S>
     uv run --no-sync python -m barpay_edge.lock_gpio read --input-line N
     uv run --no-sync python -m barpay_edge.lock_gpio start --input-line N
 """
@@ -376,15 +383,19 @@ def read(chip: str, input_line: int) -> int:
     return 0
 
 
+# How long hold waits to be killed, in unlock times, before it closes the lock and gives up.
+_HOLD_UNLOCK_TIMES = 10
+
+
 def hold(settings: LockSettings) -> int:
     lock = build(settings)
     worked = lock.unlock()
     print(f"pid {os.getpid()}: unlock worked {worked}; waiting to be killed", flush=True)
-    if not worked:
-        lock.close()
-        return 1
-    threading.Event().wait()
-    return 0
+    if worked:
+        threading.Event().wait(_HOLD_UNLOCK_TIMES * settings.open_ns / 1e9)
+        print("not killed in time; the lock is closed", file=sys.stderr)
+    lock.close()
+    return 1
 
 
 def start(settings: LockSettings, input_line: int) -> int:
