@@ -137,6 +137,13 @@ func (f *Fake) Approve(id, payer string) {
 	}
 }
 
+// HasSetupToken reports whether the fake made the setup token with id.
+func (f *Fake) HasSetupToken(id string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.setups[id] != nil
+}
+
 // URLs returns the return and cancel URLs the setup token with id was made with.
 func (f *Fake) URLs(id string) paypal.URLs {
 	f.mu.Lock()

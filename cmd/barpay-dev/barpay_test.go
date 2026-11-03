@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,24 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sumiredc/barpay/internal/alert"
+	"github.com/sumiredc/barpay/internal/barpaytest"
 	"github.com/sumiredc/barpay/internal/clock"
-	"github.com/sumiredc/barpay/internal/evaluation"
-	"github.com/sumiredc/barpay/internal/gate"
 	"github.com/sumiredc/barpay/internal/httpapi"
-	"github.com/sumiredc/barpay/internal/idempotency"
-	"github.com/sumiredc/barpay/internal/llm"
-	"github.com/sumiredc/barpay/internal/member"
-	"github.com/sumiredc/barpay/internal/money"
-	"github.com/sumiredc/barpay/internal/notify"
 	"github.com/sumiredc/barpay/internal/paypal/paypaltest"
-	"github.com/sumiredc/barpay/internal/pricing"
 	"github.com/sumiredc/barpay/internal/secret"
-	"github.com/sumiredc/barpay/internal/session"
-	"github.com/sumiredc/barpay/internal/settings"
-	"github.com/sumiredc/barpay/internal/signals"
 	"github.com/sumiredc/barpay/internal/store"
-	"github.com/sumiredc/barpay/internal/store/storetest"
 )
 
 // The keys of the BarPay under test. The development tools are given the edge secret only.
@@ -44,25 +31,15 @@ const (
 	origin    = "https://store.test"
 )
 
-var t0 = time.Date(2026, 10, 31, 18, 0, 0, 0, time.UTC)
-
-// fakeModel is the local LLM, proposing $13.00 per hour to every evaluation.
-type fakeModel struct{}
-
-func (fakeModel) Chat(context.Context, []llm.Message) (string, error) {
-	return `{"rate_per_hour":1300,"reason":"Busy","reasoning":"r"}`, nil
-}
-
 // devRequest is one request the development tools sent to BarPay.
 type devRequest struct {
 	Method, Path string
 	Header       http.Header
 }
 
-// barpay is BarPay assembled from internal/ as cmd/barpay assembles it, with a fake PayPal, a
-// fake LLM and a fake clock starting at t0. The development tools reach it over HTTP at devURL,
-// where every request they send is recorded; the test drives the store API and the admin API
-// directly, as the store app would.
+// barpay is BarPay as barpaytest assembles it. The development tools reach it over HTTP at
+// devURL, where every request they send is recorded; the test drives the store API and the admin
+// API directly, as the store app would.
 type barpay struct {
 	st     *store.Store
 	clk    *clock.Fake
@@ -76,46 +53,20 @@ type barpay struct {
 
 func newBarPay(t *testing.T) *barpay {
 	t.Helper()
-	ctx := context.Background()
-	b := &barpay{st: storetest.Open(t), clk: clock.NewFake(t0), pp: paypaltest.New()}
-	usd := func(v int64) money.Amount { return money.New(v, money.USD) }
-	s := settings.Settings{
-		Currency: money.USD, Floor: usd(600), Ceiling: usd(2400),
-		BlockMinutes: 10, PauseMinutes: 30, CapPerVisit: usd(3000), Goal: 50,
-	}
-	if err := b.st.Tx(ctx, func(tx store.Querier) error {
-		if err := settings.Save(ctx, tx, s, t0); err != nil {
-			return err
-		}
-		_, _, err := pricing.PublishFirst(ctx, tx, usd(1200), s, t0)
-		return err
-	}); err != nil {
+	a, err := barpaytest.New(context.Background(), barpaytest.Options{
+		Dir:       t.TempDir(),
+		Keys:      httpapi.Keys{Store: secret.New(storeKey), Admin: secret.New(adminKey), Edge: secret.New(edgeSecret)},
+		PublicURL: publicURL, StoreAppOrigin: origin,
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-
-	log := slog.New(slog.DiscardHandler)
-	notifications := notify.NewDispatcher(b.st, notify.Options{
-		URL: "https://store.test/notify", Secret: secret.New("sig"), Clock: b.clk, Log: log,
+	t.Cleanup(func() {
+		if err := a.Close(); err != nil {
+			t.Error(err)
+		}
 	})
-	b.router = httpapi.NewRouter(httpapi.Keys{Store: secret.New(storeKey), Admin: secret.New(adminKey), Edge: secret.New(edgeSecret)})
-	b.router.Admin("GET /notifications", notify.ListHandler(b.st, log))
-	alert.API{Store: b.st, Log: log}.Register(b.router)
-	httpapi.Pricing{Store: b.st, Clock: b.clk}.Register(b.router)
-	session.API{
-		Store: b.st, Clock: b.clk, Keys: idempotency.New(b.st, b.clk), Notify: notifications,
-		PayPal: b.pp, Saved: member.Saved{}, Gate: gate.New(),
-		ExitTokenRefresh: 30 * time.Second, ReunlockWindow: 2 * time.Minute, MaxStay: 12 * time.Hour, Log: log,
-	}.Register(b.router)
-	member.API{
-		Store: b.st, Clock: b.clk, Notify: notifications, PublicURL: publicURL, StoreAppOrigin: origin, PayPal: b.pp,
-	}.Register(b.router)
-	signals.API{Store: b.st, Clock: b.clk, Log: log}.Register(b.router)
-	ev := evaluation.New(evaluation.Options{
-		Store: b.st, Clock: b.clk, Model: fakeModel{}, MaxStep: usd(300),
-		MinInterval: time.Minute, Capacity: 40, Log: log,
-	})
-	t.Cleanup(ev.Wait)
-	evaluation.API{Evaluator: ev}.Register(b.router)
+	b := &barpay{st: a.Store, clk: a.Clock, pp: a.PayPal, router: a.Handler}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b.mu.Lock()
@@ -123,7 +74,7 @@ func newBarPay(t *testing.T) *barpay {
 		b.mu.Unlock()
 		b.router.ServeHTTP(w, r)
 	}))
-	// Closed before the evaluator is waited for: cleanups run last added first.
+	// Closed before BarPay is: cleanups run last added first.
 	t.Cleanup(srv.Close)
 	b.devURL = srv.URL
 	return b

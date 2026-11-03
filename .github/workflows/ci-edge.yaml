@@ -26,6 +26,12 @@ jobs:
         with:
           version: "0.12.6"
           working-directory: edge
+      # The tests build the test BarPay (internal/cmd/barpay-test) from the Go module at the
+      # repository's root, with the Go version go.mod names, as ci-backend.yaml does.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
       # uv installs the Python that edge/.python-version pins. --locked fails when uv.lock is not
       # up to date with pyproject.toml, so CI installs exactly what the Raspberry Pi installs. No
       # extra is installed, so no device library is either.
