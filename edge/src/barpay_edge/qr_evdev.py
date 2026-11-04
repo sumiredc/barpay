@@ -128,6 +128,8 @@ class EvdevKeys:
             return None
         # Read once, as close may drop it from another thread meanwhile.
         device = self._device
+        if device is None:
+            return None
         try:
             ready, _, _ = select.select([device.fd], [], [], timeout)
             if ready:
