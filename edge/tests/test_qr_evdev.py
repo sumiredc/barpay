@@ -1,7 +1,9 @@
 """The QR reader's evdev part, with a fake evdev."""
 
 import errno
+import itertools
 import logging
+import time
 
 import fake_evdev
 import pytest
@@ -82,22 +84,65 @@ def test_without_evdev_the_part_is_unavailable() -> None:
         EvdevKeys(PATH)
 
 
-def test_a_device_that_cannot_be_opened_is_unavailable(evdev: fake_evdev.Evdev) -> None:
-    evdev.fail_open = FileNotFoundError(errno.ENOENT, "No such file or directory")
-
-    with pytest.raises(QrReaderUnavailable, match=PATH):
-        EvdevKeys(PATH)
-
-
-def test_a_device_that_cannot_be_grabbed_is_closed_and_unavailable(
-    evdev: fake_evdev.Evdev,
+@pytest.mark.parametrize(
+    ("fail", "why"),
+    [
+        ("open", FileNotFoundError(errno.ENOENT, "No such file or directory")),
+        ("open", PermissionError(errno.EACCES, "Permission denied")),
+        ("grab", OSError(errno.EBUSY, "Device or resource busy")),
+    ],
+)
+def test_a_device_that_cannot_be_had_at_first_is_opened_again_every_pause(
+    evdev: fake_evdev.Evdev, caplog: pytest.LogCaptureFixture, fail: str, why: OSError
 ) -> None:
-    evdev.fail_grab = OSError(errno.EBUSY, "Device or resource busy")
+    caplog.set_level(logging.DEBUG)
+    setattr(evdev, f"fail_{fail}", why)
+    keys = EvdevKeys(PATH, reopen_pause=0.1)
+    deadline = time.monotonic() + 0.55
+    while time.monotonic() < deadline:
+        assert keys.next(0.02) is None
 
-    with pytest.raises(QrReaderUnavailable, match="grab"):
-        EvdevKeys(PATH)
+    # The first try, then one every pause.
+    assert 5 <= len(evdev.tries) <= 7
+    gaps = [b - a for a, b in itertools.pairwise(evdev.tries)]
+    assert all(0.09 <= g <= 0.2 for g in gaps), gaps
+    # A device opened and not grabbed is given back at once.
+    assert all(d.closed for d in evdev.devices)
+    assert caplog.text.count("cannot be had") == 1
+    assert PATH in caplog.text
+    assert str(why.strerror) in caplog.text
 
-    assert evdev.devices[0].closed
+
+def test_a_device_that_comes_later_is_grabbed_and_read(
+    evdev: fake_evdev.Evdev, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    evdev.fail_open = FileNotFoundError(errno.ENOENT, "No such file or directory")
+    keys = EvdevKeys(PATH, reopen_pause=0.05)
+    for _ in range(5):
+        keys.next(0.05)
+
+    evdev.fail_open = None
+    for _ in range(4):
+        keys.next(0.05)
+
+    (device,) = evdev.devices
+    assert device.grabbed
+    device.push(key(30, KEY_DOWN))
+    assert keys.next(1.0) == KeyEvent(30, KEY_DOWN)
+    assert caplog.text.count("cannot be had") == 1
+    assert caplog.text.count("is open") == 1
+
+
+def test_closing_before_the_device_comes_never_opens_it(evdev: fake_evdev.Evdev) -> None:
+    evdev.fail_open = FileNotFoundError(errno.ENOENT, "No such file or directory")
+    keys = EvdevKeys(PATH, reopen_pause=0.0)
+    evdev.fail_open = None
+
+    keys.close()
+
+    assert keys.next(0.01) is None
+    assert evdev.devices == []
 
 
 def test_a_device_that_cannot_be_read_is_opened_again_after_the_pause(
@@ -110,7 +155,7 @@ def test_a_device_that_cannot_be_read_is_opened_again_after_the_pause(
 
     assert keys.next(1.0) is None
     assert gone.closed
-    assert "cannot be read" in caplog.text
+    assert "cannot be had" in caplog.text
     # Not opened again before the pause.
     assert keys.next(0.05) is None
     assert len(evdev.devices) == 1
@@ -127,7 +172,7 @@ def test_a_device_that_cannot_be_read_is_opened_again_after_the_pause(
 def test_a_device_still_gone_is_tried_again_after_each_pause(
     evdev: fake_evdev.Evdev, caplog: pytest.LogCaptureFixture
 ) -> None:
-    caplog.set_level(logging.INFO)
+    caplog.set_level(logging.DEBUG)
     keys = EvdevKeys(PATH, reopen_pause=0.05)
     evdev.devices[0].fail_read = OSError(errno.ENODEV, "No such device")
     evdev.devices[0].push(key(30, KEY_DOWN))
@@ -137,12 +182,12 @@ def test_a_device_still_gone_is_tried_again_after_each_pause(
     for _ in range(10):
         keys.next(0.05)
 
-    assert caplog.text.count("cannot be read") == 1
-    assert "open again" not in caplog.text
+    assert caplog.text.count("cannot be had") == 1
+    assert "is open" not in caplog.text
     evdev.fail_open = None
     for _ in range(4):
         keys.next(0.05)
-    assert "open again" in caplog.text
+    assert caplog.text.count("is open") == 1
 
 
 def test_once_closed_nothing_comes_and_the_device_is_not_opened_again(

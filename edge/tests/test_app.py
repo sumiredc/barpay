@@ -1,17 +1,21 @@
 import functools
 import io
+import itertools
 import json
 import logging
 import threading
 import time
+from collections.abc import Callable
 
 import fake_evdev
 import fake_gpiod
 import pytest
 from fake_barpay import FakeBarPay, answer
+from fake_evdev import InputEvent
 from helpers import SECRET, leaks
+from keyboard import typed
 
-from barpay_edge import app
+from barpay_edge import app, qr_evdev
 from barpay_edge.app import (
     INDICATOR_ENV,
     LOCK_ENV,
@@ -30,7 +34,8 @@ from barpay_edge.indicator import BUZZER_LINE_ENV, RED_LINE_ENV, GpioSettings
 from barpay_edge.liveliness import DEFAULT_LOUDEST_DBFS, DEFAULT_QUIET_DBFS, Meter, Tuning
 from barpay_edge.lock import LOCK_LINE_ENV, UNLOCK_SECONDS_ENV, LockSettings
 from barpay_edge.parts import GateState
-from barpay_edge.qr import QR_DEVICE_ENV
+from barpay_edge.qr import QR_DEVICE_ENV, KeyboardQrReader
+from barpay_edge.qr_evdev import EV_KEY, EvdevKeys
 
 PARTS = {READER_ENV: "fake", LOCK_ENV: "fake", MICROPHONE_ENV: "fake", INDICATOR_ENV: "fake"}
 ENV = {SECRET_ENV: SECRET, URL_ENV: "http://127.0.0.1:8080"} | PARTS
@@ -488,17 +493,165 @@ def test_it_does_not_start_with_the_evdev_reader_without_evdev() -> None:
     assert "--extra qr" in stderr
 
 
-def test_it_does_not_start_when_the_qr_device_cannot_be_grabbed(
+# The QR reader's input device cannot be had when the edge device starts: it is not there, the
+# service may not open it, or another program holds it.
+NO_DEVICE = {
+    "not there": ("fail_open", FileNotFoundError(2, "No such file or directory")),
+    "not allowed": ("fail_open", PermissionError(13, "Permission denied")),
+    "held": ("fail_grab", OSError(16, "Device or resource busy")),
+}
+UNLOCK_ID = "glk_0123456789abcdef"
+EVDEV = {READER_ENV: "evdev", QR_DEVICE_ENV: QR_DEVICE}
+
+
+def until(check: Callable[[], bool], timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while not check():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.01)
+    return True
+
+
+def start(env: dict[str, str]) -> tuple[threading.Event, threading.Thread, list[int]]:
+    """Start a run in a thread; its exit code goes into the list once it ends."""
+    stop = threading.Event()
+    code: list[int] = []
+    thread = threading.Thread(
+        target=lambda: code.append(run(env, stop, io.StringIO())), daemon=True
+    )
+    thread.start()
+    return stop, thread, code
+
+
+@pytest.mark.usefixtures("short_interval")
+@pytest.mark.parametrize("why", NO_DEVICE)
+def test_without_the_qr_device_it_starts_and_unlocks_by_hand_and_sends_liveliness(
+    why: str,
+    barpay: FakeBarPay,
+    monkeypatch: pytest.MonkeyPatch,
+    parts: tuple[FakeLock, FakeIndicator],
+) -> None:
+    evdev = fake_evdev.install(monkeypatch)
+    setattr(evdev, *NO_DEVICE[why])
+    # A microphone that is not the fake kind, which hears silence.
+    monkeypatch.setitem(app._MICROPHONES, "silent", lambda config: FakeMicrophone())
+    barpay.queue("waitForUnlock", answer(200, {"unlock_id": UNLOCK_ID}))
+    lock, indicator = parts
+
+    stop, thread, code = start(ENV | EVDEV | {MICROPHONE_ENV: "silent"})
+    try:
+        until(lambda: GateState.UNLOCKED_BY_HAND in indicator.shown, 5)
+        shown = list(indicator.shown)
+        reported = until(lambda: bool(barpay.calls("reportUnlockResult")), 5)
+        sent = until(lambda: bool(barpay.calls("sendSignals")), 5)
+    finally:
+        stop.set()
+        thread.join(timeout=10)
+
+    assert code == [0]
+    assert lock.unlocks == 1
+    assert reported
+    (report,) = barpay.calls("reportUnlockResult")
+    assert report.path.split("/")[-2] == UNLOCK_ID
+    assert json.loads(report.body) == {"unlocked": True}
+    assert sent
+    assert json.loads(barpay.calls("sendSignals")[0].body) == {"liveliness": 0.0}
+    # The unlock by hand shows Working, then Unlocked by hand; before it, only Waiting for a scan.
+    end = shown.index(GateState.UNLOCKED_BY_HAND)
+    assert shown[end - 1 : end + 1] == [GateState.WORKING, GateState.UNLOCKED_BY_HAND]
+    assert shown[: end - 1]
+    assert set(shown[: end - 1]) == {GateState.WAITING_FOR_SCAN}
+    # The device was never had, so nothing was scanned.
+    assert barpay.calls("scanExitToken") == []
+
+
+def test_without_the_qr_device_it_opens_it_again_every_second(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evdev = fake_evdev.install(monkeypatch)
+    evdev.fail_open = FileNotFoundError(2, "No such file or directory")
+
+    stop, thread, _ = start(ENV | EVDEV)
+    try:
+        until(lambda: len(evdev.tries) >= 3, 5)
+    finally:
+        stop.set()
+        thread.join(timeout=10)
+
+    gaps = [b - a for a, b in itertools.pairwise(evdev.tries)]
+    assert len(gaps) >= 2
+    assert all(0.95 <= g <= 1.2 for g in gaps), gaps
+
+
+def test_a_qr_device_that_comes_after_the_start_is_grabbed_and_scanned(
+    barpay: FakeBarPay,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    parts: tuple[FakeLock, FakeIndicator],
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    # A short pause, so the test does not wait the second of the PRD.
+    monkeypatch.setattr(
+        qr_evdev, "build", lambda path: KeyboardQrReader(EvdevKeys(path, reopen_pause=0.05))
+    )
+    evdev = fake_evdev.install(monkeypatch)
+    evdev.fail_open = FileNotFoundError(2, "No such file or directory")
+    barpay.queue(
+        "scanExitToken",
+        answer(200, {"unlock": True, "unlock_id": UNLOCK_ID, "reader_message": "Thank you"}),
+    )
+
+    stop, thread, code = start(ENV | EVDEV)
+    try:
+        until(lambda: len(evdev.tries) >= 5, 5)
+        evdev.fail_open = None
+        until(lambda: bool(evdev.devices), 5)
+        (device,) = evdev.devices
+        device.push(*(InputEvent(EV_KEY, e.code, e.value) for e in typed("Ex1t-T0ken")))
+        until(lambda: bool(barpay.calls("reportUnlockResult")), 5)
+        grabbed = device.grabbed
+    finally:
+        stop.set()
+        thread.join(timeout=10)
+
+    assert code == [0]
+    assert grabbed
+    (scan,) = barpay.calls("scanExitToken")
+    assert json.loads(scan.body) == {"token": "Ex1t-T0ken"}
+    assert parts[0].unlocks == 1
+    assert caplog.text.count("cannot be had") == 1
+    assert QR_DEVICE in caplog.text
+    assert caplog.text.count("is open") == 1
+
+
+def test_stopped_without_the_qr_device_it_ends_with_the_lock_low_and_the_lights_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evdev = fake_evdev.install(monkeypatch)
+    evdev.fail_open = FileNotFoundError(2, "No such file or directory")
+    gpiod = fake_gpiod.install(monkeypatch)
+
+    code, _ = run_stopped(ENV | EVDEV | {LOCK_ENV: "gpio", INDICATOR_ENV: "gpio"})
+
+    assert code == 0
+    assert gpiod.requests
+    for request in gpiod.requests:
+        assert set(request.values.values()) == {fake_gpiod.Value.INACTIVE}
+        assert request.released
+
+
+def test_without_the_qr_device_another_part_that_cannot_be_built_stops_the_start(
     monkeypatch: pytest.MonkeyPatch, parts: tuple[FakeLock, FakeIndicator]
 ) -> None:
     evdev = fake_evdev.install(monkeypatch)
-    evdev.fail_grab = OSError("the device is busy")
+    evdev.fail_open = FileNotFoundError(2, "No such file or directory")
 
-    code, stderr = run_stopped(ENV | {READER_ENV: "evdev", QR_DEVICE_ENV: QR_DEVICE})
+    # The device libraries are blocked in these tests, so the gpio indicator cannot be built.
+    code, stderr = run_stopped(ENV | EVDEV | {INDICATOR_ENV: "gpio"})
 
     assert code == 2
-    assert READER_ENV in stderr
-    assert "the device is busy" in stderr
+    assert INDICATOR_ENV in stderr
     assert parts[0].closed
 
 
