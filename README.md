@@ -230,6 +230,38 @@ The LED lights for the unlock time (`BARPAY_EDGE_UNLOCK_SECONDS`) at each unlock
 
 To drive the lock instead, move the LED's place to the lock: connect the lock's power supply through the relay's COM and NO contacts to the lock, so the lock has power only while the relay is on. Nothing else changes, in the code or the settings. Use only a lock that is locked without power, opens while powered, and always opens from inside, also without power ([Locking customers in](docs/PRD.md#7-out-of-scope)). If the lock is a DC coil without its own suppression, put another such diode across it, cathode to its positive terminal.
 
+### Wiring the LED and the buzzer
+
+The LED's three lines (`BARPAY_EDGE_LED_RED_LINE`, `BARPAY_EDGE_LED_GREEN_LINE` and `BARPAY_EDGE_LED_BLUE_LINE`, GPIO 17, 27 and 22 by default) light its colors directly through resistors. The buzzer's line (`BARPAY_EDGE_BUZZER_LINE`, GPIO 23 by default) switches the buzzer from 5 V through an NPN transistor, as the lock's line switches the relay: an active buzzer often takes tens of milliamperes, too much for one GPIO line.
+
+| Part | Value | Why |
+|---|---|---|
+| RGB LED | Common cathode | Each color is on while its line is high (Indicator under Hardware in [Fixed constraints](docs/PRD.md#8-fixed-constraints)) |
+| Red's resistor | 330 Ω | About 4 mA from the 3.3 V line, at a forward voltage of 2.0 V |
+| Green's and blue's resistors | 100 Ω each | About 3 mA each, at a forward voltage of 3.0 V, which leaves little of the 3.3 V. White, all three on, is about 10 mA, split over three lines |
+| Buzzer | Active buzzer for 5 V, at most 100 mA, that sounds for as long as it has power | The edge device only turns its line on and off |
+| NPN transistor | As for the lock | Fully on at the buzzer's current with the base current below |
+| Base resistor | 1 kΩ | About 2.6 mA from the GPIO line, nearly all into the base |
+| Pull-down resistor | 10 kΩ, base to ground | The buzzer stays silent while the line is not driven: at boot, while it is an input, after it is released |
+
+| From | To |
+|---|---|
+| GPIO 17 (header pin 11) | Red's resistor, then the LED's red leg |
+| GPIO 27 (header pin 13) | Green's resistor, then the LED's green leg |
+| GPIO 22 (header pin 15) | Blue's resistor, then the LED's blue leg |
+| LED's common leg (the longest) | Ground (header pin 9) |
+| GPIO 23 (header pin 16) | Base resistor, then the transistor's base |
+| Transistor's base | Pull-down resistor, then ground (header pin 9) |
+| Transistor's emitter | Ground (header pin 9) |
+| Transistor's collector | Buzzer's negative leg |
+| Buzzer's positive leg (marked `+`, or the longer one) | 5 V (header pin 4) |
+
+Which of the LED's other legs is which color differs between parts: see the part's data sheet. Several wires go to ground pin 9, for example through a ground rail of a breadboard. Both 5 V pins of the header are taken by the lock's wiring, so the buzzer shares pin 4 with the relay's common contact, for example through a power rail of a breadboard. Once the lock replaces the stand-in LED, the relay's common contact takes the lock's power supply instead, and pin 4 feeds the buzzer only.
+
+Check the buzzer before wiring it, by connecting it briefly straight across 5 V and ground, its positive leg to 5 V: an active buzzer sounds for as long as it is connected, while a passive buzzer only clicks when connected and disconnected, and the edge device cannot sound it. A kit may have both, looking alike, and their labels can be the wrong way round. A ready-made buzzer module with its own transistor also works if it sounds while its input is high; one that sounds while its input is low would sound whenever the line is low, including at boot and while the edge device is stopped.
+
+To check the wiring, run the check in `barpay_edge.indicator_gpio` as in [Starting and stopping the service](#starting-and-stopping-the-service): it shows each state of the indicator table in turn and checks the lines' values. It cannot hear the buzzer or see the LED, so watch and listen that each state looks and sounds as the table says.
+
 ### Keeping the QR reader off the console
 
 The QR reader is a keyboard. The edge device holds it while it runs, but at boot, between a crash and the restart, and just after the reader is plugged in, what it types goes to the console, where a login prompt would log an exit token as a user name and a logged-in shell would run it as a command. A udev rule cannot stop the kernel sending a keyboard's keys to the console, so no virtual terminal runs a login prompt instead: [`edge/deploy/logind/barpay-edge.conf`](edge/deploy/logind/barpay-edge.conf) stops logind starting them, and the prompt on tty1 and the fallback prompts of `getty-static.service` are masked. Logging in over SSH is not affected. Run these steps over SSH and log out of every console first, since a shell already logged in on a console keeps running until the reboot ends it:
