@@ -433,6 +433,13 @@ def test_an_alt_code_not_let_go_stops_before_enter_at_the_gap() -> None:
     assert assembler.expire(last + READ_GAP_NS) == ReadProblem.NO_ENTER
 
 
+def test_a_read_of_alt_alone_that_stops_gives_no_read() -> None:
+    assembler = Assembler()
+    assembler.key(KeyEvent(KEY_LEFTALT, KEY_DOWN), 0)
+
+    assert assembler.expire(READ_GAP_NS) is None
+
+
 def test_events_lost_within_an_alt_code_spoil_the_read_and_not_the_next() -> None:
     events = [
         KeyEvent(KEY_LEFTALT, KEY_DOWN),
