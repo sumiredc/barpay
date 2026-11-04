@@ -1,4 +1,4 @@
-"""Typing text as the PRD's QR reader does: a USB keyboard with the US layout, ending with Enter.
+"""Typing text as a QR reader of the PRD may: a USB keyboard with the US layout, ending with Enter.
 
 The layout is written here as the rows printed on the keys, apart from the module's table, so
 the tests check that table against the keyboard rather than against itself.
