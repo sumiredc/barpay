@@ -65,7 +65,8 @@ REOPEN_PAUSE = 1.0
 
 class QrReaderUnavailable(Exception):
     """The input device could not be had: evdev is not installed, or the device could not be
-    opened or grabbed.
+    opened or grabbed. Only the first stops the edge device from starting; the device is opened
+    again until it can be.
     """
 
 
@@ -82,9 +83,11 @@ def _evdev() -> Any:
 
 class EvdevKeys:
     """The key events of the input device at path, which is grabbed while it is open. When the
-    device cannot be read, such as when the reader is unplugged, it is opened again every
-    reopen_pause seconds; a read under way then stops before Enter. Once closed, it gives no
-    event and never opens the device again.
+    device cannot be opened, grabbed or read, such as when the reader is unplugged, also when it
+    is made, it is opened again every reopen_pause seconds; a read under way then stops before
+    Enter. That it cannot be had is logged once each time it is lost, and that it is open once
+    each time it comes back, not on each failed try. Once closed, it gives no event and never
+    opens the device again.
     """
 
     def __init__(self, path: str, *, reopen_pause: float = REOPEN_PAUSE) -> None:
@@ -92,9 +95,14 @@ class EvdevKeys:
         self._path = path
         self._reopen_pause = reopen_pause
         self._events: deque[KeyEvent] = deque()
-        self._device: Any = self._open()
+        self._device: Any = None
         self._reopen_at = 0.0
         self._closed = False
+        try:
+            self._device = self._open()
+        except QrReaderUnavailable as e:
+            # At boot, udev may not yet have made the device's link or set its permissions.
+            self._lost(str(e))
 
     def _open(self) -> Any:
         try:
@@ -120,6 +128,8 @@ class EvdevKeys:
             return None
         # Read once, as close may drop it from another thread meanwhile.
         device = self._device
+        if device is None:
+            return None
         try:
             ready, _, _ = select.select([device.fd], [], [], timeout)
             if ready:
@@ -129,14 +139,17 @@ class EvdevKeys:
         except (OSError, ValueError) as e:
             if self._closed:
                 return None
-            log.error(
-                "the QR reader's input device cannot be read; opening it again every %s s: %s",
-                self._reopen_pause,
-                e,
-            )
             self._drop()
-            self._reopen_at = time.monotonic() + self._reopen_pause
+            self._lost(f"cannot read {self._path}: {e}")
         return self._events.popleft() if self._events else None
+
+    def _lost(self, reason: str) -> None:
+        log.error(
+            "the QR reader's input device cannot be had; opening it again every %s s: %s",
+            self._reopen_pause,
+            reason,
+        )
+        self._reopen_at = time.monotonic() + self._reopen_pause
 
     def _take(self, events: Any) -> None:
         for e in events:
@@ -153,12 +166,16 @@ class EvdevKeys:
             time.sleep(min(wait, timeout))
             return False
         try:
-            self._device = self._open()
-        except QrReaderUnavailable as e:
+            device = self._open()
+        except QrReaderUnavailable:
             self._reopen_at = time.monotonic() + self._reopen_pause
-            log.debug("the QR reader's input device is still not there: %s", e)
             return False
-        log.info("the QR reader's input device is open again")
+        self._device = device
+        if self._closed:
+            # Closed from another thread while it was being opened.
+            self._drop()
+            return False
+        log.info("the QR reader's input device %s is open", self._path)
         return True
 
     def _drop(self) -> None:

@@ -10,6 +10,7 @@ import contextlib
 import os
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from types import ModuleType, SimpleNamespace
 
@@ -97,17 +98,20 @@ class UInput:
 
 
 class Evdev:
-    """Every device opened and every virtual device made, in order; opening raises fail_open and
-    grabbing fail_grab when set.
+    """Every device opened, every try to open one, and every virtual device made, in order;
+    opening raises fail_open and grabbing fail_grab when set.
     """
 
     def __init__(self) -> None:
         self.devices: list[InputDevice] = []
+        # The instant of each try to open a device, by time.monotonic, also of those that failed.
+        self.tries: list[float] = []
         self.uinputs: list[UInput] = []
         self.fail_open: OSError | None = None
         self.fail_grab: OSError | None = None
 
     def open(self, path: str) -> InputDevice:
+        self.tries.append(time.monotonic())
         device = InputDevice(self, path)
         self.devices.append(device)
         return device
