@@ -69,7 +69,7 @@ def test_the_sample_once_filled_in_is_taken_by_the_edge_device() -> None:
     values = sample()
     empty = sorted(name for name, value in values.items() if value == "")
     assert empty == sorted([app.URL_ENV, app.SECRET_ENV, app.MICROPHONE_DEVICE_ENV])
-    filled = {**values, app.URL_ENV: "http://barpay.invalid", app.SECRET_ENV: SECRET}
+    filled = {**values, app.URL_ENV: "https://barpay.invalid", app.SECRET_ENV: SECRET}
 
     config = app.load_config(filled)
 

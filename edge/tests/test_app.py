@@ -26,6 +26,7 @@ from barpay_edge.app import (
     READER_ENV,
     SECRET_ENV,
     URL_ENV,
+    ConfigError,
     load_config,
     run,
 )
@@ -88,6 +89,66 @@ def test_it_does_not_start_without_barpays_url() -> None:
 
     assert code == 2
     assert URL_ENV in stderr
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://barpay.store.example",
+        "https://barpay.store.example:8443/base",
+        "HTTPS://barpay.store.example",
+        "http://127.0.0.1:8080",
+        "http://127.255.255.254",
+        "http://[::1]:8080",
+        "HTTP://127.0.0.1:8080",
+    ],
+)
+def test_it_starts_with_https_or_http_to_a_loopback_ip_address(
+    url: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+
+    code, _ = run_stopped(ENV | {URL_ENV: url})
+
+    assert code == 0
+    assert "started" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://localhost:8080",
+        "http://[::ffff:127.0.0.1]:8080",
+        "http://[::1%25lo]:8080",
+        "http://192.0.2.10:8080",
+        "http://[2001:db8::1]:8080",
+        "http://barpay.store.example",
+        "ftp://barpay.store.example",
+        "ws://barpay.store.example:8080",
+    ],
+)
+def test_it_does_not_start_with_plain_http_beyond_a_loopback_ip_address(
+    url: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+
+    code, stderr = run_stopped(ENV | {URL_ENV: url})
+
+    assert code == 2
+    assert URL_ENV in stderr
+    assert "https" in stderr
+    assert url not in stderr
+    assert url.split("//", 1)[1] not in stderr
+    assert SECRET not in stderr
+    assert "started" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "url", ["http://localhost:8080", "http://[::1%25lo]:8080", "ftp://127.0.0.1", "ws://[::1]"]
+)
+def test_the_settings_are_refused_with_plain_http_beyond_a_loopback_ip_address(url: str) -> None:
+    with pytest.raises(ConfigError, match=f"{URL_ENV} must use https"):
+        load_config(ENV | {URL_ENV: url})
 
 
 @pytest.mark.parametrize("name", [READER_ENV, LOCK_ENV, MICROPHONE_ENV, INDICATOR_ENV])

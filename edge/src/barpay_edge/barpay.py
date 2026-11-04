@@ -5,6 +5,7 @@ NoAnswer, so the caller can decide whether to send again.
 """
 
 import http.client
+import ipaddress
 import json
 import math
 import re
@@ -24,6 +25,39 @@ _UNLOCK_ID = re.compile(r"glk_[A-Za-z0-9]{16,32}")
 # Visible ASCII: anything else could not be sent in the Authorization header as it is, and
 # http.client would quote the value in the error it raises.
 _SECRET = re.compile(r"[\x21-\x7e]+")
+
+
+# Why a URL is refused by secure_url, worded as BarPay's own settings word it. It never quotes
+# the URL, which can carry credentials in its user info or query.
+INSECURE_URL = (
+    "must use https; http is accepted only to a loopback IP address such as 127.0.0.1 or "
+    "[::1], not to a name such as localhost"
+)
+
+
+def secure_url(url: str) -> bool:
+    """Whether the shared secret may be sent to url: https, or http to a loopback IP address
+    written as one (127.0.0.0/8 as IPv4, or ::1), as BarPay's rule for its own URLs (the PRD's
+    UC8). A name such as localhost is refused even over http, as what it resolves to is not
+    known when the setting is read, and so is ::1 with a zone or 127.0.0.1 within IPv6.
+    """
+    try:
+        parts = urllib.parse.urlsplit(url)
+        host = parts.hostname
+    except ValueError:
+        return False
+    if parts.scheme == "https":
+        return True
+    if parts.scheme != "http" or not host:
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    if isinstance(ip, ipaddress.IPv4Address):
+        return ip.is_loopback
+    # ::1 with a zone, such as ::1%lo, is not equal to ::1.
+    return ip == ipaddress.IPv6Address("::1")
 
 
 class ReaderMessage(StrEnum):
@@ -75,12 +109,16 @@ class Client:
     """
 
     def __init__(self, base_url: str, secret: str) -> None:
-        """base_url is BarPay's deployment, such as "http://127.0.0.1:8080"."""
+        """base_url is BarPay's deployment, such as "https://barpay.store.example". It must be
+        secure_url, so the shared secret is never sent where the network can read it.
+        """
         if not _SECRET.fullmatch(secret):
             raise ValueError("the shared secret must be visible ASCII characters only")
         url = urllib.parse.urlsplit(base_url)
         if url.scheme not in ("http", "https") or not url.hostname:
             raise ValueError("BarPay's URL must be an http or https URL with a host")
+        if not secure_url(base_url):
+            raise ValueError(f"BarPay's URL {INSECURE_URL}")
         if url.username is not None or url.query or url.fragment:
             raise ValueError("BarPay's URL must not have a user, a query or a fragment")
         self._https = url.scheme == "https"

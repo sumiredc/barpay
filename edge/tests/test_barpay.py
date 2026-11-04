@@ -403,6 +403,25 @@ def test_a_url_that_is_not_barpays_base_is_rejected(url: str) -> None:
         Client(url, SECRET)
 
 
+@pytest.mark.parametrize(
+    "url", ["http://localhost:8080", "http://[::ffff:127.0.0.1]", "http://192.0.2.10"]
+)
+def test_the_client_refuses_plain_http_beyond_a_loopback_ip_address(url: str) -> None:
+    with pytest.raises(ValueError, match="must use https") as raised:
+        Client(url, SECRET)
+
+    assert url.split("//", 1)[1] not in str(raised.value)
+    assert not leaks(str(raised.value))
+
+
+@pytest.mark.parametrize(
+    "url", ["https://user:pw@barpay.store.example", "https://barpay.store.example/?q=1"]
+)
+def test_an_https_url_with_a_user_or_a_query_is_rejected_too(url: str) -> None:
+    with pytest.raises(ValueError, match="BarPay's URL"):
+        Client(url, SECRET)
+
+
 @pytest.mark.parametrize("liveliness", [float("nan"), float("inf")])
 def test_a_liveliness_that_is_not_a_finite_number_is_not_sent(
     barpay: FakeBarPay, liveliness: float

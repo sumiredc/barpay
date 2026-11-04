@@ -18,7 +18,7 @@ from typing import TextIO
 
 from barpay_edge import indicator_gpio, lock_gpio, qr_evdev
 from barpay_edge.alsa_microphone import AlsaMicrophone
-from barpay_edge.barpay import Client
+from barpay_edge.barpay import INSECURE_URL, Client, secure_url
 from barpay_edge.fakes import FakeIndicator, FakeLock, FakeMicrophone, FakeQrReader
 from barpay_edge.gate import Gate
 from barpay_edge.indicator import GpioSettings, load_gpio_settings
@@ -92,7 +92,11 @@ def load_config(env: Mapping[str, str]) -> Config:
         raise ConfigError(f"set {SECRET_ENV} to the edge device's shared secret")
     url = env.get(URL_ENV, "")
     if not url:
-        raise ConfigError(f"set {URL_ENV} to BarPay's base URL, such as http://127.0.0.1:8080")
+        raise ConfigError(
+            f"set {URL_ENV} to BarPay's base URL, such as https://barpay.store.example"
+        )
+    if not secure_url(url):
+        raise ConfigError(f"{URL_ENV} {INSECURE_URL}")
     reader = _choice(env, READER_ENV, _READERS)
     lock = _choice(env, LOCK_ENV, _LOCKS)
     indicator = _choice(env, INDICATOR_ENV, _INDICATORS)
