@@ -36,6 +36,17 @@ def test_the_device_is_opened_at_its_path_and_grabbed(evdev: fake_evdev.Evdev) -
     assert device.grabbed
 
 
+def test_a_device_open_from_the_start_logs_nothing(
+    evdev: fake_evdev.Evdev, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
+
+    keys = EvdevKeys(PATH)
+    keys.next(0.01)
+
+    assert caplog.text == ""
+
+
 def test_closing_gives_the_device_back(evdev: fake_evdev.Evdev) -> None:
     keys = EvdevKeys(PATH)
 

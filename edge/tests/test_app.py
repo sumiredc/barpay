@@ -635,7 +635,9 @@ def test_stopped_without_the_qr_device_it_ends_with_the_lock_low_and_the_lights_
     code, _ = run_stopped(ENV | EVDEV | {LOCK_ENV: "gpio", INDICATOR_ENV: "gpio"})
 
     assert code == 0
-    assert gpiod.requests
+    # The lock's line and the indicator's four lines.
+    lines = {n for request in gpiod.requests for n in request.values}
+    assert lines == {24, 17, 27, 22, 23}
     for request in gpiod.requests:
         assert set(request.values.values()) == {fake_gpiod.Value.INACTIVE}
         assert request.released
