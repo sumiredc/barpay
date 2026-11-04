@@ -1,0 +1,62 @@
+# The BarPay edge device at the exit gate, run on a Raspberry Pi 5. How to install it is in
+# README.md, "Running the edge device"; the paths below are the ones it installs to.
+
+[Unit]
+Description=BarPay edge device
+# It waits neither for the network nor for the clock to be synchronized: until BarPay can be
+# reached, a scan shows BarPay unreachable as at any other time, and waiting would leave the
+# indicator dark and the gate shut to staff's unlock by hand.
+After=network.target
+# It never gives up restarting, since a stopped edge device opens the gate for no one.
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+User=barpay-edge
+Group=barpay-edge
+# Read by systemd as root, so the file needs no access for the service's user.
+EnvironmentFile=/etc/barpay-edge/barpay-edge.env
+ExecStart=/opt/barpay-edge/barpay/edge/.venv/bin/barpay-edge
+# Runs after every stop, however the edge device ended, with the same environment file. A
+# process killed with SIGKILL, such as after TimeoutStopSec, cannot set its GPIO lines low, and
+# on a Raspberry Pi 5 they then stay as they were, the lock's high while the gate was open: this
+# sets the lock's line and the indicator's lines low.
+ExecStopPost=/opt/barpay-edge/barpay/edge/.venv/bin/python -m barpay_edge.after_stop
+
+# Restarted after any end it did not get from systemctl stop. The wait is 2 s after the first
+# end and grows to 10 s over the next ones; systemd counts them from the last systemctl start,
+# not from the last end, so it then stays at 10 s. A start that keeps failing, such as without
+# the QR reader, thus costs the Raspberry Pi one start every 10 s, and a crash leaves the gate
+# without scans and unlocks by hand for at most about 10 s. The lock's line is set low by
+# ExecStopPost before the wait, and again by the next start, well within the 60 s an unlock may
+# last.
+Restart=always
+RestartSec=2s
+RestartSteps=3
+RestartMaxDelaySec=10s
+# A stop waits up to 5 s for each of the edge device's 3 threads, and about 1 s for the lock.
+TimeoutStopSec=20s
+
+# Only what the edge device needs: its devices come from the udev rule's group, and it writes
+# no file.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+UMask=0077
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectHostname=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

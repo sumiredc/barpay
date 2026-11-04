@@ -82,6 +82,29 @@ def build(settings: GpioSettings) -> LineIndicator:
     return LineIndicator(GpiodLines(settings), settings)
 
 
+def low(settings: GpioSettings) -> bool:
+    """Set the four lines low and release them, as the service does after every stop; True only
+    when every line read back low. Raises IndicatorUnavailable when they cannot be requested.
+    """
+    numbers = [settings.red, settings.green, settings.blue, settings.buzzer]
+    # Requested as outputs that start low; written low as well, so a request that kept the
+    # lines' values would still end low.
+    lines = GpiodLines(settings)
+    try:
+        lines.write(dict.fromkeys(numbers, False))
+        high = [n for n, on in lines.read().items() if on]
+    except OSError as e:
+        print(f"FAIL indicator lines {numbers} of {settings.chip} could not be set low: {e}")
+        return False
+    finally:
+        lines.release()
+    if high:
+        print(f"FAIL indicator lines {high} of {settings.chip} read back high")
+        return False
+    print(f"OK   indicator lines {numbers} of {settings.chip} read back low and released")
+    return True
+
+
 @dataclass(frozen=True)
 class _Write:
     at_ns: int

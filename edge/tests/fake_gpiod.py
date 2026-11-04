@@ -1,6 +1,6 @@
 """A stand-in for libgpiod's Python package, with only the part of gpiod 2.5.0's API that the
-lock's part uses to request an output line. It is put in sys.modules ahead of the import, so the
-device library itself stays blocked.
+lock's and the indicator's parts use to request output lines. It is put in sys.modules ahead of
+the import, so the device library itself stays blocked.
 """
 
 import sys
@@ -33,10 +33,15 @@ class Request:
     whether they were released.
     """
 
-    def __init__(self, chip: str, config: dict[int, LineSettings]) -> None:
+    def __init__(self, chip: str, config: dict[int | tuple[int, ...], LineSettings]) -> None:
         self.chip = chip
         self.config = config
-        self.values = {n: s.output_value for n, s in config.items()}
+        # A key is one line, or a tuple of lines that share the settings.
+        self.values = {
+            n: s.output_value
+            for key, s in config.items()
+            for n in (key if isinstance(key, tuple) else (key,))
+        }
         self.released = False
 
     def set_value(self, line: int, value: Value) -> None:
@@ -46,6 +51,13 @@ class Request:
     def get_value(self, line: int) -> Value:
         assert not self.released, "read after it was released"
         return self.values[line]
+
+    def set_values(self, values: dict[int, Value]) -> None:
+        for line, value in values.items():
+            self.set_value(line, value)
+
+    def get_values(self, lines: list[int]) -> list[Value]:
+        return [self.get_value(line) for line in lines]
 
     def release(self) -> None:
         self.released = True
@@ -59,7 +71,10 @@ class Gpiod:
         self.fail: Exception | None = None
 
     def request_lines(
-        self, path: str, config: dict[int, LineSettings], consumer: str | None = None
+        self,
+        path: str,
+        config: dict[int | tuple[int, ...], LineSettings],
+        consumer: str | None = None,
     ) -> Request:
         if self.fail is not None:
             raise self.fail

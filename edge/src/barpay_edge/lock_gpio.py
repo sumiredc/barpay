@@ -1,11 +1,12 @@
 """The lock's part on the Raspberry Pi 5: its line through libgpiod, which only this module and
 the indicator's part import.
 
-Run as a module, it checks the lock on the real line, with nothing on the line but a jumper to an
-input line that another process reads. Never run it with the relay on the line: it opens the gate,
-and hold leaves the line as a killed process leaves it. It reads the chip, the lock's line and the
-unlock time from the same environment variables as the edge device; --seconds sets the unlock time
-instead.
+Run as a module, it reads the chip, the lock's line and the unlock time from the same environment
+variables as the edge device; --seconds sets the unlock time instead.
+
+The commands check the lock on the real line, with nothing on the line but a jumper to an input
+line that another process reads. Never run them with the relay on the line: they open the gate,
+and hold leaves the line as a killed process leaves it.
 
     uv sync --locked --extra gpio
     uv run --no-sync python -m barpay_edge.lock_gpio check --input-line N [--seconds S]
@@ -410,6 +411,28 @@ def start(settings: LockSettings, input_line: int) -> int:
     seen = f"line read back {_hl(value)}, input line {_hl(input_value)}"
     print(f"{'OK  ' if ok else 'FAIL'} on start: {seen}")
     return 0 if ok else 1
+
+
+def low(settings: LockSettings) -> bool:
+    """Set the lock's line low and release it, as the service does after every stop; True only
+    when it read back low. Raises LockUnavailable when it cannot be requested.
+    """
+    # Requested as an output that starts low; written low as well, so a request that kept the
+    # line's value would still end low.
+    line = GpiodLine(settings)
+    try:
+        line.write(False)
+        high = line.read()
+    except OSError as e:
+        print(f"FAIL lock line {settings.line} of {settings.chip} could not be set low: {e}")
+        return False
+    finally:
+        line.release()
+    print(
+        f"{'FAIL' if high else 'OK  '} lock line {settings.line} of {settings.chip} read back "
+        f"{_hl(high)} and released"
+    )
+    return not high
 
 
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] = os.environ) -> int:

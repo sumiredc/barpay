@@ -20,6 +20,13 @@ character and Enter, and exits 0 only when the edge device sent BarPay that toke
 got a ScanResult, a read stopped before Enter was not sent and asked for a new QR code, the
 watcher saw a key before the edge device grabbed the device and after it gave it back, and none
 while the edge device held it.
+
+keyboard makes a virtual keyboard named barpay-edge-virtual-qr and types each line read from
+stdin, followed by Enter, as a QR reader would, until stdin ends; it is for checking the edge
+device's service by hand, with the service's udev rule matching that name. It also runs as root
+through sudo, for /dev/uinput, and needs nothing else:
+
+    sudo .venv/bin/python -m barpay_edge.qr_evdev keyboard
 """
 
 import contextlib
@@ -30,7 +37,7 @@ import sys
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 
 from barpay_edge.qr import (
@@ -183,10 +190,12 @@ CHECK_TOKEN = "".join(chr(c) for c in range(0x20, 0x7F))
 class _Keyboard:
     """A virtual US keyboard made through uinput, typing as a QR reader does."""
 
-    def __init__(self, evdev: Any) -> None:
-        codes = sorted({*US_LAYOUT, KEY_LEFTSHIFT, KEY_ENTER})
+    def __init__(self, evdev: Any, name: str = "barpay-edge-check") -> None:
+        # Keys 1 to 31 too, which udev requires to tell a keyboard (ID_INPUT_KEYBOARD), as a QR
+        # reader is one; only the US layout's keys, Shift and Enter are typed.
+        codes = sorted({*range(1, 32), *US_LAYOUT, KEY_LEFTSHIFT, KEY_ENTER})
         self._ecodes = evdev.ecodes
-        self._uinput = evdev.UInput({self._ecodes.EV_KEY: codes}, name="barpay-edge-check")
+        self._uinput = evdev.UInput({self._ecodes.EV_KEY: codes}, name=name)
         self.path: str = self._uinput.device.path
         # Time for udev to set the node up before anyone opens it.
         time.sleep(0.5)
@@ -364,15 +373,47 @@ def check(env: Mapping[str, str]) -> int:
     return 1 if wrong else 0
 
 
+VIRTUAL_KEYBOARD_NAME = "barpay-edge-virtual-qr"
+
+
+def untypable(text: str) -> list[str]:
+    """The characters of text that the US layout has no key for."""
+    return sorted({c for c in text if c not in _PLAIN and c not in _SHIFTED})
+
+
+def keyboard(lines: Iterable[str]) -> int:
+    evdev = _evdev()
+    virtual = _Keyboard(evdev, VIRTUAL_KEYBOARD_NAME)
+    print(
+        f"virtual keyboard {VIRTUAL_KEYBOARD_NAME} at {virtual.path}; each line is typed with "
+        "Enter, until stdin ends",
+        flush=True,
+    )
+    try:
+        for line in lines:
+            text = line.rstrip("\n")
+            # The line may be an exit token, so it is not printed.
+            if bad := untypable(text):
+                print(f"not typed: {len(bad)} characters have no key on the US layout", flush=True)
+                continue
+            virtual.type(text)
+            print(f"typed {len(text)} characters and Enter", flush=True)
+    finally:
+        virtual.close()
+    return 0
+
+
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] = os.environ) -> int:
     import argparse
 
     from barpay_edge.app import ConfigError
 
     parser = argparse.ArgumentParser(prog="python -m barpay_edge.qr_evdev")
-    parser.add_argument("command", choices=["check"])
-    parser.parse_args(argv)
+    parser.add_argument("command", choices=["check", "keyboard"])
+    args = parser.parse_args(argv)
     try:
+        if args.command == "keyboard":
+            return keyboard(sys.stdin)
         return check(env)
     except (ConfigError, QrReaderUnavailable) as e:
         print(f"QR reader check: {e}", file=sys.stderr)
