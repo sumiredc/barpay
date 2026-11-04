@@ -11,8 +11,10 @@ from barpay_edge.qr import (
     DROPPED,
     KEY_DOWN,
     KEY_KPENTER,
+    KEY_LEFTALT,
     KEY_LEFTSHIFT,
     KEY_REPEAT,
+    KEY_RIGHTALT,
     KEY_UP,
     MAX_TOKEN_LENGTH,
     READ_GAP_NS,
@@ -28,6 +30,26 @@ KEY_TAB = 15
 KEY_LEFTCTRL = 29
 KEY_CAPSLOCK = 58
 KEY_KP1 = 79
+# The keypad's digit keys from input-event-codes.h, written here apart from the module's table.
+KEY_KP = {"7": 71, "8": 72, "9": 73, "4": 75, "5": 76, "6": 77, "1": 79, "2": 80, "3": 81, "0": 82}
+
+
+def alt(digits: str, *, key: int = KEY_LEFTALT) -> list[KeyEvent]:
+    """The key events of one Alt code: Alt held while the keypad types digits."""
+    events = [KeyEvent(key, KEY_DOWN)]
+    for d in digits:
+        events += press(KEY_KP[d])
+    return [*events, KeyEvent(key, KEY_UP)]
+
+
+def alt_keys(text: str) -> list[KeyEvent]:
+    """The key events that type text with 4-digit Alt codes, as the reader in issue 92 does."""
+    return [e for char in text for e in alt(f"{ord(char):04d}")]
+
+
+def alt_typed(text: str) -> list[KeyEvent]:
+    """One read of text in Alt codes, ended with the Alt code 13."""
+    return alt_keys(text) + alt("0013")
 
 
 def feed(assembler: Assembler, events: Iterable[KeyEvent], start: int = 0) -> list[Read]:
@@ -269,3 +291,207 @@ def test_the_keyboard_reader_closes_its_keys() -> None:
     qr.close()
 
     assert keys_.closed
+
+
+def test_every_printable_ascii_character_in_alt_codes_is_read() -> None:
+    assert feed(Assembler(), alt_typed(PRINTABLE_ASCII)) == [PRINTABLE_ASCII]
+
+
+def test_an_alt_code_without_leading_zeros_is_the_same_character() -> None:
+    assert feed(Assembler(), [*alt("104"), *alt("58"), *alt("13")]) == ["h:"]
+
+
+def test_the_alt_code_13_ends_a_read_as_enter_does() -> None:
+    reads = feed(Assembler(), [*alt_typed("first"), *alt("0013"), *alt_typed("second")])
+
+    assert reads == ["first", "second"]
+
+
+def test_the_right_alt_types_alt_codes_too() -> None:
+    events = [e for char in "Ab~" for e in alt(f"{ord(char):04d}", key=KEY_RIGHTALT)]
+
+    assert feed(Assembler(), [*events, *alt("0013", key=KEY_RIGHTALT)]) == ["Ab~"]
+
+
+def test_digits_under_both_alts_are_one_code_made_when_the_last_is_let_go() -> None:
+    events = [
+        KeyEvent(KEY_LEFTALT, KEY_DOWN),
+        *press(KEY_KP["1"]),
+        KeyEvent(KEY_RIGHTALT, KEY_DOWN),
+        *press(KEY_KP["0"]),
+        KeyEvent(KEY_LEFTALT, KEY_UP),
+        *press(KEY_KP["4"]),
+        KeyEvent(KEY_RIGHTALT, KEY_UP),
+        *alt("13"),
+    ]
+
+    assert feed(Assembler(), events) == ["h"]
+
+
+@pytest.mark.parametrize("code", ["0000", "0010", "0031", "0127", "0360", "1000000000"])
+def test_a_read_with_an_alt_code_of_no_printable_ascii_is_not_a_token(code: str) -> None:
+    events = [*alt_keys("abc"), *alt(code), *alt_typed("def")]
+
+    assert feed(Assembler(), events) == [ReadProblem.UNKNOWN_KEY]
+
+
+def test_a_read_with_an_alt_code_of_thousands_of_digits_is_not_a_token() -> None:
+    events = [*alt_keys("abc"), *alt("0" * 5000 + "97"), *alt_typed("def")]
+
+    assert feed(Assembler(), events) == [ReadProblem.UNKNOWN_KEY]
+
+
+def test_a_read_with_an_alt_without_digits_is_not_a_token() -> None:
+    events = [*alt_keys("abc"), *alt(""), *alt_typed("def")]
+
+    assert feed(Assembler(), events) == [ReadProblem.UNKNOWN_KEY]
+
+
+@pytest.mark.parametrize("code", [keys("a")[0].code, KEY_TAB, KEY_LEFTCTRL])
+def test_a_read_with_a_key_other_than_a_digit_within_an_alt_code_is_not_a_token(code: int) -> None:
+    events = [
+        KeyEvent(KEY_LEFTALT, KEY_DOWN),
+        *press(KEY_KP["9"]),
+        *press(code),
+        *press(KEY_KP["7"]),
+        KeyEvent(KEY_LEFTALT, KEY_UP),
+        *alt_typed("def"),
+    ]
+
+    assert feed(Assembler(), events) == [ReadProblem.UNKNOWN_KEY]
+
+
+@pytest.mark.parametrize("enter", [KEY_ENTER, KEY_KPENTER])
+def test_enter_within_an_alt_code_ends_the_read_as_not_a_token(enter: int) -> None:
+    events = [
+        *alt_keys("abc"),
+        KeyEvent(KEY_LEFTALT, KEY_DOWN),
+        *press(KEY_KP["9"]),
+        *press(enter),
+        KeyEvent(KEY_LEFTALT, KEY_UP),
+        *typed("next"),
+    ]
+
+    assert feed(Assembler(), events) == [ReadProblem.UNKNOWN_KEY, "next"]
+
+
+def test_a_keypad_digit_without_alt_is_not_a_token() -> None:
+    events = [*alt_keys("abc"), *press(KEY_KP["7"]), *alt_typed("def")]
+
+    assert feed(Assembler(), events) == [ReadProblem.UNKNOWN_KEY]
+
+
+def test_shift_within_an_alt_code_does_not_change_its_character() -> None:
+    events = [
+        KeyEvent(KEY_LEFTALT, KEY_DOWN),
+        KeyEvent(KEY_LEFTSHIFT, KEY_DOWN),
+        *press(KEY_KP["9"]),
+        *press(KEY_KP["7"]),
+        KeyEvent(KEY_LEFTSHIFT, KEY_UP),
+        KeyEvent(KEY_LEFTALT, KEY_UP),
+        *alt("13"),
+    ]
+
+    assert feed(Assembler(), events) == ["a"]
+
+
+def test_alt_held_until_it_repeats_does_not_change_the_character() -> None:
+    events = [
+        KeyEvent(KEY_LEFTALT, KEY_DOWN),
+        KeyEvent(KEY_LEFTALT, KEY_REPEAT),
+        *press(KEY_KP["9"]),
+        KeyEvent(KEY_LEFTALT, KEY_REPEAT),
+        *press(KEY_KP["7"]),
+        KeyEvent(KEY_LEFTALT, KEY_UP),
+        *alt("13"),
+    ]
+
+    assert feed(Assembler(), events) == ["a"]
+
+
+def test_a_keypad_digit_held_until_it_repeats_within_an_alt_code_is_not_a_token() -> None:
+    nine = KEY_KP["9"]
+    events = [
+        KeyEvent(KEY_LEFTALT, KEY_DOWN),
+        KeyEvent(nine, KEY_DOWN),
+        KeyEvent(nine, KEY_REPEAT),
+        KeyEvent(nine, KEY_UP),
+        KeyEvent(KEY_LEFTALT, KEY_UP),
+        *alt("13"),
+    ]
+
+    assert feed(Assembler(), events) == [ReadProblem.REPEATED]
+
+
+def test_an_alt_code_not_let_go_stops_before_enter_at_the_gap() -> None:
+    assembler = Assembler()
+    events = [KeyEvent(KEY_LEFTALT, KEY_DOWN), *press(KEY_KP["9"]), *press(KEY_KP["7"])]
+    feed(assembler, events)
+    last = (len(events) - 1) * MS
+
+    assert assembler.expire(last + READ_GAP_NS - 1) is None
+    assert assembler.expire(last + READ_GAP_NS) == ReadProblem.NO_ENTER
+
+
+def test_a_read_of_alt_alone_that_stops_gives_no_read() -> None:
+    assembler = Assembler()
+    assembler.key(KeyEvent(KEY_LEFTALT, KEY_DOWN), 0)
+
+    assert assembler.expire(READ_GAP_NS) is None
+
+
+def test_events_lost_within_an_alt_code_spoil_the_read_and_not_the_next() -> None:
+    events = [
+        KeyEvent(KEY_LEFTALT, KEY_DOWN),
+        *press(KEY_KP["9"]),
+        KeyEvent(DROPPED, KEY_DOWN),
+        *press(KEY_KP["7"]),
+        *alt("13"),
+        *alt_typed("next"),
+    ]
+
+    assert feed(Assembler(), events) == [ReadProblem.LOST, "next"]
+
+
+def test_an_alt_whose_release_was_lost_does_not_hold_into_the_read_after_the_gap() -> None:
+    assembler = Assembler()
+    reads = feed(assembler, [*alt_keys("a"), KeyEvent(KEY_LEFTALT, KEY_DOWN), *press(KEY_KP["9"])])
+
+    reads += feed(assembler, typed("b"), start=READ_GAP_NS + 100 * MS)
+
+    assert reads == [ReadProblem.NO_ENTER, "b"]
+
+
+def test_an_alt_whose_release_was_lost_does_not_hold_into_the_read_after_enter() -> None:
+    events = [*alt_keys("a"), KeyEvent(KEY_LEFTALT, KEY_DOWN), *press(KEY_ENTER), *typed("b")]
+
+    assert feed(Assembler(), events) == [ReadProblem.UNKNOWN_KEY, "b"]
+
+
+def test_keys_of_the_us_layout_and_alt_codes_mix_in_one_read() -> None:
+    events = [*keys("Ab"), *alt_keys("c:D"), *keys("e/"), *alt_keys("?F"), *press(KEY_ENTER)]
+
+    assert feed(Assembler(), events) == ["Abc:De/?F"]
+
+
+def test_a_read_of_the_longest_token_in_alt_codes_is_a_token() -> None:
+    text = "a" * MAX_TOKEN_LENGTH
+
+    assert feed(Assembler(), alt_typed(text)) == [text]
+
+
+def test_a_read_in_alt_codes_longer_than_the_longest_token_is_not_a_token() -> None:
+    assert feed(Assembler(), alt_typed("a" * (MAX_TOKEN_LENGTH + 1))) == [ReadProblem.TOO_LONG]
+
+
+def test_the_keyboard_reader_reads_the_longest_token_in_alt_codes_as_one_read() -> None:
+    text = "".join(PRINTABLE_ASCII[i % len(PRINTABLE_ASCII)] for i in range(MAX_TOKEN_LENGTH))
+    events = alt_typed(text)
+    clock = FakeClock()
+    # 10 events a character 2 ms apart, about the 22 ms a character of the reader in issue 92.
+    scripted = ScriptedKeys(clock, [(i * 2 * MS, e) for i, e in enumerate(events)])
+    qr = KeyboardQrReader(scripted, clock)
+
+    assert qr.read(timeout=10.0) == text
+    # The read took more than 2.5 seconds, far longer than the gap, without stopping.
+    assert clock.now > 2_500 * MS

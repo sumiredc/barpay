@@ -1,9 +1,10 @@
 """The QR reader as a keyboard: its key events turned back into the text it read, worked out
 without an input device library.
 
-The PRD's QR reader (Hardware in Fixed constraints) types what it reads as a USB keyboard with
-the US layout and ends each read with Enter. An exit token is a string whose contents are not
-defined, so every printable ASCII character is turned back, with Shift. Reading the events from
+The PRD's QR reader (Hardware in Fixed constraints) types what it reads as a USB keyboard, with
+the keys of the US layout or with Alt codes, and ends each read with Enter or the Alt code 13.
+An exit token is a string whose contents are not defined, so every printable ASCII character is
+turned back, from the keys with Shift or from the Alt codes. Reading the events from
 the device is the job of the Keys given to KeyboardQrReader, so CI checks all of this with fake
 key events and a fake clock. Nothing here logs or raises with the text read, which is an exit
 token.
@@ -38,9 +39,35 @@ KEY_REPEAT = 2
 KEY_ENTER = 28
 KEY_LEFTSHIFT = 42
 KEY_RIGHTSHIFT = 54
+KEY_LEFTALT = 56
 KEY_KPENTER = 96
+KEY_RIGHTALT = 100
 _SHIFTS = frozenset({KEY_LEFTSHIFT, KEY_RIGHTSHIFT})
+_ALTS = frozenset({KEY_LEFTALT, KEY_RIGHTALT})
 _ENTERS = frozenset({KEY_ENTER, KEY_KPENTER})
+
+# The keypad's digit keys of linux/input-event-codes.h, each with its digit.
+_KEYPAD_DIGITS: dict[int, str] = {
+    82: "0",
+    79: "1",
+    80: "2",
+    81: "3",
+    75: "4",
+    76: "5",
+    77: "6",
+    71: "7",
+    72: "8",
+    73: "9",
+}
+
+# An Alt code: while Alt is held, the keypad's digits type a character's code in decimal, and
+# the character comes when Alt is let go. The code is read as a plain number, not through a
+# Windows code page, so that only these codes give a character and a broken one gives none.
+_ALT_ENTER = 13
+_ALT_PRINTABLE = range(0x20, 0x7F)
+# A reader types at most 4 digits. A longer code gives no character, so the digits kept stay
+# few: int() refuses a string of thousands of digits.
+_ALT_MAX_DIGITS = 8
 
 # Not a key code: events were lost before they could be read (SYN_DROPPED), so the read they
 # were part of cannot be trusted.
@@ -114,7 +141,7 @@ class ReadProblem(Enum):
     """Why a read is not a token. Each says what was wrong, never what was read."""
 
     NO_ENTER = "the read stopped before Enter"
-    UNKNOWN_KEY = "the read has a key that types no printable ASCII character"
+    UNKNOWN_KEY = "the read has a key or an Alt code that types no printable ASCII character"
     REPEATED = "the read has a key held until it repeats"
     TOO_LONG = f"the read is longer than {MAX_TOKEN_LENGTH} characters"
     LOST = "key events of the read were lost before they were read"
@@ -136,10 +163,14 @@ class Assembler:
     reads: the text typed up to Enter, or the problem that keeps a read from being a token.
 
     A read starts with its first key event and ends with Enter, or with no key event for gap_ns
-    from its last one, from exactly that instant on. A read with a key that types no printable
-    ASCII character, a key held until it repeats, or events lost, is not a token, and neither is
-    one longer than MAX_TOKEN_LENGTH characters. A read with no character and no problem, such
-    as Enter alone, gives nothing.
+    from its last one, from exactly that instant on. A character is a key of the US layout, with
+    Shift, or an Alt code: the keypad's digits typed while either Alt is held, as one character
+    when every Alt is let go. The Alt code 13 is Enter. A read with a key or an Alt code that
+    types no printable ASCII character, a key other than Alt held until it repeats, or events
+    lost, is not a token, and neither is one longer than MAX_TOKEN_LENGTH characters. Within an
+    Alt code, any key but the keypad's digits, Shift and Alt types no character, and Shift does
+    not change the character. A read with no character and no problem, such as Enter alone,
+    gives nothing; an Alt code not yet let go counts as a character.
     """
 
     def __init__(self, gap_ns: int = READ_GAP_NS) -> None:
@@ -147,6 +178,9 @@ class Assembler:
         self._chars: list[str] = []
         self._problem: ReadProblem | None = None
         self._shift: set[int] = set()
+        self._alt: set[int] = set()
+        # The digits of the Alt code under way; None while no Alt is held.
+        self._digits: str | None = None
         # The instant of the read's last key event; None while no read is under way.
         self._last: int | None = None
 
@@ -179,18 +213,41 @@ class Assembler:
                 self._shift.discard(event.code)
             self._last = now
             return tuple(ended)
+        if event.code in _ALTS and (event.value != KEY_UP or event.code in self._alt):
+            self._last = now
+            if event.value == KEY_DOWN:
+                self._alt.add(event.code)
+                if self._digits is None:
+                    self._digits = ""
+            elif event.value == KEY_UP:
+                self._alt.discard(event.code)
+                if not self._alt:
+                    read = self._alt_code()
+                    if read is not None:
+                        ended.append(read)
+            return tuple(ended)
         if event.value == KEY_UP:
             if self._last is not None:
                 self._last = now
             return tuple(ended)
         self._last = now
         if event.code == DROPPED:
-            # A lost event may have been a Shift going up or down.
+            # A lost event may have been a Shift or an Alt going up or down, or a digit.
             self._shift.clear()
+            self._let_go_of_alt()
             self._spoil(ReadProblem.LOST)
         elif event.value != KEY_DOWN:
             self._spoil(ReadProblem.REPEATED)
+        elif self._digits is not None and event.code in _KEYPAD_DIGITS:
+            if len(self._digits) < _ALT_MAX_DIGITS:
+                self._digits += _KEYPAD_DIGITS[event.code]
+            else:
+                self._spoil(ReadProblem.UNKNOWN_KEY)
+        elif self._digits is not None and event.code not in _ENTERS:
+            self._spoil(ReadProblem.UNKNOWN_KEY)
         elif event.code in _ENTERS:
+            if self._digits is not None:
+                self._spoil(ReadProblem.UNKNOWN_KEY)
             read = self._end(stopped=False)
             if read is not None:
                 ended.append(read)
@@ -198,11 +255,32 @@ class Assembler:
             char = character(event.code, bool(self._shift))
             if char is None:
                 self._spoil(ReadProblem.UNKNOWN_KEY)
-            elif len(self._chars) == MAX_TOKEN_LENGTH:
-                self._spoil(ReadProblem.TOO_LONG)
-            elif self._problem is None:
-                self._chars.append(char)
+            else:
+                self._type(char)
         return tuple(ended)
+
+    def _alt_code(self) -> Read | None:
+        """End the Alt code under way, as every Alt was let go, giving the read it ends."""
+        digits = self._digits
+        self._digits = None
+        code = int(digits) if digits else None
+        if code == _ALT_ENTER:
+            return self._end(stopped=False)
+        if code is not None and code in _ALT_PRINTABLE:
+            self._type(chr(code))
+        else:
+            self._spoil(ReadProblem.UNKNOWN_KEY)
+        return None
+
+    def _let_go_of_alt(self) -> None:
+        self._alt.clear()
+        self._digits = None
+
+    def _type(self, char: str) -> None:
+        if len(self._chars) == MAX_TOKEN_LENGTH:
+            self._spoil(ReadProblem.TOO_LONG)
+        elif self._problem is None:
+            self._chars.append(char)
 
     def _spoil(self, problem: ReadProblem) -> None:
         if self._problem is None:
@@ -212,13 +290,17 @@ class Assembler:
 
     def _end(self, *, stopped: bool) -> Read | None:
         chars, problem = self._chars, self._problem
+        # An Alt code not yet let go is a character under way.
+        typing = bool(chars) or bool(self._digits)
         self._chars, self._problem, self._last = [], None, None
-        # A reader does not hold Shift from one read into the next, so a Shift whose release
-        # was lost does not change the next read.
+        # A reader does not hold Shift or Alt from one read into the next, so a Shift or an Alt
+        # whose release was lost, and the digits typed under that Alt, do not change the next
+        # read.
         self._shift.clear()
+        self._let_go_of_alt()
         if problem is not None:
             return problem
-        if not chars:
+        if not typing:
             return None
         if stopped:
             return ReadProblem.NO_ENTER
