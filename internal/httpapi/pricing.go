@@ -50,18 +50,34 @@ func (p Pricing) currency(req *http.Request) (money.Currency, error) {
 	return s.Currency, err
 }
 
+// currentRate is the spec's CurrentRate.
+type currentRate struct {
+	RatePoint
+	CapPerVisit Money `json:"cap_per_visit"`
+}
+
+// getRate reads the rate and the settings from one state of the store, so a settings change
+// that moves the rate is shown with its cap.
 func (p Pricing) getRate(w http.ResponseWriter, req *http.Request) {
-	cur, err := p.currency(req)
+	ctx := req.Context()
+	var out currentRate
+	err := p.Store.View(ctx, func(q store.Querier) error {
+		s, _, err := settings.Load(ctx, q)
+		if err != nil {
+			return err
+		}
+		pt, err := pricing.Current(ctx, q, s.Currency)
+		if err != nil {
+			return err
+		}
+		out = currentRate{RatePoint: ToRatePoint(pt), CapPerVisit: ToMoney(s.CapPerVisit)}
+		return nil
+	})
 	if err != nil {
 		WriteInternal(w)
 		return
 	}
-	pt, err := pricing.Current(req.Context(), p.Store.Read(), cur)
-	if err != nil {
-		WriteInternal(w)
-		return
-	}
-	WriteJSON(w, http.StatusOK, ToRatePoint(pt))
+	WriteJSON(w, http.StatusOK, out)
 }
 
 func (p Pricing) getRateHistory(w http.ResponseWriter, req *http.Request) {

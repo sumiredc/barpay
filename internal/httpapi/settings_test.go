@@ -74,7 +74,7 @@ func TestUpdateSettings(t *testing.T) {
 	if err != nil || len(actions) != 1 || actions[0].Staff != "staff_1" {
 		t.Errorf("staff actions = %+v, %v; want one by staff_1", actions, err)
 	}
-	if rate := decode[ratePoint](t, do(r, "/v1/rate", storeAuth)); rate.RatePerHour.Value != 1500 || rate.Change.Value != 300 {
+	if rate := decode[rateWithCap](t, do(r, "/v1/rate", storeAuth)); rate.RatePerHour.Value != 1500 || rate.Change.Value != 300 {
 		t.Errorf("rate after raising the floor to 1500 = %+v; want 1500 (+300)", rate)
 	}
 }
@@ -179,7 +179,7 @@ func TestUpdateSettingsRefusesInvalidSettings(t *testing.T) {
 			r := pricingRouter(st)
 			assertError(t, putSettings(r, c.body), http.StatusUnprocessableEntity, "invalid_settings", c.field)
 			actions, _ := staff.Actions(context.Background(), st.Read(), "settings")
-			rate := decode[ratePoint](t, do(r, "/v1/rate", storeAuth))
+			rate := decode[rateWithCap](t, do(r, "/v1/rate", storeAuth))
 			if s := savedSettings(t, st); s != startingSettings() || len(actions) != 0 || rate.RatePerHour.Value != 1200 {
 				t.Errorf("something changed: settings %+v, %d staff actions, rate %+v", s, len(actions), rate)
 			}

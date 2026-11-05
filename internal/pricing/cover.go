@@ -41,6 +41,10 @@ type CoverCharge struct {
 	Amount money.Amount // the sum of Blocks
 	Status Status
 	Blocks []Block // ended blocks, oldest first
+	// ResumesAt is, while Status is Paused, the instant the pause ends and blocks are charged
+	// again; zero otherwise. It is computed with the pause of the block in progress, so it moves
+	// when a later block starts with a changed pause.
+	ResumesAt time.Time
 }
 
 // ErrNoSettings is returned when no settings or no rate were in effect at an instant the
@@ -115,13 +119,14 @@ func Charge(v Visit, rates []Point, changes []settings.Change, at time.Time) (Co
 	cc.Amount = money.New(accrued, cur)
 
 	// The block in progress uses s, the settings at its start.
+	resumesAt, inPause := pauseEnd(v.Orders, s.PauseMinutes, at)
 	switch c := s.CapPerVisit.Value(); {
 	case stopped:
 		cc.Status = Stopped
 	case c > 0 && accrued >= c:
 		cc.Status = Capped
-	case paused(v.Orders, s.PauseMinutes, at):
-		cc.Status = Paused
+	case inPause:
+		cc.Status, cc.ResumesAt = Paused, resumesAt
 	default:
 		cc.Status = Running
 	}
@@ -131,11 +136,17 @@ func Charge(v Visit, rates []Point, changes []settings.Change, at time.Time) (Co
 // ended tells whether something ending at end has ended at t.
 func ended(end, t time.Time) bool { return !end.After(t) }
 
-// paused tells whether t is in a pause: from an order after the first, for pauseMinutes. Only
-// the latest such order at or before t matters, since a new order restarts the pause.
+// paused tells whether t is in a pause: from an order after the first, for pauseMinutes.
 func paused(orders []time.Time, pauseMinutes int, t time.Time) bool {
+	_, in := pauseEnd(orders, pauseMinutes, t)
+	return in
+}
+
+// pauseEnd is the end of the pause t is in, and whether t is in one. Only the latest order after
+// the first at or before t matters, since a new order restarts the pause.
+func pauseEnd(orders []time.Time, pauseMinutes int, t time.Time) (time.Time, bool) {
 	if pauseMinutes == 0 || len(orders) < 2 {
-		return false
+		return time.Time{}, false
 	}
 	var latest time.Time
 	found := false
@@ -144,7 +155,11 @@ func paused(orders []time.Time, pauseMinutes int, t time.Time) bool {
 			latest, found = o, true
 		}
 	}
-	return found && t.Before(latest.Add(time.Duration(pauseMinutes)*time.Minute))
+	if !found {
+		return time.Time{}, false
+	}
+	end := latest.Add(time.Duration(pauseMinutes) * time.Minute)
+	return end, t.Before(end)
 }
 
 func rateAt(rates []Point, t time.Time) (money.Amount, bool) {

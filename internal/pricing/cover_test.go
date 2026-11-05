@@ -290,6 +290,46 @@ func TestStatus(t *testing.T) {
 	}
 }
 
+// Pause for additional orders: while paused, ResumesAt is the latest order after the first plus
+// the pause of the block in progress, the first instant that is no longer paused; otherwise zero.
+func TestResumesAt(t *testing.T) {
+	const ns = time.Nanosecond
+	pause := func(m int) func(*settings.Settings) { return func(s *settings.Settings) { s.PauseMinutes = m } }
+	p30 := changes(at(t0.Add(-time.Hour), pause(30)))
+	fixed := Visit{CheckedInAt: t0, Orders: []time.Time{minute(1), minute(95)}, TotalFixedAt: minute(100)}
+	cases := []struct {
+		name   string
+		v      Visit
+		c      []settings.Change
+		when   time.Time
+		status Status
+		want   time.Time
+	}{
+		{"the first order only", visit(5), p30, minute(5), Running, time.Time{}},
+		{"at the second order", visit(5, 15), p30, minute(15), Paused, minute(45)},
+		{"just before it resumes", visit(5, 15), p30, minute(45).Add(-ns), Paused, minute(45)},
+		{"when it resumes", visit(5, 15), p30, minute(45), Running, time.Time{}},
+		{"a new order moves it", visit(5, 15, 40), p30, minute(40), Paused, minute(70)},
+		{"pause 0", visit(5, 15), unchanged, minute(15), Running, time.Time{}},
+		// The order at 12 pauses until 42 in the block 10–20. A pause changed at 15 applies from the
+		// block starting at 20: 50 minutes runs to 62, 5 minutes ended at 17.
+		{"pause lengthened, same block", visit(1, 12), append(slices.Clone(p30), at(minute(15), pause(50))), minute(20).Add(-ns), Paused, minute(42)},
+		{"pause lengthened, next block", visit(1, 12), append(slices.Clone(p30), at(minute(15), pause(50))), minute(20), Paused, minute(62)},
+		{"pause shortened, next block", visit(1, 12), append(slices.Clone(p30), at(minute(15), pause(5))), minute(20), Running, time.Time{}},
+		// The 2nd order at 25 pauses 25–55; the cap of 400 is reached by the block ending at 20.
+		{"capped while paused", visit(1, 25), changes(at(t0.Add(-time.Hour), func(s *settings.Settings) {
+			s.PauseMinutes, s.CapPerVisit = 30, usd(400)
+		})), minute(30), Capped, time.Time{}},
+		{"total fixed while paused", fixed, p30, minute(100), Stopped, time.Time{}},
+	}
+	for _, c := range cases {
+		cc := charge(t, c.v, flat, c.c, c.when)
+		if cc.Status != c.status || !cc.ResumesAt.Equal(c.want) {
+			t.Errorf("%s: %s until %v; want %s until %v", c.name, cc.Status, cc.ResumesAt, c.status, c.want)
+		}
+	}
+}
+
 // Computed from the store, the cover charge is the same after a restart.
 func TestChargeAtSurvivesRestart(t *testing.T) {
 	ctx := context.Background()
