@@ -147,8 +147,10 @@ func TestMessagesOfTheCustomerPages(t *testing.T) {
 	}
 }
 
-// The layout leaves the notices to each page, so a page that forgets them drops its messages.
+// The layout leaves the notices to each page, so a page that forgets them drops its messages. A
+// page whose h1 is inside a state (.state) puts them first, as it has no h1 heading its content.
 func TestEveryCustomerPageShowsTheNotices(t *testing.T) {
+	heading := regexp.MustCompile(`(?m)^<h1>`)
 	belowH1 := regexp.MustCompile(`(?m)^<h1>.*</h1>\n\{\{template "notices" \.\}\}$`)
 	first := regexp.MustCompile(`^\{\{define "content"\}\}\n\{\{template "notices" \.\}\}\n`)
 	for name := range customerPages {
@@ -156,9 +158,9 @@ func TestEveryCustomerPageShowsTheNotices(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(src), "<h1>") && !belowH1.Match(src) {
+		if heading.Match(src) && !belowH1.Match(src) {
 			t.Errorf("%s does not put the notices right below its h1", name)
-		} else if !strings.Contains(string(src), "<h1>") && !first.Match(src) {
+		} else if !heading.Match(src) && !first.Match(src) {
 			t.Errorf("%s has no h1 and does not put the notices first", name)
 		}
 	}

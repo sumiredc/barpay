@@ -95,10 +95,25 @@ func (a *App) postForm(w http.ResponseWriter, r *http.Request) (string, Browser,
 	return id, b, true
 }
 
-func (a *App) fail(w http.ResponseWriter, id string, b Browser, msg string) {
-	v := a.baseView(id, b, "Something went wrong")
-	v.Data = msg
+// failure is what the error page shows: what went wrong, what to do now, and the one button at
+// the bottom that leads on.
+type failure struct {
+	Title, Text string
+	Button      string
+	// Href is where Button goes. With Post, Button sends the form there instead, as trying again.
+	Href string
+	Post bool
+}
+
+func (a *App) fail(w http.ResponseWriter, id string, b Browser, f failure) {
+	v := a.baseView(id, b, f.Title)
+	v.Data = f
 	a.render(w, http.StatusBadGateway, "error", v)
+}
+
+// couldNotLoad is the failure of a page that could not read BarPay: Try again opens it again.
+func couldNotLoad(r *http.Request) failure {
+	return failure{Title: "Couldn't load", Button: "Try again", Href: r.URL.RequestURI()}
 }
 
 // Entrance landing, sign-up, login and guest join.
@@ -311,16 +326,16 @@ func (a *App) startVisit(w http.ResponseWriter, r *http.Request, id string, b Br
 	})
 	s, err := a.barpay.createCheckin(ctx, key, b.MemberID)
 	if errors.Is(err, ErrNoAnswer) {
-		a.fail(w, id, b, "We could not reach the payment service to check you in. Press Check in again: you will not be checked in twice.")
+		a.fail(w, id, b, failure{Title: "Couldn't connect", Text: "Trying again won't check you in twice", Button: "Check in again", Href: "/checkin", Post: true})
 		return
 	}
 	a.store.update(func(d *Data) error { delete(d.PendingKeys, keyName); return nil })
 	if err != nil {
-		msg := "We could not check you in. Please see staff."
+		f := failure{Title: "Couldn't check in", Text: "Please ask a staff member", Button: "Back", Href: "/"}
 		if errorCode(err) == "member_has_open_session" {
-			msg = "You already have an open visit on another device. Please see staff."
+			f.Title = "You're checked in on another device"
 		}
-		a.fail(w, id, b, msg)
+		a.fail(w, id, b, f)
 		return
 	}
 	a.store.update(func(d *Data) error {
@@ -349,7 +364,7 @@ func (a *App) visitSession(w http.ResponseWriter, r *http.Request, id string, b 
 	defer cancel()
 	s, err := a.barpay.getSession(ctx, b.SessionID)
 	if err != nil {
-		a.fail(w, id, b, "We could not read your visit right now. Try again in a moment.")
+		a.fail(w, id, b, couldNotLoad(r))
 		return nil, false
 	}
 	a.store.update(func(d *Data) error { d.remember(s); return nil })
@@ -544,7 +559,7 @@ func (a *App) payAtRegister(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	s, err := a.barpay.requestRegister(ctx, b.SessionID)
 	if err != nil {
-		a.fail(w, id, b, "We could not send you to the register. Please see staff.")
+		a.fail(w, id, b, failure{Title: "Couldn't send you to the register", Text: "Please ask a staff member", Button: "Back", Href: "/panel"})
 		return
 	}
 	a.store.update(func(d *Data) error { d.remember(s); return nil })
@@ -661,7 +676,7 @@ func (a *App) receipt(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	s, err := a.barpay.getSession(ctx, sessionID)
 	if err != nil {
-		a.fail(w, id, b, "We could not read this receipt right now. Try again in a moment.")
+		a.fail(w, id, b, couldNotLoad(r))
 		return
 	}
 	var orders []Order
