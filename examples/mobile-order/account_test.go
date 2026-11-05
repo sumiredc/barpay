@@ -220,7 +220,7 @@ func TestLinkingWhileUnlinkingShowsOnlyTheUnlinking(t *testing.T) {
 	s.signUp()
 	s.setMember(linked(nil, "deletion_pending"))
 	s.barpay.linkErr = "saved_paypal_exists"
-	page := s.post("/account/paypal", "/account/paypal/link", url.Values{"agree": {"yes"}})
+	page := s.post("/account", "/account/paypal/link", url.Values{"agree": {"yes"}})
 	if !strings.Contains(page, "<h1>Unlinking…</h1>") || strings.Contains(page, "already linked") {
 		t.Error("linking while unlinking does not show the unlinking alone")
 	}
@@ -301,5 +301,96 @@ func TestAPayPalPageThatCannotBeReadOffersToTryAgain(t *testing.T) {
 	page := s.open("/account/paypal")
 	if !strings.Contains(page, "<h1>Couldn't load</h1>") || !strings.Contains(page, `<a class="button" href="/account/paypal"`) {
 		t.Error("a PayPal page that cannot be read does not offer to try again")
+	}
+}
+
+func (s *shop) memberName(id string) string {
+	var name string
+	s.a.store.view(func(d *Data) { name = d.Members[id].Name })
+	return name
+}
+
+func TestAMemberChangesTheirName(t *testing.T) {
+	for _, name := range []string{"T", strings.Repeat("a", 60), strings.Repeat("名", 60)} {
+		s := newShop(t)
+		id := s.signUp()
+		s.setMember(&Member{})
+		page := s.post("/account", "/account/name", url.Values{"name": {name}})
+		if got := s.memberName(id); got != name {
+			t.Errorf("name %q became %q", name, got)
+		}
+		if !strings.Contains(page, "<strong>"+name+"</strong>") || !strings.Contains(page, "<span>Name saved</span>") {
+			t.Errorf("the account does not show %q with a toast", name)
+		}
+		if !strings.Contains(s.open("/"), name) {
+			t.Errorf("the entrance does not show %q", name)
+		}
+	}
+}
+
+func TestANameThatIsEmptyOrTooLongIsRefused(t *testing.T) {
+	for _, name := range []string{"", "   ", strings.Repeat("a", 61), strings.Repeat("名", 61)} {
+		s := newShop(t)
+		id := s.signUp()
+		s.setMember(&Member{})
+		page := s.post("/account", "/account/name", url.Values{"name": {name}})
+		if got := s.memberName(id); got != "Taro" {
+			t.Errorf("name %q was taken: the name is %q", name, got)
+		}
+		if !strings.Contains(page, `<p class="notice bad" role="alert"><i data-icon="alert"></i><span>Enter your name (up to 60 characters)</span></p>`) {
+			t.Errorf("name %q is refused without the red notice", name)
+		}
+	}
+}
+
+func TestAGuestCannotChangeAName(t *testing.T) {
+	s := newShop(t)
+	s.post("/", "/guest", url.Values{})
+	page := s.post("/menu", "/account/name", url.Values{"name": {"Hana"}})
+	if strings.Contains(page, "Hana") || strings.Contains(page, "Name saved") {
+		t.Error("a guest changed a name")
+	}
+	s.a.store.view(func(d *Data) {
+		if len(d.Members) != 0 {
+			t.Error("a guest's name change made a member")
+		}
+	})
+}
+
+func TestTheAccountShowsWhetherPayPalIsLinked(t *testing.T) {
+	for m, want := range map[*Member]string{
+		{}:                              `<span>PayPal</span><span class="muted">Not linked</span>`,
+		linked(nil, "active"):           `<span>PayPal</span><span class="muted">Linked</span>`,
+		linked(nil, "deletion_pending"): `<span>PayPal</span><span class="muted">Unlinking…</span>`,
+	} {
+		s := newShop(t)
+		s.signUp()
+		s.setMember(m)
+		page := s.open("/account")
+		for _, w := range []string{want, `<span class="avatar">T</span>`, `<a href="/receipts">`, `<a href="/account/paypal">`, `action="/logout"`} {
+			if !strings.Contains(page, w) {
+				t.Errorf("the account lacks %s", w)
+			}
+		}
+	}
+}
+
+func TestTheAccountShowsAGuestTheRowsForMembers(t *testing.T) {
+	s := newShop(t)
+	s.post("/", "/guest", url.Values{})
+	page := s.open("/account")
+	if !strings.Contains(page, "<strong>Guest</strong>") || strings.Count(page, `<span class="muted">Members only</span>`) != 2 {
+		t.Error("the account does not show a guest the rows for members")
+	}
+	if strings.Contains(page, `href="/receipts"`) || strings.Contains(page, `href="/account/paypal"`) || strings.Contains(page, `action="/logout"`) {
+		t.Error("the account lets a guest open a member's row")
+	}
+}
+
+func TestAGuestOpeningThePayPalPageIsSentToTheAccount(t *testing.T) {
+	s := newShop(t)
+	s.post("/", "/guest", url.Values{})
+	if at, _ := s.visit("/account/paypal"); at != "/account" {
+		t.Errorf("a guest opening the PayPal page ends on %s", at)
 	}
 }

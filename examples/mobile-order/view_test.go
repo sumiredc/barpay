@@ -67,6 +67,7 @@ func TestFrameOfEachCustomerPage(t *testing.T) {
 		{"menu", member, "menu", true, true},
 		{"panel", guest, "bill", true, true},
 		{"exit", member, "bill", true, true},
+		{"account", guest, "account", true, true},
 		{"paypal", member, "account", true, true},
 		{"receipts", member, "account", true, true},
 		{"receipt", member, "account", true, true},
@@ -107,10 +108,10 @@ func TestLandingBeforeCheckInHasNoTabs(t *testing.T) {
 	}
 }
 
-func TestTheAccountTabPointsToThePayPalPage(t *testing.T) {
+func TestTheAccountTabPointsToTheAccount(t *testing.T) {
 	body := renderPage(t, "receipts", view{Member: &MemberAccount{Name: "Taro"}, Data: []Visit{}})
-	if !strings.Contains(body, `<a href="/account/paypal" aria-current="page">`) {
-		t.Error("receipts does not mark the Account tab, pointing to /account/paypal")
+	if !strings.Contains(body, `<a href="/account" aria-current="page">`) {
+		t.Error("receipts does not mark the Account tab, pointing to /account")
 	}
 	if !strings.Contains(body, `<header class="brandmark">`) {
 		t.Error("receipts lacks the small header")

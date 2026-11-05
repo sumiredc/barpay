@@ -62,6 +62,7 @@ var customerPages = map[string]customerPage{
 	"menu":     {tab: "menu", header: true, tabbar: true},
 	"panel":    {tab: "bill", header: true, tabbar: true},
 	"exit":     {tab: "bill", header: true, tabbar: true},
+	"account":  {tab: "account", header: true, tabbar: true},
 	"paypal":   {tab: "account", header: true, tabbar: true},
 	"receipts": {tab: "account", header: true, tabbar: true},
 	"receipt":  {tab: "account", header: true, tabbar: true},

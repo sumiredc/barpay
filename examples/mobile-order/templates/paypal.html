@@ -48,8 +48,6 @@
 </form>
   {{end}}
 {{end}}
-<p><a href="/receipts">Receipts</a></p>
-{{if .Member}}<form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="button secondary" type="submit">Log out</button></form>{{end}}
 {{end}}
 {{define "cartbar"}}
 {{- if .Data.ReadFailed -}}

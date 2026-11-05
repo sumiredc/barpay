@@ -130,6 +130,8 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /receipts", a.receipts)
 	mux.HandleFunc("GET /receipts/{session_id}", a.receipt)
 	mux.HandleFunc("POST /visit/done", a.visitDone)
+	mux.HandleFunc("GET /account", a.account)
+	mux.HandleFunc("POST /account/name", a.saveName)
 	mux.HandleFunc("GET /account/paypal", a.paypal)
 	mux.HandleFunc("POST /account/paypal/link", a.linkPaypal)
 	mux.HandleFunc("GET /account/paypal/return", a.paypalReturn)

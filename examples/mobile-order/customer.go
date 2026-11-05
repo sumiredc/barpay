@@ -822,8 +822,8 @@ func (a *App) paypal(w http.ResponseWriter, r *http.Request) {
 	id, b := a.browser(w, r)
 	switch {
 	case b.Guest:
-		// Linking PayPal needs an account.
-		redirect(w, r, "/")
+		// The account shows a guest the PayPal row as members only.
+		redirect(w, r, "/account")
 		return
 	case b.MemberID == "":
 		redirect(w, r, "/login")

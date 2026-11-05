@@ -1,0 +1,33 @@
+{{define "content"}}
+{{template "notices" .}}
+{{with .Member}}
+<button type="button" class="profile" data-sheet="name-edit">
+  <span class="avatar">{{$.Data.Initial}}</span>
+  <span class="who"><strong>{{.Name}}</strong><span class="muted">{{.Email}}</span></span>
+  <i data-icon="chevron-right"></i>
+</button>
+<ul class="menu-rows">
+  <li><a href="/receipts"><i data-icon="history"></i><span>Visit history</span><i data-icon="chevron-right"></i></a></li>
+  <li><a href="/account/paypal"><i data-icon="credit-card"></i><span>PayPal</span>{{if eq $.Data.PayPal "linked"}}<span class="muted">Linked</span>{{else if eq $.Data.PayPal "unlinking"}}<span class="muted">Unlinking…</span>{{else if eq $.Data.PayPal "not_linked"}}<span class="muted">Not linked</span>{{end}}<i data-icon="chevron-right"></i></a></li>
+</ul>
+<form method="post" action="/logout" class="center"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="textbutton muted" type="submit">Log out</button></form>
+
+<dialog class="sheet" id="name-edit">
+  <form class="form" method="post" action="/account/name">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <label for="name">Name</label>
+    <input id="name" name="name" type="text" value="{{.Name}}" maxlength="60" autocomplete="name">
+    <button class="button block" type="submit">Save</button>
+  </form>
+</dialog>
+{{else}}
+<div class="profile">
+  <span class="avatar guest"><i data-icon="user"></i></span>
+  <span class="who"><strong>Guest</strong></span>
+</div>
+<ul class="menu-rows">
+  <li><span class="disabled"><i data-icon="history"></i><span>Visit history</span><span class="muted">Members only</span></span></li>
+  <li><span class="disabled"><i data-icon="credit-card"></i><span>PayPal</span><span class="muted">Members only</span></span></li>
+</ul>
+{{end}}
+{{end}}
