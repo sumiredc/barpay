@@ -295,11 +295,11 @@ paths:
         PRD: Pricing model; Responsibilities → Lookup.
       responses:
         '200':
-          description: The rate published now.
+          description: The rate published now, with the cap per visit now in the settings.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RatePoint'
+                $ref: '#/components/schemas/CurrentRate'
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -1986,6 +1986,29 @@ components:
         published_at:
           type: string
           format: date-time
+    CurrentRate:
+      type: object
+      description: |
+        PRD: Pricing model; Responsibilities → Lookup.
+
+        The rate published now, as a `RatePoint`, with `cap_per_visit` from
+        the settings now in effect, so the store app can show the cap
+        before check-in. Only here and not in `RatePoint`, which the rate
+        history also uses: a cap there would read as the cap at each
+        point.
+      additionalProperties: false
+      required: [rate_per_hour, change, published_at, cap_per_visit]
+      properties:
+        rate_per_hour:
+          $ref: '#/components/schemas/Money'
+        change:
+          $ref: '#/components/schemas/SignedMoney'
+        published_at:
+          type: string
+          format: date-time
+        cap_per_visit:
+          description: The most cover charge one visit can reach; 0 for no cap.
+          $ref: '#/components/schemas/Money'
     RateEvaluation:
       type: object
       additionalProperties: false

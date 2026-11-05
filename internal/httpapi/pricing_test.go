@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -79,6 +80,11 @@ type ratePoint struct {
 	PublishedAt string `json:"published_at"`
 }
 
+type rateWithCap struct {
+	ratePoint
+	CapPerVisit Money `json:"cap_per_visit"`
+}
+
 func decode[T any](t *testing.T, w *httptest.ResponseRecorder) T {
 	t.Helper()
 	var v T
@@ -97,9 +103,29 @@ func TestGetRateReturnsThePublishedRate(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", w.Code, w.Body)
 	}
-	want := ratePoint{RatePerHour: Money{1400, "USD"}, Change: Money{200, "USD"}, PublishedAt: "2026-10-31T18:01:00Z"}
-	if got := decode[ratePoint](t, w); got != want {
+	spectest.Valid(t, "CurrentRate", w.Body.Bytes())
+	want := rateWithCap{
+		ratePoint:   ratePoint{RatePerHour: Money{1400, "USD"}, Change: Money{200, "USD"}, PublishedAt: "2026-10-31T18:01:00Z"},
+		CapPerVisit: Money{3000, "USD"},
+	}
+	if got := decode[rateWithCap](t, w); got != want {
 		t.Errorf("rate = %+v, want %+v", got, want)
+	}
+}
+
+// Responsibilities, Lookup: the rate comes with the cap per visit now in the settings, 0 for none.
+func TestGetRateFollowsTheCap(t *testing.T) {
+	r := pricingRouter(started(t))
+	for _, c := range []int64{4500, 0} {
+		body := with("cap_per_visit", `{"value":`+strconv.FormatInt(c, 10)+`,"currency":"USD"}`)
+		if w := putSettings(r, body); w.Code != http.StatusOK {
+			t.Fatalf("PUT settings with cap %d: %d %s", c, w.Code, w.Body)
+		}
+		w := do(r, "/v1/rate", storeAuth)
+		spectest.Valid(t, "CurrentRate", w.Body.Bytes())
+		if got := decode[rateWithCap](t, w).CapPerVisit; got != (Money{c, "USD"}) {
+			t.Errorf("cap after setting %d: %+v", c, got)
+		}
 	}
 }
 
