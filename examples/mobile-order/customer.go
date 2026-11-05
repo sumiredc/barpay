@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"rsc.io/qr"
@@ -175,7 +176,7 @@ func (a *App) signup(w http.ResponseWriter, r *http.Request) {
 	in := signupInput{Name: strings.TrimSpace(r.PostFormValue("name")), Email: strings.TrimSpace(r.PostFormValue("email"))}
 	email := strings.ToLower(in.Email)
 	password := r.PostFormValue("password")
-	if in.Name == "" || utf8.RuneCountInString(in.Name) > 60 {
+	if !validName(in.Name) {
 		in.NameError = "Enter your name (up to 60 characters)"
 	}
 	if _, err := mail.ParseAddress(email); err != nil {
@@ -247,6 +248,22 @@ func strongPassword(p string) bool {
 // already registered.
 type loginInput struct {
 	Email string
+}
+
+// validName says whether a member's name, already trimmed, can be kept: not empty and at most 60
+// characters, counted as characters rather than bytes, so a name in Japanese gets as many. A
+// control or format character (a newline, a zero-width space, a bidi override) is refused, as it
+// would change how the name and the text around it are drawn wherever the name is shown.
+func validName(name string) bool {
+	if name == "" || !utf8.ValidString(name) || utf8.RuneCountInString(name) > 60 {
+		return false
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *App) loginForm(w http.ResponseWriter, r *http.Request) {
