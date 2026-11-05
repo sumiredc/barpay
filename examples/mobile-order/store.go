@@ -63,6 +63,9 @@ type Browser struct {
 	Flash string `json:"flash,omitempty"`
 	Alert string `json:"alert,omitempty"`
 	Toast string `json:"toast,omitempty"`
+	// LoginEmail fills in the next login page once: a sign-up whose email is already registered
+	// sends the customer there.
+	LoginEmail string `json:"login_email,omitempty"`
 }
 
 type PendingOrder struct {

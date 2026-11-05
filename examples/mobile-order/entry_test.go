@@ -168,6 +168,39 @@ func TestSignUpCountsTheNameInCharacters(t *testing.T) {
 	}
 }
 
+func TestSignUpWithARegisteredEmailGoesToLoginWithTheEmailFilledIn(t *testing.T) {
+	f := &entryBarPay{}
+	newcomer := newEntryCustomer(t, f)
+	newcomer.post("/signup", "/signup", url.Values{"name": {"Taro"}, "email": {"taro@example.com"}, "password": {"Abcdef1!"}})
+	// The same app, from another browser.
+	jar, _ := cookiejar.New(nil)
+	other := &customer{t: t, app: newcomer.app, client: &http.Client{Jar: jar}}
+	page := other.post("/signup", "/signup", url.Values{"name": {"Hanako"}, "email": {"Taro@example.com"}, "password": {"Abcdef1!"}})
+	if !strings.Contains(page, "<h1>Log in</h1>") {
+		t.Fatal("a registered email does not lead to the login page")
+	}
+	if !strings.Contains(page, `<p class="notice info" role="status"><i data-icon="info"></i><span>This email is already registered. Please log in</span></p>`) {
+		t.Error("the login page does not tell the email is registered")
+	}
+	if !strings.Contains(page, `value="Taro@example.com"`) {
+		t.Error("the login page does not fill in the email")
+	}
+	if strings.Contains(other.open("/login"), `value="Taro@example.com"`) {
+		t.Error("the email is filled in again on the next login page")
+	}
+}
+
+func TestAWrongLoginKeepsTheEmailAndDropsThePassword(t *testing.T) {
+	c := newEntryCustomer(t, &entryBarPay{})
+	page := c.post("/login", "/login", url.Values{"email": {"taro@example.com"}, "password": {"Wrong pass 1"}})
+	if !strings.Contains(page, `value="taro@example.com"`) {
+		t.Error("a wrong login does not keep the email")
+	}
+	if strings.Contains(page, "Wrong pass 1") {
+		t.Error("a wrong login keeps the password")
+	}
+}
+
 // sheet returns the dialog with the id from page, or "".
 func sheet(page, id string) string {
 	start := strings.Index(page, `<dialog class="sheet" id="`+id+`">`)

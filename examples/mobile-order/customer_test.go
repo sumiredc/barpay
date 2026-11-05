@@ -113,7 +113,7 @@ const toastClass = `class="toast"`
 func TestAWrongLoginIsARedNoticeShownOnce(t *testing.T) {
 	c := newCustomer(t)
 	page := c.post("/login", "/login", url.Values{"email": {"nobody@example.com"}, "password": {"wrong password"}})
-	notice := strings.Index(page, `<p class="notice bad" role="alert"><i data-icon="alert"></i><span>The email or password is wrong.</span></p>`)
+	notice := strings.Index(page, `<p class="notice bad" role="alert"><i data-icon="alert"></i><span>Wrong email or password</span></p>`)
 	if notice < 0 {
 		t.Fatal("a wrong login is not shown as a red notice")
 	}

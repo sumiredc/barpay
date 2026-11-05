@@ -223,7 +223,10 @@ func (a *App) signup(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if taken {
-		a.flash(id, "An account with this email already exists. Log in instead.")
+		a.updateBrowser(id, func(b *Browser) {
+			b.Flash = "This email is already registered. Please log in"
+			b.LoginEmail = in.Email
+		})
 		redirect(w, r, "/login")
 		return
 	}
@@ -258,17 +261,29 @@ func strongPassword(p string) bool {
 	return utf8.RuneCountInString(p) >= 8 && lower && upper && digit && symbol
 }
 
+// loginInput is the email the login page fills in: the one entered, or the one a sign-up found
+// already registered.
+type loginInput struct {
+	Email string
+}
+
 func (a *App) loginForm(w http.ResponseWriter, r *http.Request) {
 	id, b := a.browser(w, r)
-	a.render(w, http.StatusOK, "login", a.baseView(id, b, "Log in"))
+	if b.LoginEmail != "" {
+		a.updateBrowser(id, func(b *Browser) { b.LoginEmail = "" })
+	}
+	v := a.baseView(id, b, "Log in")
+	v.Data = loginInput{Email: b.LoginEmail}
+	a.render(w, http.StatusOK, "login", v)
 }
 
 func (a *App) login(w http.ResponseWriter, r *http.Request) {
-	id, _, ok := a.postForm(w, r)
+	id, b, ok := a.postForm(w, r)
 	if !ok {
 		return
 	}
-	email := strings.ToLower(strings.TrimSpace(r.PostFormValue("email")))
+	entered := strings.TrimSpace(r.PostFormValue("email"))
+	email := strings.ToLower(entered)
 	password := r.PostFormValue("password")
 	var m *MemberAccount
 	a.store.view(func(d *Data) {
@@ -279,15 +294,18 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	})
-	if m == nil {
-		checkPassword(a.dummyHash, password)
-		a.alert(id, "The email or password is wrong.")
-		redirect(w, r, "/login")
-		return
+	// An unknown email is checked against a dummy hash too, so it takes as long as a wrong
+	// password.
+	hash := a.dummyHash
+	if m != nil {
+		hash = m.PasswordHash
 	}
-	if !checkPassword(m.PasswordHash, password) {
-		a.alert(id, "The email or password is wrong.")
-		redirect(w, r, "/login")
+	if !checkPassword(hash, password) || m == nil {
+		// Drawn again here with the email kept, so only the password is typed again.
+		v := a.baseView(id, b, "Log in")
+		v.Alert = "Wrong email or password"
+		v.Data = loginInput{Email: entered}
+		a.render(w, http.StatusOK, "login", v)
 		return
 	}
 	a.renewBrowser(w, id, func(nb *Browser) {

@@ -23,7 +23,7 @@ func renderPage(t *testing.T, name string, v view) string {
 }
 
 func TestCustomerPagesUseTheCustomerLayout(t *testing.T) {
-	body := renderPage(t, "login", view{})
+	body := renderPage(t, "login", view{Data: loginInput{}})
 	for _, want := range []string{`data-app="customer"`, `href="/static/customer.css"`, `src="/static/customer.js"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("login page lacks %s", want)
@@ -129,7 +129,7 @@ func TestACartbarGivesTheBodyRoomForIt(t *testing.T) {
 }
 
 func TestMessagesOfTheCustomerPages(t *testing.T) {
-	body := renderPage(t, "login", view{Alert: "The email or password is wrong.", Flash: "Log in again.", Toast: "You're checked in"})
+	body := renderPage(t, "login", view{Alert: "The email or password is wrong.", Flash: "Log in again.", Toast: "You're checked in", Data: loginInput{}})
 	for _, want := range []string{
 		`<p class="notice bad" role="alert"><i data-icon="alert"></i><span>The email or password is wrong.</span></p>`,
 		`<p class="notice info" role="status"><i data-icon="info"></i><span>Log in again.</span></p>`,
