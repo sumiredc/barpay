@@ -1,6 +1,7 @@
 {{define "content"}}
 {{$s := .Data.Session}}
 <h1>Your visit</h1>
+{{template "notices" .}}
 {{if eq $s.State "at_register"}}
   <div class="card"><p class="big">Please pay {{money $s.Total}} at the register.</p><p class="muted">Staff will record your payment. The cover charge has stopped.</p></div>
 {{else if eq $s.State "checking_out"}}
@@ -34,10 +35,6 @@
   <div class="stat"><div class="label">Payment</div><div class="value">{{if eq $s.PaymentMethod "paypal"}}PayPal{{else}}Register{{end}}</div></div>
 </div>
 
-{{if eq $s.State "active"}}
-  <div class="row"><a class="button" href="/pay">Pay</a> <a class="button secondary" href="/menu">Order more</a></div>
-{{end}}
-
 {{with .Data.Orders}}
 <h2>Your orders</h2>
 <div class="card">
@@ -46,4 +43,17 @@
   {{end}}
 </div>
 {{end}}
+
+{{if eq $s.State "active"}}
+<dialog class="sheet" id="pay">
+  <div class="stack">
+    {{if eq $s.PaymentMethod "paypal"}}<a class="button" href="/exit"><i data-icon="qr"></i> Show exit QR</a>{{end}}
+    <form method="post" action="/pay/register">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button class="button {{if eq $s.PaymentMethod "paypal"}}secondary{{end}}" type="submit">Pay at register</button>
+    </form>
+  </div>
+</dialog>
 {{end}}
+{{end}}
+{{define "cartbar"}}{{$s := .Data.Session}}{{if eq $s.State "active"}}<button class="button" type="button" data-sheet="pay"><span>Pay</span><span>{{money $s.Total}}</span></button>{{end}}{{end}}

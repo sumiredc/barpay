@@ -1,5 +1,6 @@
 {{define "content"}}
 <h1>Settings</h1>
+{{template "notices" .}}
 {{with .Data.Notice}}<div class="flash">{{.}}</div>{{end}}
 {{if .Guest}}
   <div class="card">
@@ -39,4 +40,6 @@
     {{end}}
   </div>
 {{end}}
+<p><a href="/receipts">Receipts</a></p>
+{{if .Member}}<form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="button secondary" type="submit">Log out</button></form>{{end}}
 {{end}}

@@ -62,16 +62,22 @@ func (a *App) member(b Browser) *MemberAccount {
 	return m
 }
 
-// baseView fills what every customer page shows, and takes the flash message once.
+// baseView fills what every customer page shows, and takes the flash, alert and toast messages
+// once.
 func (a *App) baseView(id string, b Browser, title string) view {
-	if b.Flash != "" {
-		a.updateBrowser(id, func(b *Browser) { b.Flash = "" })
+	if b.Flash != "" || b.Alert != "" || b.Toast != "" {
+		a.updateBrowser(id, func(b *Browser) { b.Flash, b.Alert, b.Toast = "", "", "" })
 	}
-	return view{Title: title, CSRF: b.CSRF, Member: a.member(b), Guest: b.Guest, StaffID: b.StaffID, Flash: b.Flash}
+	return view{Title: title, CSRF: b.CSRF, Member: a.member(b), Guest: b.Guest, StaffID: b.StaffID, Flash: b.Flash, Alert: b.Alert, Toast: b.Toast}
 }
 
 func (a *App) flash(id, msg string) {
 	a.updateBrowser(id, func(b *Browser) { b.Flash = msg })
+}
+
+// alert keeps an error for the next customer page, which shows it in red at the top.
+func (a *App) alert(id, msg string) {
+	a.updateBrowser(id, func(b *Browser) { b.Alert = msg })
 }
 
 func redirect(w http.ResponseWriter, r *http.Request, to string) {
@@ -127,6 +133,8 @@ func (a *App) landing(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	v := a.baseView(id, b, "Welcome")
+	// Before login and before a member's check-in the entrance is the start, so it has no tabs.
+	v.Tabbar = data.InVisit || data.EndedGuestVisit != ""
 	if rate, err := a.barpay.getRate(ctx); err == nil {
 		data.Rate = rate
 	}
@@ -180,7 +188,7 @@ func (a *App) signup(w http.ResponseWriter, r *http.Request) {
 				nb.SessionID = ""
 			}
 			nb.MemberID, nb.Guest, nb.StaffID = m.ID, false, ""
-			nb.Flash = "Welcome, " + name + ". Your account is ready."
+			nb.Toast = "Welcome, " + name + ". Your account is ready"
 		})
 		redirect(w, r, "/")
 		return
@@ -211,12 +219,12 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	})
 	if m == nil {
 		checkPassword(a.dummyHash, password)
-		a.flash(id, "The email or password is wrong.")
+		a.alert(id, "The email or password is wrong.")
 		redirect(w, r, "/login")
 		return
 	}
 	if !checkPassword(m.PasswordHash, password) {
-		a.flash(id, "The email or password is wrong.")
+		a.alert(id, "The email or password is wrong.")
 		redirect(w, r, "/login")
 		return
 	}
@@ -325,7 +333,7 @@ func (a *App) startVisit(w http.ResponseWriter, r *http.Request, id string, b Br
 	})
 	a.updateBrowser(id, func(b *Browser) {
 		b.SessionID = s.SessionID
-		b.Flash = "You are checked in. Enjoy your stay."
+		b.Toast = "You're checked in"
 	})
 	redirect(w, r, "/menu")
 }
@@ -428,7 +436,8 @@ func (a *App) sendOrder(w http.ResponseWriter, r *http.Request, id, sessionID st
 		redirect(w, r, "/menu")
 		return
 	}
-	msg := "Your order is on its way."
+	// A recorded order is told by a toast; one that was not stays on the menu as a flash.
+	msg := "Order received"
 	switch code := errorCode(err); {
 	case err == nil:
 		a.store.update(func(d *Data) error {
@@ -443,7 +452,7 @@ func (a *App) sendOrder(w http.ResponseWriter, r *http.Request, id, sessionID st
 		})
 	case code == "order_conflict":
 		// The same form was sent again with other quantities: the order it placed stands.
-		msg = "This order was already placed."
+		msg = "This order was already received"
 		err = nil
 	case code == "session_not_active":
 		msg = "This visit can take no more orders. Please see staff."
@@ -452,7 +461,11 @@ func (a *App) sendOrder(w http.ResponseWriter, r *http.Request, id, sessionID st
 	}
 	a.updateBrowser(id, func(b *Browser) {
 		b.PendingOrder = nil
-		b.Flash = msg
+		if err == nil {
+			b.Toast = msg
+		} else {
+			b.Flash = msg
+		}
 	})
 	if err != nil {
 		redirect(w, r, "/menu")
