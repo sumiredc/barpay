@@ -650,18 +650,27 @@ func (a *App) exitQR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := a.baseView(id, b, "Exit")
+	// State is the one the page shows: "qr", "checking_out", "payment_failed", "unavailable" or
+	// "read_failed".
 	data := struct {
-		Session   *Session
-		QR        template.URL
-		ExpiresAt time.Time
-		Message   string
-	}{Session: s}
+		Session *Session
+		State   string
+		QR      template.URL
+		// Lifetime is the time from receiving the token to its expires_at, over which the bar
+		// under the QR empties.
+		Lifetime float64
+		// Again is this page, which "Try again" opens.
+		Again string
+	}{Session: s, Again: "/exit"}
+	if s.State == "closed" {
+		data.Again = "/exit?again=1"
+	}
 	switch {
 	case s.State == "checking_out":
-		data.Message = "Paying with PayPal…"
+		data.State = "checking_out"
 		v.Refresh = 3
 	case s.State == "payment_failed":
-		data.Message = "The payment did not go through. Please see staff."
+		data.State = "payment_failed"
 	case s.State == "closed" && r.URL.Query().Get("again") == "":
 		redirect(w, r, "/receipts/"+s.SessionID)
 		return
@@ -672,25 +681,28 @@ func (a *App) exitQR(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := a.ctx(r)
 		defer cancel()
 		t, err := a.barpay.getExitToken(ctx, s.SessionID)
+		received := time.Now()
 		if err != nil {
+			data.State = "read_failed"
 			if errorCode(err) == "exit_token_unavailable" {
-				data.Message = "The exit QR is not available for this visit. Please pay at the register or see staff."
-			} else {
-				data.Message = "We could not get your exit QR. Try again in a moment."
-				v.Refresh = 5
+				data.State = "unavailable"
 			}
 			break
 		}
 		code, err := qr.Encode(t.Token, qr.M)
 		if err != nil {
-			data.Message = "We could not draw your exit QR. Please see staff."
+			data.State = "read_failed"
 			break
 		}
 		code.Scale = 8
 		// A data URI the app made from its own PNG, which html/template would otherwise refuse.
 		data.QR = template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(code.PNG()))
-		data.ExpiresAt = t.ExpiresAt
-		v.Refresh = max(1, min(30, int(time.Until(t.ExpiresAt).Seconds())+1))
+		data.State = "qr"
+		left := t.ExpiresAt.Sub(received)
+		data.Lifetime = max(1, left.Seconds())
+		// Reload when the QR changes, not before: a reload on the same token would start the bar
+		// full again.
+		v.Refresh = max(1, int(left.Seconds())+1)
 	}
 	v.Data = data
 	a.render(w, http.StatusOK, "exit", v)

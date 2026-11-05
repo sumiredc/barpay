@@ -276,3 +276,96 @@ func TestTheBillAfterCheckout(t *testing.T) {
 		})
 	}
 }
+
+func TestTheExitQR(t *testing.T) {
+	s := activeSession()
+	s.PaymentMethod = "paypal"
+	c, _ := newBillCustomer(t, s)
+	page := c.open("/exit")
+	mustContain(t, page, `<p class="exit-hint">Hold this up to the reader at the exit</p>`, `alt="Exit QR"`,
+		`<p class="exit-amount"><span>PayPal total</span>$37.40</p>`, `class="qr-timer"`)
+	mustLack(t, page, "Back to my visit", "screenshot", `class="cartbar"`)
+}
+
+// The bar under the QR is full when the token arrives and empty at its expires_at.
+func TestTheExitQRBarRunsOutWithTheToken(t *testing.T) {
+	c, _ := newBillCustomer(t, activeSession())
+	page := c.open("/exit")
+	i := strings.Index(page, `<span style="animation: qr-left `)
+	if i < 0 {
+		t.Fatal("the bar has no animation of its own")
+	}
+	var seconds float64
+	if _, err := fmt.Sscanf(page[i+len(`<span style="animation: qr-left `):], "%gs linear 1 forwards", &seconds); err != nil {
+		t.Fatal(err)
+	}
+	if seconds < 29 || seconds > 30 {
+		t.Errorf("the bar runs for %gs, want the 30s the token has left", seconds)
+	}
+}
+
+// The page reloads when the token changes and not before, however long the token lasts.
+func TestTheExitQRReloadsWhenTheTokenChanges(t *testing.T) {
+	c, fake := newBillCustomer(t, activeSession())
+	fake.mu.Lock()
+	fake.exitLeft = 90 * time.Second
+	fake.mu.Unlock()
+	page := c.open("/exit")
+	if !strings.Contains(page, ` data-refresh="90">`) && !strings.Contains(page, ` data-refresh="91">`) {
+		t.Error("the exit QR does not reload when its 90-second token changes")
+	}
+}
+
+func TestTheExitQRShownAgainAfterPaying(t *testing.T) {
+	c, fake := newBillCustomer(t, activeSession())
+	fake.set(func(s *Session) { s.State = "closed" })
+	mustContain(t, c.open("/exit?again=1"), `<p class="exit-amount"><span>Paid with PayPal</span>$37.40</p>`)
+}
+
+func TestTheExitQRStates(t *testing.T) {
+	tests := []struct {
+		name      string
+		state     string
+		exitError string
+		wants     []string
+		unwanted  []string
+	}{
+		{"checking_out", "checking_out", "", []string{"<h1>Paying with PayPal…</h1>", `data-refresh="3"`}, []string{`class="cartbar"`}},
+		{"payment_failed", "payment_failed", "", []string{`<div class="state bad">`, "<h1>Payment didn&#39;t go through</h1>", "<p>Please ask a staff member</p>"}, []string{`class="cartbar"`}},
+		{"unavailable", "active", "exit_token_unavailable", []string{`<i data-icon="lock"></i>`, "<h1>No exit QR for this visit</h1>", "<p>Please pay at the register</p>",
+			`<div class="cartbar"><button class="button" type="submit" form="register-form" style="justify-content: center">Pay at the register</button></div>`}, nil},
+		{"read_failed", "active", "internal_error", []string{`<div class="state bad">`, "<h1>Couldn&#39;t show the QR</h1>",
+			`<div class="cartbar"><a class="button" href="/exit" style="justify-content: center"><i data-icon="rotate-cw"></i> Try again</a></div>`}, []string{"data-refresh"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, fake := newBillCustomer(t, activeSession())
+			fake.set(func(s *Session) { s.State = tt.state })
+			fake.mu.Lock()
+			fake.exitError = tt.exitError
+			fake.mu.Unlock()
+			page := c.open("/exit")
+			mustContain(t, page, tt.wants...)
+			mustLack(t, page, tt.unwanted...)
+			mustLack(t, page, "Back to my visit")
+		})
+	}
+}
+
+func TestTheExitQRIsNotOfferedAtTheRegister(t *testing.T) {
+	c, fake := newBillCustomer(t, activeSession())
+	fake.set(func(s *Session) { s.State = "at_register" })
+	mustContain(t, c.open("/exit"), "<h1>Please pay at the register</h1>", "<title>Bill · The Copper Fox</title>")
+}
+
+// After paying, the QR is shown again only to open the gate: there is nothing left to pay.
+func TestNoExitQRAfterPayingSendsToStaffNotTheRegister(t *testing.T) {
+	c, fake := newBillCustomer(t, activeSession())
+	fake.set(func(s *Session) { s.State = "closed" })
+	fake.mu.Lock()
+	fake.exitError = "exit_token_unavailable"
+	fake.mu.Unlock()
+	page := c.open("/exit?again=1")
+	mustContain(t, page, "<h1>No exit QR for this visit</h1>", "<p>Please ask a staff member</p>")
+	mustLack(t, page, "Please pay at the register", `class="cartbar"`)
+}
