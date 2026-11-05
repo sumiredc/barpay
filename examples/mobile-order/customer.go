@@ -812,39 +812,74 @@ func (a *App) visitDone(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/")
 }
 
-// Settings: consent and the PayPal link, and deleting the saved PayPal.
+// The PayPal page, under the account: consent and the PayPal link, and unlinking the saved
+// PayPal. The page says "unlink"; BarPay's operation deletes the saved PayPal.
 
-func (a *App) settings(w http.ResponseWriter, r *http.Request) {
+// paypalPage is where every PayPal operation and the return from PayPal end.
+const paypalPage = "/account/paypal"
+
+func (a *App) paypal(w http.ResponseWriter, r *http.Request) {
 	id, b := a.browser(w, r)
-	if b.MemberID == "" && !b.Guest {
+	switch {
+	case b.Guest:
+		// Linking PayPal needs an account.
+		redirect(w, r, "/")
+		return
+	case b.MemberID == "":
 		redirect(w, r, "/login")
 		return
 	}
-	v := a.baseView(id, b, "Settings")
+	v := a.baseView(id, b, "PayPal")
 	data := struct {
 		Member         *Member
 		ConsentText    string
 		ConsentVersion string
-		Notice         string
 		ReadFailed     bool
 	}{ConsentText: consentText, ConsentVersion: consentVersion}
-	if b.MemberID != "" {
-		ctx, cancel := a.ctx(r)
-		defer cancel()
-		m, err := a.barpay.getMember(ctx, b.MemberID)
-		if err != nil {
-			data.ReadFailed = true
-		} else {
-			data.Member = m
+	ctx, cancel := a.ctx(r)
+	defer cancel()
+	m, err := a.barpay.getMember(ctx, b.MemberID)
+	if err != nil {
+		data.ReadFailed = true
+	} else {
+		data.Member = m
+		if paypalStatus(m) == "unlinking" {
+			// The page changes once PayPal confirms; nothing else tells the customer.
+			v.Refresh = 10
 		}
-		a.store.update(func(d *Data) error {
-			data.Notice = d.MemberNotices[b.MemberID]
-			delete(d.MemberNotices, b.MemberID)
-			return nil
-		})
+	}
+	var notice string
+	a.store.update(func(d *Data) error {
+		notice = d.MemberNotices[b.MemberID]
+		delete(d.MemberNotices, b.MemberID)
+		return nil
+	})
+	switch notice {
+	case "":
+	case paypalNoLongerValidNotice:
+		v.Alert = notice
+	default:
+		v.Toast = notice
 	}
 	v.Data = data
-	a.render(w, http.StatusOK, "settings", v)
+	a.render(w, http.StatusOK, "paypal", v)
+}
+
+// paypalStatus says how the member's saved PayPal stands: "linked", "unlinking" or "not_linked".
+func paypalStatus(m *Member) string {
+	switch {
+	case m.SavedPaypal == nil:
+		return "not_linked"
+	case m.SavedPaypal.Status == "deletion_pending":
+		return "unlinking"
+	default:
+		return "linked"
+	}
+}
+
+// toast tells the next customer page that an operation went through.
+func (a *App) toast(id, msg string) {
+	a.updateBrowser(id, func(b *Browser) { b.Toast = msg })
 }
 
 func (a *App) linkPaypal(w http.ResponseWriter, r *http.Request) {
@@ -853,13 +888,12 @@ func (a *App) linkPaypal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if b.MemberID == "" {
-		a.flash(id, "Linking PayPal needs an account. Sign up or log in first.")
-		redirect(w, r, "/settings")
+		redirect(w, r, paypalPage)
 		return
 	}
 	if r.PostFormValue("agree") != "yes" {
-		a.flash(id, "To link PayPal, agree to the terms above.")
-		redirect(w, r, "/settings")
+		a.alert(id, "Please agree to the terms")
+		redirect(w, r, paypalPage)
 		return
 	}
 	// state ties the return from PayPal to this browser session: a return to any other browser
@@ -870,16 +904,19 @@ func (a *App) linkPaypal(w http.ResponseWriter, r *http.Request) {
 	})
 	ctx, cancel := a.ctx(r)
 	defer cancel()
-	link, err := a.barpay.createPaypalLink(ctx, b.MemberID, state, consentVersion, a.cfg.PublicURL.String()+"/paypal/return")
+	link, err := a.barpay.createPaypalLink(ctx, b.MemberID, state, consentVersion, a.cfg.PublicURL.String()+paypalPage+"/return")
 	if err != nil {
 		a.updateBrowser(id, func(b *Browser) { b.LinkState, b.LinkMemberID = "", "" })
 		switch errorCode(err) {
 		case "saved_paypal_exists":
-			a.flash(id, "You already have a saved PayPal, or its deletion is still in progress.")
+			// While it is being unlinked, the page says so itself.
+			if m, err := a.barpay.getMember(ctx, b.MemberID); err != nil || paypalStatus(m) != "unlinking" {
+				a.flash(id, "PayPal is already linked")
+			}
 		default:
-			a.flash(id, "We could not start linking PayPal. Try again later.")
+			a.alert(id, "Couldn't start linking. Please try again later")
 		}
-		redirect(w, r, "/settings")
+		redirect(w, r, paypalPage)
 		return
 	}
 	// Opened as a full page: PayPal approval is not expected to work inside a frame.
@@ -899,13 +936,15 @@ func (a *App) paypalReturn(w http.ResponseWriter, r *http.Request) {
 		subtle.ConstantTimeCompare([]byte(state), []byte(b.LinkState)) == 1 &&
 		time.Now().Before(b.LinkExpiresAt) && b.MemberID != "" && b.MemberID == b.LinkMemberID
 	if !matches {
-		a.flash(id, "This PayPal link was started in another browser, or has expired. Nothing was saved. Log in here and link PayPal again from this browser.")
-		redirect(w, r, "/settings")
+		a.alert(id, "This link was started in another browser or has expired. Nothing was saved. Please link again here")
+		redirect(w, r, paypalPage)
 		return
 	}
 	a.updateBrowser(id, func(b *Browser) { b.LinkState, b.LinkMemberID = "", "" })
 
-	msg := ""
+	// tell is how the message is shown: a toast when PayPal got linked, a red notice when the
+	// customer has to do something again, a yellow one otherwise.
+	tell, msg := a.alert, ""
 	switch result {
 	case "approved":
 		ctx, cancel := a.ctx(r)
@@ -914,32 +953,32 @@ func (a *App) paypalReturn(w http.ResponseWriter, r *http.Request) {
 		switch errorCode(err) {
 		case "":
 			if err == nil {
-				msg = "PayPal is linked. From now on you can pay by walking out through the exit gate."
+				tell, msg = a.toast, paypalLinkedNotice
 				a.store.update(func(d *Data) error {
 					d.toldByAnswer(b.MemberID, "member.paypal_linked", paypalLinkedNotice)
 					return nil
 				})
 			} else {
-				msg = "We could not confirm the link. Check below whether PayPal is linked, and link again if it is not."
+				tell, msg = a.flash, "Couldn't confirm the link. If PayPal isn't linked below, link it again"
 			}
 		case "link_code_invalid":
-			msg = "This link has expired or was already used. Nothing was saved. You can link PayPal again."
+			msg = "The link expired. Nothing was saved. Please link again"
 		case "saved_paypal_exists":
-			msg = "You already have a saved PayPal."
+			tell, msg = a.flash, "PayPal is already linked"
 		case "paypal_account_already_linked":
-			msg = "This PayPal account is already linked to another member. Nothing was saved. Link another PayPal account or pay at the register."
+			msg = "This PayPal account is linked to another member. Nothing was saved"
 		default:
-			msg = "PayPal did not save it. Nothing was saved. You can link PayPal again."
+			msg = "PayPal didn't link it. Nothing was saved. Please try again"
 		}
 	case "cancelled":
-		msg = "You cancelled in PayPal. Nothing was saved. You can link later or pay at the register."
+		tell, msg = a.flash, "You cancelled in PayPal. Nothing was saved"
 	case "expired":
-		msg = "The link expired before you opened it. Nothing was saved. You can link PayPal again."
+		msg = "The link expired. Nothing was saved. Please link again"
 	default:
-		msg = "PayPal did not approve. Nothing was saved. You can try again."
+		msg = "PayPal didn't link it. Nothing was saved. Please try again"
 	}
-	a.flash(id, msg)
-	redirect(w, r, "/settings")
+	tell(id, msg)
+	redirect(w, r, paypalPage)
 }
 
 func (a *App) deletePaypal(w http.ResponseWriter, r *http.Request) {
@@ -948,29 +987,25 @@ func (a *App) deletePaypal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if b.MemberID == "" {
-		redirect(w, r, "/settings")
+		redirect(w, r, paypalPage)
 		return
 	}
 	ctx, cancel := a.ctx(r)
 	defer cancel()
 	confirmed, err := a.barpay.deleteSavedPaypal(ctx, b.MemberID)
-	var msg string
 	switch {
 	case err == nil && confirmed:
-		msg = savedPaypalDeletedNotice
+		a.toast(id, savedPaypalDeletedNotice)
 		a.store.update(func(d *Data) error {
 			d.toldByAnswer(b.MemberID, "member.saved_paypal_deleted", savedPaypalDeletedNotice)
 			return nil
 		})
-	case err == nil:
-		msg = "Deleting your saved PayPal is in progress. It shows here once PayPal confirms."
-	case errorCode(err) == "saved_paypal_in_use":
-		msg = "Your saved PayPal is in use by your current visit. You can delete it after you pay."
+	case err == nil, errorCode(err) == "saved_paypal_in_use":
+		// The page shows that it is being unlinked, or that the current visit uses it.
 	case errorCode(err) == "saved_paypal_not_found":
-		msg = "You have no saved PayPal."
+		a.flash(id, "PayPal isn't linked")
 	default:
-		msg = "We could not delete your saved PayPal. Try again later."
+		a.alert(id, "Couldn't unlink. Please try again later")
 	}
-	a.flash(id, msg)
-	redirect(w, r, "/settings")
+	redirect(w, r, paypalPage)
 }
