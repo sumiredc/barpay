@@ -14,20 +14,21 @@ import (
 
 // View is the spec's Session: a session as lookup shows it at one instant.
 type View struct {
-	SessionID         string         `json:"session_id"`
-	State             State          `json:"state"`
-	MemberID          *string        `json:"member_id"`
-	PaymentMethod     string         `json:"payment_method"`
-	CheckedInAt       string         `json:"checked_in_at"`
-	TotalFixedAt      string         `json:"total_fixed_at,omitempty"`
-	RatePerHour       httpapi.Money  `json:"rate_per_hour"`
-	CoverChargeStatus pricing.Status `json:"cover_charge_status"`
-	OrdersTotal       httpapi.Money  `json:"orders_total"`
-	CoverCharge       httpapi.Money  `json:"cover_charge"`
-	Total             httpapi.Money  `json:"total"`
-	OrderCount        int            `json:"order_count"`
-	UnpaidAmount      *httpapi.Money `json:"unpaid_amount"`
-	Receipt           any            `json:"receipt"`
+	SessionID            string         `json:"session_id"`
+	State                State          `json:"state"`
+	MemberID             *string        `json:"member_id"`
+	PaymentMethod        string         `json:"payment_method"`
+	CheckedInAt          string         `json:"checked_in_at"`
+	TotalFixedAt         string         `json:"total_fixed_at,omitempty"`
+	RatePerHour          httpapi.Money  `json:"rate_per_hour"`
+	CoverChargeStatus    pricing.Status `json:"cover_charge_status"`
+	CoverChargeResumesAt *string        `json:"cover_charge_resumes_at"`
+	OrdersTotal          httpapi.Money  `json:"orders_total"`
+	CoverCharge          httpapi.Money  `json:"cover_charge"`
+	Total                httpapi.Money  `json:"total"`
+	OrderCount           int            `json:"order_count"`
+	UnpaidAmount         *httpapi.Money `json:"unpaid_amount"`
+	Receipt              any            `json:"receipt"`
 }
 
 // view shows s at now, reading through q. q must give every read the same state (a transaction),
@@ -90,6 +91,10 @@ func compute(ctx context.Context, q store.Querier, s Session, now time.Time) (Vi
 	}
 	if !s.TotalFixedAt.IsZero() {
 		v.TotalFixedAt = httpapi.FormatTime(s.TotalFixedAt)
+	}
+	if cc.Status == pricing.Paused {
+		at := httpapi.FormatTime(cc.ResumesAt)
+		v.CoverChargeResumesAt = &at
 	}
 	if s.State == PaymentFailed {
 		// What BarPay could not confirm as paid: the total it tried to charge.

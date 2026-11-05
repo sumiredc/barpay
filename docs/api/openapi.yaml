@@ -1659,6 +1659,7 @@ components:
         - checked_in_at
         - rate_per_hour
         - cover_charge_status
+        - cover_charge_resumes_at
         - orders_total
         - cover_charge
         - total
@@ -1689,6 +1690,21 @@ components:
           $ref: '#/components/schemas/Money'
         cover_charge_status:
           $ref: '#/components/schemas/CoverChargeStatus'
+        cover_charge_resumes_at:
+          description: |
+            PRD: Pricing model → Pause for additional orders.
+
+            While `cover_charge_status` is `paused`, the instant the pause
+            ends: the latest order after the first plus the pause in the
+            settings of the block in progress. From that instant on the
+            cover charge is no longer paused. Otherwise `null`. It can move
+            without a new order: a pause changed in the settings applies
+            from the next block, so the instant is computed again when that
+            block starts.
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
         orders_total:
           $ref: '#/components/schemas/Total'
         cover_charge:
