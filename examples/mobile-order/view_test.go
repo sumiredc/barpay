@@ -22,14 +22,8 @@ func renderPage(t *testing.T, name string, v view) string {
 	return rec.Body.String()
 }
 
-type landingData struct {
-	Rate            *RatePoint
-	InVisit         bool
-	EndedGuestVisit string
-}
-
 func TestCustomerPagesUseTheCustomerLayout(t *testing.T) {
-	body := renderPage(t, "login", view{})
+	body := renderPage(t, "login", view{Data: loginInput{}})
 	for _, want := range []string{`data-app="customer"`, `href="/static/customer.css"`, `src="/static/customer.js"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("login page lacks %s", want)
@@ -125,7 +119,7 @@ func TestTheAccountTabPointsToSettings(t *testing.T) {
 }
 
 func TestACartbarGivesTheBodyRoomForIt(t *testing.T) {
-	body := renderPage(t, "signup", view{})
+	body := renderPage(t, "signup", view{Data: signupInput{}})
 	if !strings.Contains(body, `<body data-app="customer" class="has-cart">`) {
 		t.Error("sign-up page lacks has-cart, or has has-tabbar")
 	}
@@ -135,7 +129,7 @@ func TestACartbarGivesTheBodyRoomForIt(t *testing.T) {
 }
 
 func TestMessagesOfTheCustomerPages(t *testing.T) {
-	body := renderPage(t, "login", view{Alert: "The email or password is wrong.", Flash: "Log in again.", Toast: "You're checked in"})
+	body := renderPage(t, "login", view{Alert: "The email or password is wrong.", Flash: "Log in again.", Toast: "You're checked in", Data: loginInput{}})
 	for _, want := range []string{
 		`<p class="notice bad" role="alert"><i data-icon="alert"></i><span>The email or password is wrong.</span></p>`,
 		`<p class="notice info" role="status"><i data-icon="info"></i><span>Log in again.</span></p>`,
@@ -147,18 +141,20 @@ func TestMessagesOfTheCustomerPages(t *testing.T) {
 	}
 }
 
-// The layout leaves the notices to each page, so a page that forgets them drops its messages.
+// The layout leaves the notices to each page, so a page that forgets them drops its messages. A
+// page whose h1 is inside a state (.state) puts them first, as it has no h1 heading its content.
 func TestEveryCustomerPageShowsTheNotices(t *testing.T) {
+	heading := regexp.MustCompile(`(?m)^<h1>`)
 	belowH1 := regexp.MustCompile(`(?m)^<h1>.*</h1>\n\{\{template "notices" \.\}\}$`)
-	first := regexp.MustCompile(`^\{\{define "content"\}\}\n\{\{template "notices" \.\}\}\n`)
+	first := regexp.MustCompile(`(?m)^\{\{define "content"\}\}\n\{\{template "notices" \.\}\}\n`)
 	for name := range customerPages {
 		src, err := templateFS.ReadFile("templates/" + name + ".html")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(src), "<h1>") && !belowH1.Match(src) {
+		if heading.Match(src) && !belowH1.Match(src) {
 			t.Errorf("%s does not put the notices right below its h1", name)
-		} else if !strings.Contains(string(src), "<h1>") && !first.Match(src) {
+		} else if !heading.Match(src) && !first.Match(src) {
 			t.Errorf("%s has no h1 and does not put the notices first", name)
 		}
 	}

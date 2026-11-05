@@ -116,6 +116,13 @@ type RatePoint struct {
 	PublishedAt time.Time `json:"published_at"`
 }
 
+// CurrentRate is the rate published now, with the cap per visit of the settings in effect, so a
+// customer sees the cap before checking in.
+type CurrentRate struct {
+	RatePoint
+	CapPerVisit Money `json:"cap_per_visit"` // 0 for no cap
+}
+
 type RateEvaluation struct {
 	Rate      RatePoint `json:"rate"`
 	Evaluated bool      `json:"evaluated"`
@@ -332,8 +339,8 @@ func (b *BarPay) getExitToken(ctx context.Context, sessionID string) (*ExitToken
 	return &t, err
 }
 
-func (b *BarPay) getRate(ctx context.Context) (*RatePoint, error) {
-	var r RatePoint
+func (b *BarPay) getRate(ctx context.Context) (*CurrentRate, error) {
+	var r CurrentRate
 	_, err := b.do(ctx, call{method: "GET", path: "/rate", out: &r}, true)
 	return &r, err
 }

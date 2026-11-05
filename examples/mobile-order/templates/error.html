@@ -1,6 +1,15 @@
 {{define "content"}}
-<h1>Something went wrong</h1>
 {{template "notices" .}}
-<div class="card"><p>{{.Data}}</p></div>
-<p><a class="button secondary" href="/">Back to the start</a></p>
+<div class="state bad">
+  <i data-icon="alert"></i>
+  <h1>{{.Data.Title}}</h1>
+  {{with .Data.Text}}<p>{{.}}</p>{{end}}
+</div>
+{{end}}
+{{define "cartbar"}}
+{{- with .Data}}{{if .Post -}}
+<form method="post" action="{{.Href}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="button" type="submit" style="justify-content: center"><i data-icon="rotate-cw"></i> {{.Button}}</button></form>
+{{- else -}}
+<a class="button" href="{{.Href}}" style="justify-content: center">{{.Button}}</a>
+{{- end}}{{end -}}
 {{end}}

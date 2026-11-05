@@ -118,6 +118,8 @@ button.chip { cursor: pointer; }
 .rate-pair .rate-label { margin: 0; font-size: 0.85rem; }
 .rate-pair .rate { margin: 0; font-size: 1.75rem; line-height: 1.2; }
 .rate-pair .rate small { font-size: 0.9rem; font-weight: 600; color: var(--muted); margin-left: 2px; }
+/* With no cap per visit, the cover charge stands alone in the middle */
+.rate-pair > div:only-child { grid-column: 1 / -1; }
 
 /* The tab bar at the bottom */
 :root { --tabbar-h: 64px; }

@@ -284,7 +284,7 @@ func (a *App) adminPricing(w http.ResponseWriter, r *http.Request, id string, b 
 	defer cancel()
 	v := a.adminView(id, b, "Pricing")
 	data := struct {
-		Rate      *RatePoint
+		Rate      *CurrentRate
 		Settings  *Settings
 		Decisions []Decision
 		Next      string

@@ -1,52 +1,83 @@
+{{- /* Before entering, the entrance puts its actions at the bottom, below a large logo. */ -}}
+{{define "main-class"}}{{if not .Tabbar}} class="entry"{{end}}{{end}}
 {{define "content"}}
-<h1>Welcome to {{.StoreName}}</h1>
 {{template "notices" .}}
-<div class="card">
-  <p>Our cover charge moves with the room: it is a rate per hour, charged every few minutes while you stay, and capped per visit. You see the rate and your running total on your phone the whole time.</p>
-  {{with .Data.Rate}}
-    <div class="stat"><div class="label">Cover charge now</div><div class="big">{{money .RatePerHour}}/h</div></div>
-  {{else}}
-    <p class="muted">The current rate is not available right now.</p>
-  {{end}}
-</div>
-
 {{if .Data.InVisit}}
-  <div class="card">
-    <p>You are checked in.</p>
-    <div class="row"><a class="button" href="/panel">Go to my visit</a> <a class="button secondary" href="/menu">Order</a></div>
-  </div>
+  <div class="state good"><i data-icon="circle-check"></i><h1>You're checked in</h1></div>
 {{else if .Data.EndedGuestVisit}}
-  <div class="card">
-    <p>Your visit has ended.</p>
-    <div class="row">
-      <a class="button secondary" href="/receipts/{{.Data.EndedGuestVisit}}">See receipt</a>
-      <form method="post" action="/visit/done"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="button" type="submit">Done (this receipt will no longer be shown)</button></form>
-    </div>
-    <p class="muted">As a guest, you can see this receipt only until you press Done. Save it now if you need it.</p>
-  </div>
-{{else if .Member}}
-  <div class="card">
-    <p>Logged in as <strong>{{.Member.Name}}</strong>.</p>
-    <form method="post" action="/checkin">
+  <div class="state good"><i data-icon="circle-check"></i><h1>Thank you</h1></div>
+  <div class="center"><a class="textbutton" href="/receipts/{{.Data.EndedGuestVisit}}">View receipt<i data-icon="chevron-right"></i></a></div>
+  <dialog class="sheet" id="done-confirm">
+    <form method="post" action="/visit/done">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
-      <button class="button" type="submit">Check in</button>
+      <h2>Finish your visit?</h2>
+      <p class="muted">You won't be able to see this receipt again</p>
+      <div class="stack"><button class="button" type="submit">Finish</button></div>
     </form>
-    <p class="muted">Members can link PayPal in <a href="/settings">Settings</a> and pay by walking out through the exit gate.</p>
-  </div>
+  </dialog>
 {{else}}
-  <div class="card">
-    <h2>Members</h2>
-    <p>Log in to check in, keep your receipts and pay by walking out with PayPal.</p>
-    <div class="row"><a class="button" href="/login">Log in</a> <a class="button secondary" href="/signup">Sign up</a></div>
+  <img class="logo" src="/static/logo.svg" alt="">
+  <p class="store">{{.StoreName}}</p>
+  <div class="center">
+    {{if .Data.Rate}}
+      <button class="chip" type="button" data-sheet="rate-info"><i data-icon="clock"></i>Cover charge now<i data-icon="chevron-right"></i></button>
+    {{else}}
+      <span class="chip off"><i data-icon="clock"></i>Can't load the rate</span>
+    {{end}}
   </div>
-  <div class="card">
-    <h2>Guests</h2>
-    <p>No account needed. Guests pay at the register.</p>
-    <form method="post" action="/guest">
-      <input type="hidden" name="csrf" value="{{.CSRF}}">
-      <button class="button secondary" type="submit">Join as guest</button>
-    </form>
-  </div>
+  {{if .Member}}
+    <div class="actions stack">
+      <p class="greeting">Hi, {{.Member.Name}}</p>
+      <button class="button" type="button" data-sheet="checkin-confirm">Check in</button>
+      {{if .Data.PaypalUnlinked}}<a class="textbutton" href="/settings" style="align-self: center"><i data-icon="credit-card"></i>&nbsp;PayPal not linked<i data-icon="chevron-right"></i></a>{{end}}
+      <form method="post" action="/logout" class="center"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="textbutton muted" type="submit">Log out</button></form>
+    </div>
+    <dialog class="sheet" id="checkin-confirm">
+      <form method="post" action="/checkin">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <h2>Check in</h2>
+        {{template "rate-pair" .Data.Rate}}
+        <div class="stack"><button class="button" type="submit">Enter</button></div>
+      </form>
+    </dialog>
+  {{else}}
+    <div class="actions stack">
+      <a class="button" href="/login">Log in</a>
+      <a class="button secondary" href="/signup">Sign up</a>
+      <div class="divider">or</div>
+      <button class="textbutton" type="button" data-sheet="guest-confirm" style="align-self: center">Continue as guest<i data-icon="chevron-right"></i></button>
+    </div>
+    <dialog class="sheet" id="guest-confirm">
+      <form method="post" action="/guest">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <h2>Continue as guest</h2>
+        {{template "rate-pair" .Data.Rate}}
+        <ul class="facts">
+          <li>You'll pay at the register</li>
+        </ul>
+        <div class="stack"><button class="button" type="submit">Enter</button></div>
+      </form>
+    </dialog>
+  {{end}}
+  {{with .Data.Rate}}
+    <dialog class="sheet" id="rate-info">
+      {{template "rate-pair" .}}
+      <ul class="benefits">
+        <li><i data-icon="check"></i>Adds up while you stay</li>
+        <li><i data-icon="check"></i>Changes with how busy we are</li>
+      </ul>
+    </dialog>
+  {{end}}
 {{end}}
-<p class="muted"><a href="/admin">Staff</a></p>
 {{end}}
+{{- /* The rate and the cap per visit side by side; a rate that could not be read draws nothing, and
+       a cap of 0 (no cap) leaves the rate alone in the middle. */ -}}
+{{define "rate-pair"}}
+{{with .}}
+<div class="rate-pair">
+  <div><span class="rate-label">Cover charge</span><span class="rate">{{money .RatePerHour}}<small>/h</small></span></div>
+  {{if .CapPerVisit.Value}}<div><span class="rate-label">Cap per visit</span><span class="rate">{{money .CapPerVisit}}</span></div>{{end}}
+</div>
+{{end}}
+{{end}}
+{{define "cartbar"}}{{if .Data.EndedGuestVisit}}<button class="button" type="button" data-sheet="done-confirm" style="justify-content: center">Done</button>{{end}}{{end}}

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"rsc.io/qr"
 )
@@ -95,10 +96,25 @@ func (a *App) postForm(w http.ResponseWriter, r *http.Request) (string, Browser,
 	return id, b, true
 }
 
-func (a *App) fail(w http.ResponseWriter, id string, b Browser, msg string) {
-	v := a.baseView(id, b, "Something went wrong")
-	v.Data = msg
+// failure is what the error page shows: what went wrong, what to do now, and the one button at
+// the bottom that leads on.
+type failure struct {
+	Title, Text string
+	Button      string
+	// Href is where Button goes. With Post, Button sends the form there instead, as trying again.
+	Href string
+	Post bool
+}
+
+func (a *App) fail(w http.ResponseWriter, id string, b Browser, f failure) {
+	v := a.baseView(id, b, f.Title)
+	v.Data = f
 	a.render(w, http.StatusBadGateway, "error", v)
+}
+
+// couldNotLoad is the failure of a page that could not read BarPay: Try again opens it again.
+func couldNotLoad(r *http.Request) failure {
+	return failure{Title: "Couldn't load", Button: "Try again", Href: r.URL.RequestURI()}
 }
 
 // Entrance landing, sign-up, login and guest join.
@@ -107,14 +123,7 @@ func (a *App) landing(w http.ResponseWriter, r *http.Request) {
 	id, b := a.browser(w, r)
 	ctx, cancel := a.ctx(r)
 	defer cancel()
-	data := struct {
-		Rate    *RatePoint
-		InVisit bool
-		// EndedGuestVisit is a guest visit that ended, whose receipt is seen only until Done, also
-		// by a guest who signed up during it. A member's ended visit needs nothing here: its
-		// receipt stays in Receipts and Check in starts a new one.
-		EndedGuestVisit string
-	}{InVisit: b.SessionID != ""}
+	data := landingData{InVisit: b.SessionID != ""}
 	if b.SessionID != "" {
 		// A visit read as ended is over; one that could not be read is taken as still open.
 		s, err := a.barpay.getSession(ctx, b.SessionID)
@@ -135,78 +144,146 @@ func (a *App) landing(w http.ResponseWriter, r *http.Request) {
 	v := a.baseView(id, b, "Welcome")
 	// Before login and before a member's check-in the entrance is the start, so it has no tabs.
 	v.Tabbar = data.InVisit || data.EndedGuestVisit != ""
-	if rate, err := a.barpay.getRate(ctx); err == nil {
-		data.Rate = rate
+	if !v.Tabbar {
+		// The rate is shown before entering only. One that cannot be read is left out, and the
+		// customer can still enter: the bill shows it later.
+		if rate, err := a.barpay.getRate(ctx); err == nil {
+			data.Rate = rate
+		}
+		if v.Member != nil {
+			// A saved PayPal that cannot be read is not said to be missing.
+			m, err := a.barpay.getMember(ctx, v.Member.ID)
+			data.PaypalUnlinked = err == nil && m.SavedPaypal == nil
+		}
 	}
 	v.Data = data
 	a.render(w, http.StatusOK, "landing", v)
 }
 
+type landingData struct {
+	// Rate is nil when BarPay's rate could not be read.
+	Rate    *CurrentRate
+	InVisit bool
+	// EndedGuestVisit is a guest visit that ended, whose receipt is seen only until Done, also
+	// by a guest who signed up during it. A member's ended visit needs nothing here: its
+	// receipt stays in Receipts and Check in starts a new one.
+	EndedGuestVisit string
+	PaypalUnlinked  bool
+}
+
+// signupInput is what the sign-up page shows: what was entered, but the password, and the error
+// under each field.
+type signupInput struct {
+	Name, Email                          string
+	NameError, EmailError, PasswordError string
+}
+
 func (a *App) signupForm(w http.ResponseWriter, r *http.Request) {
 	id, b := a.browser(w, r)
-	a.render(w, http.StatusOK, "signup", a.baseView(id, b, "Sign up"))
+	v := a.baseView(id, b, "Sign up")
+	v.Data = signupInput{}
+	a.render(w, http.StatusOK, "signup", v)
 }
 
 func (a *App) signup(w http.ResponseWriter, r *http.Request) {
-	id, _, ok := a.postForm(w, r)
+	id, b, ok := a.postForm(w, r)
 	if !ok {
 		return
 	}
-	email := strings.ToLower(strings.TrimSpace(r.PostFormValue("email")))
-	name := strings.TrimSpace(r.PostFormValue("name"))
+	in := signupInput{Name: strings.TrimSpace(r.PostFormValue("name")), Email: strings.TrimSpace(r.PostFormValue("email"))}
+	email := strings.ToLower(in.Email)
 	password := r.PostFormValue("password")
-	switch {
-	case func() bool { _, err := mail.ParseAddress(email); return err != nil }():
-		a.flash(id, "Enter a valid email address.")
-	case name == "" || len(name) > 60:
-		a.flash(id, "Enter your name (up to 60 characters).")
-	case len(password) < 8:
-		a.flash(id, "Choose a password of at least 8 characters.")
-	default:
-		hash := hashPassword(password)
-		m := &MemberAccount{ID: randomID("m_"), Email: email, Name: name, PasswordHash: hash, CreatedAt: time.Now()}
-		taken := false
-		a.store.update(func(d *Data) error {
-			for _, other := range d.Members {
-				if other.Email == email {
-					taken = true
-					return nil
-				}
-			}
-			d.Members[m.ID] = m
-			return nil
-		})
-		if taken {
-			a.flash(id, "An account with this email already exists. Log in instead.")
-			redirect(w, r, "/login")
-			return
-		}
-		// A guest who signs up during a visit keeps it: it stays a guest visit, paid at the
-		// register, and the account is used from the next check-in.
-		a.renewBrowser(w, id, func(nb *Browser) {
-			if !nb.Guest {
-				nb.SessionID = ""
-			}
-			nb.MemberID, nb.Guest, nb.StaffID = m.ID, false, ""
-			nb.Toast = "Welcome, " + name + ". Your account is ready"
-		})
-		redirect(w, r, "/")
+	if in.Name == "" || utf8.RuneCountInString(in.Name) > 60 {
+		in.NameError = "Enter your name (up to 60 characters)"
+	}
+	if _, err := mail.ParseAddress(email); err != nil {
+		in.EmailError = "Enter a valid email address"
+	}
+	if !strongPassword(password) {
+		in.PasswordError = "Use 8+ characters with upper and lower case letters, a number and a symbol"
+	}
+	if in.NameError != "" || in.EmailError != "" || in.PasswordError != "" {
+		// Drawn again here, so the customer corrects the field instead of typing it all again.
+		v := a.baseView(id, b, "Sign up")
+		v.Data = in
+		a.render(w, http.StatusOK, "signup", v)
 		return
 	}
-	redirect(w, r, "/signup")
+	hash := hashPassword(password)
+	m := &MemberAccount{ID: randomID("m_"), Email: email, Name: in.Name, PasswordHash: hash, CreatedAt: time.Now()}
+	taken := false
+	a.store.update(func(d *Data) error {
+		for _, other := range d.Members {
+			if other.Email == email {
+				taken = true
+				return nil
+			}
+		}
+		d.Members[m.ID] = m
+		return nil
+	})
+	if taken {
+		a.updateBrowser(id, func(b *Browser) {
+			b.Flash = "This email is already registered. Please log in"
+			b.LoginEmail = in.Email
+		})
+		redirect(w, r, "/login")
+		return
+	}
+	// A guest who signs up during a visit keeps it: it stays a guest visit, paid at the
+	// register, and the account is used from the next check-in.
+	a.renewBrowser(w, id, func(nb *Browser) {
+		if !nb.Guest {
+			nb.SessionID = ""
+		}
+		nb.MemberID, nb.Guest, nb.StaffID = m.ID, false, ""
+		nb.Toast = "Welcome, " + in.Name + ". Your account is ready"
+	})
+	redirect(w, r, "/")
+}
+
+// strongPassword tells a password of 8 or more characters with a lower case letter, an upper
+// case letter, a digit and a symbol (any other character), as the sign-up page asks.
+func strongPassword(p string) bool {
+	var lower, upper, digit, symbol bool
+	for _, c := range p {
+		switch {
+		case 'a' <= c && c <= 'z':
+			lower = true
+		case 'A' <= c && c <= 'Z':
+			upper = true
+		case '0' <= c && c <= '9':
+			digit = true
+		default:
+			symbol = true
+		}
+	}
+	return utf8.RuneCountInString(p) >= 8 && lower && upper && digit && symbol
+}
+
+// loginInput is the email the login page fills in: the one entered, or the one a sign-up found
+// already registered.
+type loginInput struct {
+	Email string
 }
 
 func (a *App) loginForm(w http.ResponseWriter, r *http.Request) {
 	id, b := a.browser(w, r)
-	a.render(w, http.StatusOK, "login", a.baseView(id, b, "Log in"))
+	if b.LoginEmail != "" {
+		a.updateBrowser(id, func(b *Browser) { b.LoginEmail = "" })
+	}
+	v := a.baseView(id, b, "Log in")
+	v.Data = loginInput{Email: b.LoginEmail}
+	a.render(w, http.StatusOK, "login", v)
 }
 
 func (a *App) login(w http.ResponseWriter, r *http.Request) {
-	id, _, ok := a.postForm(w, r)
+	id, b, ok := a.postForm(w, r)
 	if !ok {
 		return
 	}
-	email := strings.ToLower(strings.TrimSpace(r.PostFormValue("email")))
+	entered := strings.TrimSpace(r.PostFormValue("email"))
+	email := strings.ToLower(entered)
 	password := r.PostFormValue("password")
 	var m *MemberAccount
 	a.store.view(func(d *Data) {
@@ -217,15 +294,18 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	})
-	if m == nil {
-		checkPassword(a.dummyHash, password)
-		a.alert(id, "The email or password is wrong.")
-		redirect(w, r, "/login")
-		return
+	// An unknown email is checked against a dummy hash too, so it takes as long as a wrong
+	// password.
+	hash := a.dummyHash
+	if m != nil {
+		hash = m.PasswordHash
 	}
-	if !checkPassword(m.PasswordHash, password) {
-		a.alert(id, "The email or password is wrong.")
-		redirect(w, r, "/login")
+	if !checkPassword(hash, password) || m == nil {
+		// Drawn again here with the email kept, so only the password is typed again.
+		v := a.baseView(id, b, "Log in")
+		v.Alert = "Wrong email or password"
+		v.Data = loginInput{Email: entered}
+		a.render(w, http.StatusOK, "login", v)
 		return
 	}
 	a.renewBrowser(w, id, func(nb *Browser) {
@@ -311,16 +391,16 @@ func (a *App) startVisit(w http.ResponseWriter, r *http.Request, id string, b Br
 	})
 	s, err := a.barpay.createCheckin(ctx, key, b.MemberID)
 	if errors.Is(err, ErrNoAnswer) {
-		a.fail(w, id, b, "We could not reach the payment service to check you in. Press Check in again: you will not be checked in twice.")
+		a.fail(w, id, b, failure{Title: "Couldn't connect", Text: "Trying again won't check you in twice", Button: "Check in again", Href: "/checkin", Post: true})
 		return
 	}
 	a.store.update(func(d *Data) error { delete(d.PendingKeys, keyName); return nil })
 	if err != nil {
-		msg := "We could not check you in. Please see staff."
+		f := failure{Title: "Couldn't check in", Text: "Please ask a staff member", Button: "Back", Href: "/"}
 		if errorCode(err) == "member_has_open_session" {
-			msg = "You already have an open visit on another device. Please see staff."
+			f.Title = "You're checked in on another device"
 		}
-		a.fail(w, id, b, msg)
+		a.fail(w, id, b, f)
 		return
 	}
 	a.store.update(func(d *Data) error {
@@ -349,7 +429,7 @@ func (a *App) visitSession(w http.ResponseWriter, r *http.Request, id string, b 
 	defer cancel()
 	s, err := a.barpay.getSession(ctx, b.SessionID)
 	if err != nil {
-		a.fail(w, id, b, "We could not read your visit right now. Try again in a moment.")
+		a.fail(w, id, b, couldNotLoad(r))
 		return nil, false
 	}
 	a.store.update(func(d *Data) error { d.remember(s); return nil })
@@ -544,7 +624,7 @@ func (a *App) payAtRegister(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	s, err := a.barpay.requestRegister(ctx, b.SessionID)
 	if err != nil {
-		a.fail(w, id, b, "We could not send you to the register. Please see staff.")
+		a.fail(w, id, b, failure{Title: "Couldn't send you to the register", Text: "Please ask a staff member", Button: "Back", Href: "/panel"})
 		return
 	}
 	a.store.update(func(d *Data) error { d.remember(s); return nil })
@@ -661,7 +741,7 @@ func (a *App) receipt(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	s, err := a.barpay.getSession(ctx, sessionID)
 	if err != nil {
-		a.fail(w, id, b, "We could not read this receipt right now. Try again in a moment.")
+		a.fail(w, id, b, couldNotLoad(r))
 		return
 	}
 	var orders []Order
