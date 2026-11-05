@@ -165,7 +165,7 @@ func TestAnOrderSentAgainIsToldByAToast(t *testing.T) {
 
 func TestSigningUpIsToldByAToast(t *testing.T) {
 	c := newCustomer(t)
-	page := c.post("/signup", "/signup", url.Values{"name": {"Taro"}, "email": {"taro@example.com"}, "password": {"correct horse"}})
+	page := c.post("/signup", "/signup", url.Values{"name": {"Taro"}, "email": {"taro@example.com"}, "password": {"Correct horse 1"}})
 	if !strings.Contains(page, `<span>Welcome, Taro. Your account is ready</span>`) || !strings.Contains(page, toastClass) {
 		t.Error("signing up is not told by a toast")
 	}

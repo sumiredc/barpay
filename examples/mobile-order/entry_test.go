@@ -123,6 +123,51 @@ func (c *customer) get(path string) (int, string) {
 	return resp.StatusCode, string(b)
 }
 
+const passwordError = "Use 8&#43; characters with upper and lower case letters, a number and a symbol"
+
+func TestSignUpRefusesAPasswordWithoutEveryKindOfCharacterAndKeepsNameAndEmail(t *testing.T) {
+	for _, password := range []string{"abcdefgh", "Abcdefgh", "Abcdefg1", "ABCDEF1!", "Abcde1!"} {
+		c := newEntryCustomer(t, &entryBarPay{})
+		page := c.post("/signup", "/signup", url.Values{"name": {"Taro"}, "email": {"taro@example.com"}, "password": {password}})
+		if !strings.Contains(page, passwordError) {
+			t.Errorf("%s: the sign-up page does not tell the password is refused", password)
+		}
+		if !strings.Contains(page, `name="name" type="text" required maxlength="60" autocomplete="name" value="Taro"`) ||
+			!strings.Contains(page, `name="email" type="email" required autocomplete="email" value="taro@example.com"`) {
+			t.Errorf("%s: the name or the email is not kept", password)
+		}
+		if strings.Contains(c.open("/"), "Hi, Taro") {
+			t.Errorf("%s: the customer became a member", password)
+		}
+	}
+}
+
+func TestSignUpTakesAPasswordWithEveryKindOfCharacter(t *testing.T) {
+	c := newEntryCustomer(t, &entryBarPay{})
+	page := c.post("/signup", "/signup", url.Values{"name": {"Taro"}, "email": {"taro@example.com"}, "password": {"Abcdef1!"}})
+	if !strings.Contains(page, "Hi, Taro") {
+		t.Error("a password of 8 characters with every kind does not make a member")
+	}
+}
+
+func TestSignUpCountsTheNameInCharacters(t *testing.T) {
+	const nameError = "Enter your name (up to 60 characters)"
+	for _, tt := range []struct {
+		length int
+		taken  bool
+	}{{60, true}, {61, false}} {
+		c := newEntryCustomer(t, &entryBarPay{})
+		name := strings.Repeat("太", tt.length)
+		page := c.post("/signup", "/signup", url.Values{"name": {name}, "email": {"taro@example.com"}, "password": {"Abcdef1!"}})
+		if member := strings.Contains(page, "Hi, "+name); member != tt.taken {
+			t.Errorf("a name of %d Japanese characters: member %v, want %v", tt.length, member, tt.taken)
+		}
+		if refused := strings.Contains(page, nameError); refused == tt.taken {
+			t.Errorf("a name of %d Japanese characters: name error shown %v", tt.length, refused)
+		}
+	}
+}
+
 // sheet returns the dialog with the id from page, or "".
 func sheet(page, id string) string {
 	start := strings.Index(page, `<dialog class="sheet" id="`+id+`">`)

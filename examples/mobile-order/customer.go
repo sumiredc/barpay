@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"rsc.io/qr"
 )
@@ -170,58 +171,91 @@ type landingData struct {
 	PaypalUnlinked  bool
 }
 
+// signupInput is what the sign-up page shows: what was entered, but the password, and the error
+// under each field.
+type signupInput struct {
+	Name, Email                          string
+	NameError, EmailError, PasswordError string
+}
+
 func (a *App) signupForm(w http.ResponseWriter, r *http.Request) {
 	id, b := a.browser(w, r)
-	a.render(w, http.StatusOK, "signup", a.baseView(id, b, "Sign up"))
+	v := a.baseView(id, b, "Sign up")
+	v.Data = signupInput{}
+	a.render(w, http.StatusOK, "signup", v)
 }
 
 func (a *App) signup(w http.ResponseWriter, r *http.Request) {
-	id, _, ok := a.postForm(w, r)
+	id, b, ok := a.postForm(w, r)
 	if !ok {
 		return
 	}
-	email := strings.ToLower(strings.TrimSpace(r.PostFormValue("email")))
-	name := strings.TrimSpace(r.PostFormValue("name"))
+	in := signupInput{Name: strings.TrimSpace(r.PostFormValue("name")), Email: strings.TrimSpace(r.PostFormValue("email"))}
+	email := strings.ToLower(in.Email)
 	password := r.PostFormValue("password")
-	switch {
-	case func() bool { _, err := mail.ParseAddress(email); return err != nil }():
-		a.flash(id, "Enter a valid email address.")
-	case name == "" || len(name) > 60:
-		a.flash(id, "Enter your name (up to 60 characters).")
-	case len(password) < 8:
-		a.flash(id, "Choose a password of at least 8 characters.")
-	default:
-		hash := hashPassword(password)
-		m := &MemberAccount{ID: randomID("m_"), Email: email, Name: name, PasswordHash: hash, CreatedAt: time.Now()}
-		taken := false
-		a.store.update(func(d *Data) error {
-			for _, other := range d.Members {
-				if other.Email == email {
-					taken = true
-					return nil
-				}
-			}
-			d.Members[m.ID] = m
-			return nil
-		})
-		if taken {
-			a.flash(id, "An account with this email already exists. Log in instead.")
-			redirect(w, r, "/login")
-			return
-		}
-		// A guest who signs up during a visit keeps it: it stays a guest visit, paid at the
-		// register, and the account is used from the next check-in.
-		a.renewBrowser(w, id, func(nb *Browser) {
-			if !nb.Guest {
-				nb.SessionID = ""
-			}
-			nb.MemberID, nb.Guest, nb.StaffID = m.ID, false, ""
-			nb.Toast = "Welcome, " + name + ". Your account is ready"
-		})
-		redirect(w, r, "/")
+	if in.Name == "" || utf8.RuneCountInString(in.Name) > 60 {
+		in.NameError = "Enter your name (up to 60 characters)"
+	}
+	if _, err := mail.ParseAddress(email); err != nil {
+		in.EmailError = "Enter a valid email address"
+	}
+	if !strongPassword(password) {
+		in.PasswordError = "Use 8+ characters with upper and lower case letters, a number and a symbol"
+	}
+	if in.NameError != "" || in.EmailError != "" || in.PasswordError != "" {
+		// Drawn again here, so the customer corrects the field instead of typing it all again.
+		v := a.baseView(id, b, "Sign up")
+		v.Data = in
+		a.render(w, http.StatusOK, "signup", v)
 		return
 	}
-	redirect(w, r, "/signup")
+	hash := hashPassword(password)
+	m := &MemberAccount{ID: randomID("m_"), Email: email, Name: in.Name, PasswordHash: hash, CreatedAt: time.Now()}
+	taken := false
+	a.store.update(func(d *Data) error {
+		for _, other := range d.Members {
+			if other.Email == email {
+				taken = true
+				return nil
+			}
+		}
+		d.Members[m.ID] = m
+		return nil
+	})
+	if taken {
+		a.flash(id, "An account with this email already exists. Log in instead.")
+		redirect(w, r, "/login")
+		return
+	}
+	// A guest who signs up during a visit keeps it: it stays a guest visit, paid at the
+	// register, and the account is used from the next check-in.
+	a.renewBrowser(w, id, func(nb *Browser) {
+		if !nb.Guest {
+			nb.SessionID = ""
+		}
+		nb.MemberID, nb.Guest, nb.StaffID = m.ID, false, ""
+		nb.Toast = "Welcome, " + in.Name + ". Your account is ready"
+	})
+	redirect(w, r, "/")
+}
+
+// strongPassword tells a password of 8 or more characters with a lower case letter, an upper
+// case letter, a digit and a symbol (any other character), as the sign-up page asks.
+func strongPassword(p string) bool {
+	var lower, upper, digit, symbol bool
+	for _, c := range p {
+		switch {
+		case 'a' <= c && c <= 'z':
+			lower = true
+		case 'A' <= c && c <= 'Z':
+			upper = true
+		case '0' <= c && c <= '9':
+			digit = true
+		default:
+			symbol = true
+		}
+	}
+	return utf8.RuneCountInString(p) >= 8 && lower && upper && digit && symbol
 }
 
 func (a *App) loginForm(w http.ResponseWriter, r *http.Request) {

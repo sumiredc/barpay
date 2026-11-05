@@ -1,14 +1,25 @@
 {{define "content"}}
 <h1>Sign up</h1>
 {{template "notices" .}}
-<form class="card" id="signup-form" method="post" action="/signup">
+<ul class="benefits">
+  <li><i data-icon="check"></i>Pay with PayPal</li>
+  <li><i data-icon="check"></i>Keep your receipts</li>
+</ul>
+{{- /* The server checks the fields and draws the page again with an error under each one wrong. */}}
+<form class="form" id="signup-form" method="post" action="/signup" novalidate>
   <input type="hidden" name="csrf" value="{{.CSRF}}">
-  <label for="name">Name</label><input id="name" name="name" type="text" required maxlength="60" autocomplete="name">
-  <label for="email">Email</label><input id="email" name="email" type="email" required autocomplete="email">
+  <label for="name">Name</label>
+  <input id="name" name="name" type="text" required maxlength="60" autocomplete="name"{{with .Data.Name}} value="{{.}}"{{end}}{{if .Data.NameError}} aria-invalid="true" aria-describedby="name-error"{{end}}>
+  {{with .Data.NameError}}<p class="error" id="name-error"><i data-icon="alert"></i>{{.}}</p>{{end}}
+
+  <label for="email">Email</label>
+  <input id="email" name="email" type="email" required autocomplete="email"{{with .Data.Email}} value="{{.}}"{{end}}{{if .Data.EmailError}} aria-invalid="true" aria-describedby="email-error"{{end}}>
+  {{with .Data.EmailError}}<p class="error" id="email-error"><i data-icon="alert"></i>{{.}}</p>{{end}}
+
   <label for="password">Password</label>
-  <div class="password"><input id="password" name="password" type="password" required minlength="8" autocomplete="new-password"><button type="button"></button></div>
-  <p class="muted">At least 8 characters.</p>
+  <div class="password"><input id="password" name="password" type="password" required minlength="8" pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}" autocomplete="new-password"{{if .Data.PasswordError}} aria-invalid="true" aria-describedby="password-error"{{else}} aria-describedby="password-hint"{{end}}><button type="button"></button></div>
+  {{with .Data.PasswordError}}<p class="error" id="password-error"><i data-icon="alert"></i>{{.}}</p>{{else}}<p class="hint" id="password-hint">8+ characters with upper and lower case letters, a number and a symbol</p>{{end}}
 </form>
-<p>Already a member? <a href="/login">Log in</a></p>
+<p class="switch">Already a member? <a href="/login">Log in</a></p>
 {{end}}
 {{define "cartbar"}}<button class="button" type="submit" form="signup-form" style="justify-content: center">Create account</button>{{end}}

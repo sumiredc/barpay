@@ -119,7 +119,7 @@ func TestTheAccountTabPointsToSettings(t *testing.T) {
 }
 
 func TestACartbarGivesTheBodyRoomForIt(t *testing.T) {
-	body := renderPage(t, "signup", view{})
+	body := renderPage(t, "signup", view{Data: signupInput{}})
 	if !strings.Contains(body, `<body data-app="customer" class="has-cart">`) {
 		t.Error("sign-up page lacks has-cart, or has has-tabbar")
 	}
