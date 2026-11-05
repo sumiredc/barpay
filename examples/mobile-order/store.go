@@ -59,7 +59,10 @@ type Browser struct {
 	LinkExpiresAt time.Time `json:"link_expires_at,omitempty"`
 	// PendingOrder is an order whose answer did not arrive; sending it again keeps its order_id.
 	PendingOrder *PendingOrder `json:"pending_order,omitempty"`
-	Flash        string        `json:"flash,omitempty"`
+	// Flash, Alert and Toast are messages for the next page, each shown once.
+	Flash string `json:"flash,omitempty"`
+	Alert string `json:"alert,omitempty"`
+	Toast string `json:"toast,omitempty"`
 }
 
 type PendingOrder struct {
