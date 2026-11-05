@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PayPal · The Copper Fox</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-app="customer" data-variants='[{"k":"unlinked","l":"未連携","nav":"member"},{"k":"linked","l":"連携済み","nav":"member"},{"k":"in-use","l":"連携済み（来店中で使用中）","nav":"member"},{"k":"deleting","l":"解除中","nav":"member"},{"k":"notice","l":"お知らせあり","nav":"member"},{"k":"read-failed","l":"読めない","nav":"member"}]'>
+<main>
+<h1>PayPal</h1>
+<p class="notice bad" role="alert" data-v="notice"><i data-icon="alert"></i>保存していた PayPal が使えなくなったため、連携を解除しました</p>
+
+<!-- 未連携：できることを短く見せ、同意してから連携する -->
+<form id="link-form" data-go="paypal.html?v=linked" data-v="unlinked notice">
+  <ul class="benefits">
+    <li><i data-icon="check"></i>出口で退店 QR をかざすだけで支払える</li>
+    <li><i data-icon="check"></i>連携しただけでは請求されない</li>
+  </ul>
+  <div class="terms">
+    <p>PayPal を連携すると、来店ごとの合計（注文とチャージ料）のすべてが、退店ゲートを出るときに、あらためて確認せずに PayPal に請求されます。連携しただけでは何も請求されません。未払いの来店が無ければ、保存した PayPal はいつでもここから削除できます。</p>
+    <p class="muted">規約の版 walkout-v1</p>
+  </div>
+  <label class="agree"><input type="checkbox" name="agree" value="yes" required><span>同意する</span></label>
+  <div class="cartbar"><button class="button" type="submit" id="link-submit" disabled style="justify-content: center">PayPal を連携する</button></div>
+</form>
+
+<!-- 連携済み -->
+<div class="linked-card" data-v="linked in-use">
+  <i data-icon="circle-check"></i>
+  <div><strong>連携済み</strong><span class="muted">11/1（日）から</span></div>
+</div>
+<p class="notice info" data-v="in-use"><i data-icon="info"></i>今の来店で使っています。支払いが済むと解除できます</p>
+<div class="center" data-v="linked"><button class="textbutton danger" type="button" data-sheet="delete-confirm">連携を解除</button></div>
+<div class="center" data-v="in-use"><button class="textbutton muted" type="button" disabled>連携を解除</button></div>
+
+<!-- 削除中 -->
+<div class="state" data-v="deleting">
+  <i data-icon="clock"></i>
+  <h1>連携を解除しています</h1>
+</div>
+
+<!-- 読めない -->
+<div class="state bad" data-v="read-failed">
+  <i data-icon="alert"></i>
+  <h1>読み込めませんでした</h1>
+</div>
+<form class="cartbar" data-go="paypal.html?v=linked" data-v="read-failed"><button class="button" type="submit" style="justify-content: center"><i data-icon="rotate-cw"></i> もう一度</button></form>
+
+<!-- 解除の確認 -->
+<dialog class="sheet" id="delete-confirm" data-v="linked">
+  <form data-go="paypal.html?v=deleting">
+    <h2>連携を解除しますか？</h2>
+    <p class="muted">次からはレジでのお支払いになります</p>
+    <div class="stack"><button class="button danger" type="submit">解除する</button></div>
+  </form>
+</dialog>
+</main>
+<script>
+  // 同意するまで連携のボタンは押せない
+  (function () {
+    const form = document.getElementById("link-form");
+    if (!form) return;
+    const box = form.querySelector("input[name=agree]");
+    box.addEventListener("change", () => { document.getElementById("link-submit").disabled = !box.checked; });
+  })();
+</script>
+<script src="mock.js"></script>
+</body>
+</html>

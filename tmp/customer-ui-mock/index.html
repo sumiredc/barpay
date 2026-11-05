@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>画面の一覧 · モック</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .screens { width: 100%; border-collapse: collapse; }
+  .screens th { width: 9em; white-space: nowrap; }
+  .screens td a { display: inline-block; margin: 2px 12px 2px 0; }
+  .tag { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: #d8ead9; font-size: 0.75rem; font-weight: 400; }
+  .screens .muted { margin: 4px 0 0; }
+</style>
+</head>
+<body data-app="index">
+<main class="wide">
+<h1>画面の一覧</h1>
+<p class="muted">サンプルアプリ（examples/mobile-order）の画面を、HTML・CSS・JS だけで写したもの。状態の名前を押すと、その状態の画面が開く。フォームは送信せず、次の画面へ移るだけ。</p>
+
+<h2>客の画面</h2>
+<div class="card scroll"><table class="screens"><tbody>
+<tr><th>入口<span class="tag">新しいデザイン</span></th><td><a href="landing.html?v=visitor">ログイン前</a> <a href="landing.html?v=visitor&amp;sheet=rate-info">料金のしくみ</a> <a href="landing.html?v=visitor&amp;sheet=guest-confirm">ゲストの入店の確認</a> <a href="landing.html?v=rate-missing">料金を読めない</a> <a href="landing.html?v=member">会員（PayPal 未連携）</a> <a href="landing.html?v=member&amp;toast=welcome">会員（登録の直後）</a> <a href="landing.html?v=member-linked">会員（PayPal 連携済み）</a> <a href="landing.html?v=member&amp;sheet=checkin-confirm">チェックインの確認</a> <a href="landing.html?v=in-visit">来店中</a> <a href="landing.html?v=ended-guest">ゲストの来店が終わった</a> <a href="landing.html?v=ended-guest&amp;sheet=done-confirm">完了の確認</a></td></tr>
+<tr><th>ログイン<span class="tag">新しいデザイン</span></th><td><a href="login.html?v=normal">通常</a> <a href="login.html?v=wrong">メールかパスワードが違う</a> <a href="login.html?v=taken">登録済みのメールで会員登録した</a></td></tr>
+<tr><th>会員登録<span class="tag">新しいデザイン</span></th><td><a href="signup.html?v=normal">通常</a> <a href="signup.html?v=email">メールの誤り</a> <a href="signup.html?v=name">名前の誤り</a> <a href="signup.html?v=password">パスワードの誤り</a></td></tr>
+<tr><th>エラー<span class="tag">新しいデザイン</span></th><td><a href="error.html?v=no-answer">決済サービスにつながらない</a> <a href="error.html?v=open-elsewhere">別の端末で来店中</a> <a href="error.html?v=other">そのほか</a><p class="muted">チェックインに失敗したときの画面</p></td></tr>
+<tr><th>メニュー<span class="tag">新しいデザイン</span></th><td><a href="menu.html?v=active">注文できる（注文したことがある）</a> <a href="menu.html?v=first">注文できる（まだ注文していない）</a> <a href="menu.html?v=first&amp;toast=checkin">チェックインの直後</a> <a href="menu.html?v=active&amp;item=beer">品目のシート</a> <a href="menu.html?v=active&amp;item=gin">品目のシート（オプションなし）</a> <a href="menu.html?v=cart">カートに品がある</a> <a href="menu.html?v=cart&amp;sheet=confirm">注文の確認</a> <a href="menu.html?v=cart-first&amp;sheet=confirm">注文の確認（最初の注文）</a> <a href="menu.html?v=pending">前の注文が未確定</a> <a href="menu.html?v=closed">注文を受け付けない（レジ待ち）</a> <a href="menu.html?v=not-active">誤り：来店が注文を受け付けない</a> <a href="menu.html?v=failed">誤り：そのほか</a> <a href="menu.html?v=expired">誤り：画面の期限切れ</a><p class="muted">品目を押すとシートで数量とオプションを選ぶ。カートに入ると下に「注文を確認」が出る。確認シートの行を押すと直せる。注文すると伝票へ移る</p></td></tr>
+<tr><th>伝票</th><td><a href="panel.html?v=active">利用中（会員）</a> <a href="panel.html?v=active&amp;toast=ordered">注文の直後</a> <a href="panel.html?v=active&amp;toast=already-ordered">同じ注文をもう一度送った</a> <a href="panel.html?v=guest">利用中（ゲスト）</a> <a href="panel.html?v=paused">チャージ料が止まっている</a> <a href="panel.html?v=checking_out">PayPal で精算中</a> <a href="panel.html?v=at_register">レジ待ち</a> <a href="panel.html?v=payment_failed">支払い失敗</a> <a href="panel.html?v=closed">精算済み</a><p class="muted">本物の画面は、来店が終わるまで 15 秒ごとに読み込み直して、料金と合計を新しくする</p></td></tr>
+<tr><th>支払う</th><td><a href="panel.html?v=active&amp;sheet=pay">PayPal 連携済み</a> <a href="panel.html?v=guest&amp;sheet=pay">レジだけ（ゲストなど）</a><p class="muted">伝票の「支払う」から出るシート</p></td></tr>
+<tr><th>退店 QR</th><td><a href="exit.html?v=qr">QR を出せる</a> <a href="exit.html?v=checking_out">PayPal で精算中</a> <a href="exit.html?v=payment_failed">支払い失敗</a> <a href="exit.html?v=unavailable">QR を出せない来店</a> <a href="exit.html?v=read_failed">QR を取れない</a><p class="muted">本物の画面は、QR が変わる時刻に合わせて読み込み直す。モックの QR は飾りで、5 秒ごとに変わる</p></td></tr>
+<tr><th>アカウント</th><td><a href="account.html?v=unlinked">会員（PayPal 未連携）</a> <a href="account.html?v=linked">会員（PayPal 連携済み）</a> <a href="account.html?v=unlinked&amp;sheet=name-edit">名前を変える</a> <a href="account.html?v=guest">ゲスト</a> <a href="signup.html?v=normal&amp;from=guest">ゲストから会員登録</a> <a href="login.html?v=normal&amp;from=guest">ゲストからログイン</a> <a href="account.html?v=unlinked&amp;toast=upgraded">引き継いだ直後</a><p class="muted">ゲストは、アカウントから会員登録・ログインして、今の来店を会員の来店として続けられる</p></td></tr>
+<tr><th>来店履歴</th><td><a href="receipts.html?v=list">来店がある</a> <a href="receipts.html?v=empty">来店がない</a></td></tr>
+<tr><th>レシート</th><td><a href="receipt.html?v=paypal">PayPal で精算（退店直後）</a> <a href="receipt.html?v=paypal-past">PayPal で精算（過去）</a> <a href="receipt.html?v=guest-current">レジで精算（ゲスト）</a> <a href="receipt.html?v=guest-current&amp;sheet=done-confirm">ゲストの完了の確認</a> <a href="receipt.html?v=outside">スタッフと精算</a> <a href="receipt.html?v=unpaid">未払い</a><p class="muted">本物の画面は、来店が終わるまで 10 秒ごとに読み込み直す</p></td></tr>
+<tr><th>PayPal</th><td><a href="paypal.html?v=unlinked">未連携</a> <a href="paypal.html?v=linked">連携済み</a> <a href="paypal.html?v=in-use">連携済み（来店中で使用中）</a> <a href="paypal.html?v=deleting">解除中</a> <a href="paypal.html?v=notice">お知らせあり</a> <a href="paypal.html?v=read-failed">読めない</a><p class="muted">アカウントの「PayPal」から開く</p></td></tr>
+</tbody></table></div>
+</main>
+<script src="mock.js"></script>
+</body>
+</html>

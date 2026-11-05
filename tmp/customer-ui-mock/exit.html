@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>退店 · The Copper Fox</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-app="customer" data-note="本物の画面は、QR が変わる時刻に合わせて読み込み直す。モックの QR は飾りで、5 秒ごとに変わる。" data-variants='[{"k":"qr","l":"QR を出せる","nav":"member"},{"k":"checking_out","l":"PayPal で精算中","nav":"member"},{"k":"payment_failed","l":"支払い失敗","nav":"member"},{"k":"unavailable","l":"QR を出せない来店","nav":"member"},{"k":"read_failed","l":"QR を取れない","nav":"member"}]'>
+<main>
+<!-- QR：これだけを大きく出す。下の細い帯は QR が次に変わるまでの残り時間 -->
+<div class="exit-qr" data-v="qr">
+  <p class="exit-hint">出口の読み取り機にかざしてください</p>
+  <div class="qr-card">
+    <svg class="qr mock-qr" role="img" aria-label="退店 QR"></svg>
+    <div class="qr-timer" aria-hidden="true"><span></span></div>
+  </div>
+  <p class="exit-amount"><span>PayPal でお支払い</span>$37.40</p>
+</div>
+
+<div class="state" data-v="checking_out">
+  <i data-icon="clock"></i>
+  <h1>PayPal で支払っています…</h1>
+</div>
+<div class="state bad" data-v="payment_failed">
+  <i data-icon="alert"></i>
+  <h1>支払いが通りませんでした</h1>
+  <p>スタッフにお声がけください</p>
+</div>
+<div class="state" data-v="unavailable">
+  <i data-icon="lock"></i>
+  <h1>この来店では QR を出せません</h1>
+  <p>レジでお支払いください</p>
+</div>
+<div class="state bad" data-v="read_failed">
+  <i data-icon="alert"></i>
+  <h1>QR を出せませんでした</h1>
+</div>
+
+<!-- 下：次にすることがあるときだけ -->
+<form class="cartbar" data-go="panel.html?v=at_register" data-v="unavailable"><button class="button" type="submit" style="justify-content: center">レジで払う</button></form>
+<form class="cartbar" data-go="exit.html?v=qr" data-v="read_failed"><button class="button" type="submit" style="justify-content: center"><i data-icon="rotate-cw"></i> もう一度</button></form>
+</main>
+<script src="mock.js"></script>
+</body>
+</html>
