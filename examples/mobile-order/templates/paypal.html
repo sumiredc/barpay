@@ -1,0 +1,58 @@
+{{define "content"}}
+<h1>PayPal</h1>
+{{template "notices" .}}
+{{if .Data.ReadFailed}}
+<div class="state bad">
+  <i data-icon="alert"></i>
+  <h1>Couldn't load</h1>
+</div>
+{{else}}
+  {{with .Data.Member.SavedPaypal}}
+    {{if eq .Status "deletion_pending"}}
+<div class="state">
+  <i data-icon="clock"></i>
+  <h1>Unlinking…</h1>
+</div>
+    {{else}}
+<div class="linked-card">
+  <i data-icon="circle-check"></i>
+  <div><strong>Linked</strong><span class="muted">Since {{day .SavedAt}}</span></div>
+</div>
+      {{if .InUseBySessionID}}
+<p class="notice info"><i data-icon="info"></i><span>In use for your current visit. You can unlink it after you pay</span></p>
+<div class="center"><button class="textbutton muted" type="button" disabled>Unlink</button></div>
+      {{else}}
+<div class="center"><button class="textbutton danger" type="button" data-sheet="delete-confirm">Unlink</button></div>
+<dialog class="sheet" id="delete-confirm">
+  <form method="post" action="/account/paypal/delete">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <h2>Unlink PayPal?</h2>
+    <p class="muted">You'll pay at the register from your next visit</p>
+    <div class="stack"><button class="button danger" type="submit">Unlink</button></div>
+  </form>
+</dialog>
+      {{end}}
+    {{end}}
+  {{else}}
+<form id="link-form" method="post" action="/account/paypal/link">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <ul class="benefits">
+    <li><i data-icon="check"></i>Pay by showing your exit QR at the gate</li>
+    <li><i data-icon="check"></i>Linking alone charges nothing</li>
+  </ul>
+  <div class="terms">
+    <p>{{.Data.ConsentText}}</p>
+    <p class="muted">Terms version {{.Data.ConsentVersion}}</p>
+  </div>
+  <label class="agree"><input type="checkbox" name="agree" value="yes" required data-enables="link-submit"><span>I agree</span></label>
+</form>
+  {{end}}
+{{end}}
+{{end}}
+{{define "cartbar"}}
+{{- if .Data.ReadFailed -}}
+<a class="button" href="/account/paypal" style="justify-content: center"><i data-icon="rotate-cw"></i> Try again</a>
+{{- else if not .Data.Member.SavedPaypal -}}
+<button class="button" type="submit" form="link-form" id="link-submit" disabled style="justify-content: center">Link PayPal</button>
+{{- end -}}
+{{end}}

@@ -1,41 +1,42 @@
 {{define "content"}}
-{{$s := .Data.Session}}
-<h1>Receipt</h1>
+{{$s := .Data.Session}}{{$r := $s.Receipt}}
+{{if .Data.Thanks}}<div class="state good"><i data-icon="circle-check"></i><h1>Thank you</h1></div>{{else}}<div class="receipt-head"><h1>{{day $s.CheckedInAt}} {{clock $s.CheckedInAt}} – {{clock $r.EndedAt}}</h1>{{if eq $r.Settlement "unpaid"}}<span class="pill closed_unpaid">Unpaid</span>{{end}}</div>{{end}}
 {{template "notices" .}}
-{{with $s.Receipt}}
-<div class="card">
-  <p><strong>{{$.StoreName}}</strong><br><span class="muted">Checked in {{time $s.CheckedInAt}} · ended {{time .EndedAt}}</span></p>
-  <table>
-    <tbody>
-    {{range $.Data.Orders}}{{range .Lines}}
-      <tr><td>{{.Quantity}} × {{.Name}}</td><td>{{money .UnitPrice}} each</td></tr>
-    {{end}}{{end}}
-      <tr><td>Orders</td><td>{{money .OrdersTotal}}</td></tr>
-      <tr><td>Cover charge</td><td>{{money .CoverCharge}}</td></tr>
-      <tr><th>Total</th><th>{{money .Total}}</th></tr>
-    {{if eq .Settlement "paypal"}}
-      <tr><td>Paid with PayPal</td><td>{{money .Total}}</td></tr>
-      <tr><td>PayPal capture ID</td><td>{{with .PaypalCaptureID}}<code>{{.}}</code>{{else}}Nothing was charged (total 0){{end}}</td></tr>
-    {{else if eq .Settlement "register"}}
-      <tr><td>Paid at the register</td><td>{{with .AmountRecorded}}{{money .}}{{end}}</td></tr>
-    {{else if eq .Settlement "outside"}}
-      <tr><td>Settled with staff</td><td>{{with .AmountRecorded}}{{money .}}{{end}}</td></tr>
-    {{else if eq .Settlement "unpaid"}}
-      <tr><td>Unpaid</td><td>{{with .UnpaidAmount}}{{money .}}{{end}}</td></tr>
-    {{end}}
-    </tbody>
-  </table>
-  <p class="muted">Visit {{$s.SessionID}}</p>
+<div class="card bill">
+  {{range .Data.Lines}}
+  <div class="bill-row"><div>{{.Name}} <span class="muted">× {{.Quantity}}</span></div><div>{{money .Amount}}</div></div>
+  {{end}}
+  <div class="bill-row"><div>Cover charge <span class="muted">{{duration .Data.Stayed}}</span></div><div>{{money $r.CoverCharge}}</div></div>
+  <div class="bill-row total"><div>Total</div><div class="bill-amount">{{money $r.Total}}</div></div>
+  {{if eq $r.Settlement "paypal"}}
+  <div class="bill-row pay-line"><div><i data-icon="credit-card"></i> PayPal</div><div>{{money $r.Total}}</div></div>
+  {{else if eq $r.Settlement "register"}}
+  <div class="bill-row pay-line"><div>Register</div><div>{{with $r.AmountRecorded}}{{money .}}{{end}}</div></div>
+  {{else if eq $r.Settlement "outside"}}
+  <div class="bill-row pay-line"><div>Settled with staff</div><div>{{with $r.AmountRecorded}}{{money .}}{{end}}</div></div>
+  {{else if eq $r.Settlement "unpaid"}}
+  <div class="bill-row pay-line bad"><div>Unpaid</div><div>{{with $r.UnpaidAmount}}{{money .}}{{end}}</div></div>
+  {{end}}
 </div>
-{{if $.Data.Current}}
-  <div class="row">
-    {{if eq $s.State "closed"}}<a class="button secondary" href="/exit?again=1">Show exit QR again</a>{{end}}
-    <form method="post" action="/visit/done"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="button" type="submit">{{if $.Guest}}Done (this receipt will no longer be shown){{else}}Done{{end}}</button></form>
-  </div>
-  {{if $.Guest}}<p class="muted">As a guest, you can see this receipt only until you press Done. Save it now if you need it.</p>{{end}}
-  {{if eq $s.State "closed"}}<p class="muted">The gate did not open? Show the exit QR again within a couple of minutes, or ask staff.</p>{{end}}
+<p class="receipt-ids">{{.StoreName}} · Visit {{$s.SessionID}}{{with $r.PaypalCaptureID}}<br>PayPal transaction {{.}}{{end}}</p>
+{{if .Data.GateAgain}}<div class="center"><a class="textbutton" href="/exit?again=1"><i data-icon="qr"></i>&nbsp;Gate didn't open?</a></div>{{end}}
+{{if and .Data.Current .Guest}}
+<dialog class="sheet" id="done-confirm">
+  <form method="post" action="/visit/done">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <h2>Finish your visit?</h2>
+    <p class="muted">You won't be able to see this receipt again</p>
+    <div class="stack"><button class="button" type="submit">Finish</button></div>
+  </form>
+</dialog>
 {{end}}
-{{else}}
-<div class="card"><p>This visit has not ended yet ({{stateLabel $s.State}}). Running total: {{money $s.Total}}.</p><a class="button secondary" href="/panel">My visit</a></div>
 {{end}}
+{{define "cartbar"}}
+{{- if .Data.Current -}}
+{{- if .Guest -}}
+<button class="button" type="button" data-sheet="done-confirm" style="justify-content: center">Done</button>
+{{- else -}}
+<form method="post" action="/visit/done"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="button" type="submit" style="justify-content: center">Done</button></form>
+{{- end -}}
+{{- end -}}
 {{end}}

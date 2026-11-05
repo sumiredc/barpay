@@ -67,14 +67,15 @@ func TestFrameOfEachCustomerPage(t *testing.T) {
 		{"menu", member, "menu", true, true},
 		{"panel", guest, "bill", true, true},
 		{"exit", member, "bill", true, true},
-		{"settings", guest, "account", true, true},
+		{"account", guest, "account", true, true},
+		{"paypal", member, "account", true, true},
 		{"receipts", member, "account", true, true},
 		{"receipt", member, "account", true, true},
 		{"login", view{}, "", false, false},
 		{"signup", view{}, "", false, false},
 		{"error", member, "", false, false},
 		{"landing", member, "", false, false},
-		{"settings", view{}, "account", true, false},
+		{"paypal", view{}, "account", true, false},
 	}
 	for _, tt := range tests {
 		v := place(customerPages[tt.page], tt.v)
@@ -107,10 +108,10 @@ func TestLandingBeforeCheckInHasNoTabs(t *testing.T) {
 	}
 }
 
-func TestTheAccountTabPointsToSettings(t *testing.T) {
+func TestTheAccountTabPointsToTheAccount(t *testing.T) {
 	body := renderPage(t, "receipts", view{Member: &MemberAccount{Name: "Taro"}, Data: []Visit{}})
-	if !strings.Contains(body, `<a href="/settings" aria-current="page">`) {
-		t.Error("receipts does not mark the Account tab, pointing to /settings")
+	if !strings.Contains(body, `<a href="/account" aria-current="page">`) {
+		t.Error("receipts does not mark the Account tab, pointing to /account")
 	}
 	if !strings.Contains(body, `<header class="brandmark">`) {
 		t.Error("receipts lacks the small header")
@@ -156,9 +157,11 @@ func TestMessagesOfTheCustomerPages(t *testing.T) {
 
 // The layout leaves the notices to each page, so a page that forgets them drops its messages. A
 // page whose h1 is inside a state (.state) puts them first, as it has no h1 heading its content.
+// A page that picks its h1 in one {{if}} on one line, such as the receipt's thanks or visit time,
+// puts the notices below that line, whichever h1 it shows.
 func TestEveryCustomerPageShowsTheNotices(t *testing.T) {
-	heading := regexp.MustCompile(`(?m)^<h1>`)
-	belowH1 := regexp.MustCompile(`(?m)^<h1>.*</h1>\n\{\{template "notices" \.\}\}$`)
+	heading := regexp.MustCompile(`(?m)^(<h1>|\{\{if .*<h1>)`)
+	belowH1 := regexp.MustCompile(`(?m)^(<h1>.*</h1>|\{\{if .*<h1>.*</h1>.*\{\{end\}\})\n\{\{template "notices" \.\}\}$`)
 	first := regexp.MustCompile(`(?m)^\{\{define "content"\}\}\n\{\{template "notices" \.\}\}\n`)
 	for name := range customerPages {
 		src, err := templateFS.ReadFile("templates/" + name + ".html")

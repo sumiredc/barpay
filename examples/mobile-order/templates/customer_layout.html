@@ -17,7 +17,7 @@
 <nav class="tabbar" aria-label="Screens">
   <a href="/menu"{{if eq .Tab "menu"}} aria-current="page"{{end}}><i data-icon="utensils"></i><span>Menu</span></a>
   <a href="/panel"{{if eq .Tab "bill"}} aria-current="page"{{end}}><i data-icon="receipt"></i><span>Bill</span></a>
-  <a href="/settings"{{if eq .Tab "account"}} aria-current="page"{{end}}><i data-icon="user"></i><span>Account</span></a>
+  <a href="/account"{{if eq .Tab "account"}} aria-current="page"{{end}}><i data-icon="user"></i><span>Account</span></a>
 </nav>
 {{end}}
 {{with .Toast}}<div class="toast" role="status"><i data-icon="circle-check"></i><span>{{.}}</span></div>{{end}}

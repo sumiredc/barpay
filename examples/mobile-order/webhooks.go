@@ -131,9 +131,12 @@ func (a *App) handleNotification(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// The notices of member.* notifications. The PayPal page shows the one that needs no action as a
+// toast, and paypalNoLongerValidNotice in red.
 const (
-	paypalLinkedNotice       = "PayPal is linked. Your next visits are paid by walking out."
-	savedPaypalDeletedNotice = "Your saved PayPal was deleted."
+	paypalLinkedNotice        = "PayPal linked"
+	savedPaypalDeletedNotice  = "PayPal unlinked"
+	paypalNoLongerValidNotice = "Your saved PayPal could no longer be used, so we unlinked it"
 )
 
 // apply records what an event says, in the order of its subject's sequence.
@@ -155,7 +158,7 @@ func (a *App) apply(d *Data, e *event) {
 	case "member.saved_paypal_deleted":
 		switch {
 		case e.Data.Reason == "no_longer_valid":
-			d.MemberNotices[m.MemberID] = "PayPal no longer has your saved PayPal, so we removed it. You can link PayPal again or pay at the register."
+			d.MemberNotices[m.MemberID] = paypalNoLongerValidNotice
 		case told != e.Type:
 			d.MemberNotices[m.MemberID] = savedPaypalDeletedNotice
 		}
@@ -178,7 +181,7 @@ func (a *App) refreshSubject(subject string) {
 	defer cancel()
 	kind, id, _ := strings.Cut(subject, ":")
 	if kind != "session" {
-		// A member's saved PayPal is read from BarPay each time the settings screen is drawn.
+		// A member's saved PayPal is read from BarPay each time the PayPal page is drawn.
 		return
 	}
 	s, err := a.barpay.getSession(ctx, id)

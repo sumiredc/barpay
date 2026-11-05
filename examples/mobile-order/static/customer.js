@@ -1,9 +1,11 @@
 // What the customer pages do in the browser. The server decides what each page shows; this only
-// draws the icons, hides the toast, opens and closes the sheets and shows or hides a password.
+// draws the icons, hides the toast, opens and closes the sheets, holds a button until its consent
+// is checked and shows or hides a password.
 // - <i data-icon="name"> becomes the SVG of that Lucide icon (ISC license)
 // - a .toast goes away after 4 seconds
 // - a button with data-sheet="id" opens <dialog class="sheet" id="id">. A sheet has no close
 //   button: it closes by a swipe in any direction or a press on the backdrop
+// - a checkbox with data-enables="id" enables the button with that id only while it is checked
 // - the button in a .password wrapper shows or hides the password in it
 // - <body data-refresh="s"> reloads the page after s seconds, and [data-countdown="s"] counts s
 //   seconds down as m:ss and reloads at 0. Neither reloads while a sheet is open, which the reload
@@ -90,6 +92,16 @@
     };
     d.addEventListener("pointerup", end);
     d.addEventListener("pointercancel", end);
+  });
+
+  // The consent: the button stays disabled until the box is checked. The state is taken on load
+  // too, as the browser may keep the box checked when the page is opened again.
+  document.querySelectorAll("input[data-enables]").forEach((box) => {
+    const button = document.getElementById(box.dataset.enables);
+    if (!button) return;
+    const sync = () => { button.disabled = !box.checked; };
+    box.addEventListener("change", sync);
+    sync();
   });
 
   document.querySelectorAll(".password").forEach((wrap) => {

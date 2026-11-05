@@ -62,7 +62,8 @@ var customerPages = map[string]customerPage{
 	"menu":     {tab: "menu", header: true, tabbar: true},
 	"panel":    {tab: "bill", header: true, tabbar: true},
 	"exit":     {tab: "bill", header: true, tabbar: true},
-	"settings": {tab: "account", header: true, tabbar: true},
+	"account":  {tab: "account", header: true, tabbar: true},
+	"paypal":   {tab: "account", header: true, tabbar: true},
 	"receipts": {tab: "account", header: true, tabbar: true},
 	"receipt":  {tab: "account", header: true, tabbar: true},
 }
@@ -76,8 +77,9 @@ var funcs = template.FuncMap{
 	"money":       formatMoney,
 	"signedMoney": formatSignedMoney,
 	"time":        func(t time.Time) string { return t.Local().Format("Jan 2 15:04:05") },
-	"duration":    formatDuration,
+	"day":         func(t time.Time) string { return t.Local().Format("Mon, Jan 2") },
 	"clock":       func(t time.Time) string { return t.Local().Format("15:04") },
+	"duration":    formatDuration,
 	"deref": func(s *string) string {
 		if s == nil {
 			return ""

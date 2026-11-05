@@ -26,7 +26,7 @@ type Data struct {
 	LastSequence map[string]int `json:"last_sequence"`
 	// Received is the log of notifications handled, newest last.
 	Received []ReceivedEvent `json:"received"`
-	// MemberNotices are messages for a member's settings screen, from member.* notifications.
+	// MemberNotices are messages for a member's PayPal page, from member.* notifications.
 	MemberNotices map[string]string `json:"member_notices"`
 	// ToldByAnswer holds, per member, the member.* event type the member was already told of in
 	// their own request's answer, so the notification of that event adds no second notice.

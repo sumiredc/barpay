@@ -56,13 +56,6 @@ svg.ticker { width: 100%; height: auto; background: #fffdf9; border: 1px solid v
     {{end}}
   {{else}}
     <a class="brand" href="/">{{.StoreName}}</a>
-    {{if or .Member .Guest}}
-      <a href="/menu">Menu</a>
-      <a href="/panel">My visit</a>
-      <a href="/receipts">Receipts</a>
-      <a href="/settings">Settings</a>
-      {{if .Member}}<form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Log out</button></form>{{end}}
-    {{end}}
   {{end}}
 </header>
 <main{{if .Admin}} class="wide"{{end}}>
