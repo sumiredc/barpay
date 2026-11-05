@@ -5,6 +5,8 @@
 // - a button with data-sheet="id" opens <dialog class="sheet" id="id">. A sheet has no close
 //   button: it closes by a swipe in any direction or a press on the backdrop
 // - the button in a .password wrapper shows or hides the password in it
+// - <body data-refresh="s"> reloads the page after s seconds, but not while a sheet is open, which
+//   the reload would close under the finger: the page reloads once the sheet closes.
 (function () {
   const ICONS = {
     "arrow-left": '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
@@ -100,4 +102,14 @@
     b.addEventListener("click", () => { input.type = input.type === "password" ? "text" : "password"; render(); });
     render();
   });
+
+  let due = false;
+  const reload = () => {
+    if (document.querySelector("dialog.sheet[open]")) { due = true; return; }
+    location.reload();
+  };
+  document.querySelectorAll("dialog.sheet").forEach((d) =>
+    d.addEventListener("close", () => { if (due) location.reload(); }));
+  const every = Number(document.body.dataset.refresh);
+  if (every > 0) setTimeout(reload, every * 1000);
 })();

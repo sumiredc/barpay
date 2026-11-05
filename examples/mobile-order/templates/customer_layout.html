@@ -4,11 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-{{if .Refresh}}<meta http-equiv="refresh" content="{{.Refresh}}">{{end}}
 <title>{{.Title}} · {{.StoreName}}</title>
 <link rel="stylesheet" href="/static/customer.css">
 </head>
-<body data-app="customer"{{with .BodyClass}} class="{{.}}"{{end}}>
+<body data-app="customer"{{with .BodyClass}} class="{{.}}"{{end}}{{with .Refresh}} data-refresh="{{.}}"{{end}}>
 {{if .Header}}<header class="brandmark"><img src="/static/logo.svg" alt=""><span>{{.StoreName}}</span></header>{{end}}
 <main{{block "main-class" .}}{{end}}>
   {{template "content" .}}

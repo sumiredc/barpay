@@ -128,6 +128,20 @@ func TestACartbarGivesTheBodyRoomForIt(t *testing.T) {
 	}
 }
 
+// A meta refresh would reload under an open sheet and close it; the script waits for it to close.
+func TestCustomerPagesReloadByScript(t *testing.T) {
+	body := renderPage(t, "receipts", view{Member: &MemberAccount{Name: "Taro"}, Data: []Visit{}, Refresh: 10})
+	if !strings.Contains(body, ` data-refresh="10">`) {
+		t.Error("the body does not carry the time to reload after")
+	}
+	if strings.Contains(body, `http-equiv="refresh"`) {
+		t.Error("the page reloads by a meta refresh")
+	}
+	if strings.Contains(renderPage(t, "receipts", view{Member: &MemberAccount{Name: "Taro"}, Data: []Visit{}}), "data-refresh") {
+		t.Error("a page with nothing to reload for carries data-refresh")
+	}
+}
+
 func TestMessagesOfTheCustomerPages(t *testing.T) {
 	body := renderPage(t, "login", view{Alert: "The email or password is wrong.", Flash: "Log in again.", Toast: "You're checked in", Data: loginInput{}})
 	for _, want := range []string{
