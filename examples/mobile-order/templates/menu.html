@@ -1,5 +1,4 @@
 {{define "content"}}
-<h1>Menu</h1>
 {{template "notices" .}}
 {{if .Data.Pending}}{{with .Data.Pending}}
   <div class="card">
@@ -10,24 +9,49 @@
       <button class="button" type="submit">Send it again</button>
     </form>
   </div>
-{{end}}{{else if eq .Data.Session.State "active"}}
+{{end}}{{else if ne .Data.Session.State "active"}}
+  <div class="card"><p>This visit takes no more orders ({{stateLabel .Data.Session.State}}).</p><a class="button secondary" href="/panel">My visit</a></div>
+{{else}}
+<div class="menu" data-items="{{.Data.ItemsJSON}}">
+  {{range .Data.Sections}}
+  <h2>{{.Kind}}</h2>
+  <ul>
+    {{range .Items}}<li><button type="button" data-id="{{.ID}}"><img class="thumb" src="/static/img/{{.ID}}.svg" alt=""><span class="name">{{.Name}}</span><span class="price">{{money (usd .Price)}}</span></button></li>
+    {{end}}
+  </ul>
+  {{end}}
+</div>
+
+<div class="cartbar" hidden><button class="button" type="button" id="open-confirm"><span>Review order</span><span id="cart-sum"></span></button></div>
+
+<dialog class="sheet" id="item">
+  <form id="item-form" method="dialog">
+    <img class="item-photo" id="item-photo" alt="">
+    <h2 id="item-name"></h2>
+    <p class="muted" id="item-price"></p>
+    <div id="item-options"></div>
+    <div class="stepper">
+      <button type="button" class="step" id="item-minus" aria-label="Remove one"><i data-icon="minus"></i></button>
+      <output id="item-qty" aria-live="polite">1</output>
+      <button type="button" class="step" id="item-plus" aria-label="Add one"><i data-icon="plus"></i></button>
+    </div>
+    <div class="stack">
+      <button class="button" type="submit" id="item-submit"></button>
+      <button class="textbutton muted" type="button" id="item-remove" hidden style="align-self: center">Remove</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="sheet" id="confirm">
   <form method="post" action="/orders">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
     <input type="hidden" name="order_id" value="{{.Data.OrderID}}">
-    <div class="card scroll">
-      <table>
-        <thead><tr><th>Item</th><th>Price</th><th>Quantity</th></tr></thead>
-        <tbody>
-        {{range .Data.Items}}
-          <tr><td>{{.Name}} <span class="muted">{{.Kind}}</span></td><td>{{money (usd .Price)}}</td><td><input class="qty" type="number" name="qty_{{.ID}}" min="0" max="99" value="0" aria-label="Quantity of {{.Name}}"></td></tr>
-        {{end}}
-        </tbody>
-      </table>
-    </div>
-    <button class="button" type="submit">Place order</button>
+    <h2>Your order</h2>
+    <ul class="lines" id="confirm-lines"></ul>
+    <div id="confirm-fields"></div>
+    <div class="stack"><button class="button" type="submit">Place order</button></div>
   </form>
-  <p class="muted">Your first order does not pause the cover charge; each later order pauses it for a while.</p>
-{{else}}
-  <div class="card"><p>This visit takes no more orders ({{stateLabel .Data.Session.State}}).</p><a class="button secondary" href="/panel">My visit</a></div>
+</dialog>
+<script src="/static/menu.js" defer></script>
 {{end}}
 {{end}}

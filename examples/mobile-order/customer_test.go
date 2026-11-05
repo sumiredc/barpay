@@ -143,7 +143,7 @@ func TestARecordedOrderIsToldByAToast(t *testing.T) {
 	if orderID == nil {
 		t.Fatal("the menu has no order form")
 	}
-	page := c.post("/menu", "/orders", url.Values{"order_id": {orderID[1]}, "qty_beer": {"1"}})
+	page := c.post("/menu", "/orders", url.Values{"order_id": {orderID[1]}, "line": {"beer:0:1"}})
 	if !strings.Contains(page, `<div class="toast" role="status"><i data-icon="circle-check"></i><span>Order received</span></div>`) {
 		t.Error("a recorded order is not told by a toast")
 	}
@@ -156,8 +156,8 @@ func TestAnOrderSentAgainIsToldByAToast(t *testing.T) {
 	if orderID == nil {
 		t.Fatal("the menu has no order form")
 	}
-	c.post("/menu", "/orders", url.Values{"order_id": {orderID[1]}, "qty_beer": {"1"}})
-	page := c.post("/menu", "/orders", url.Values{"order_id": {orderID[1]}, "qty_beer": {"2"}})
+	c.post("/menu", "/orders", url.Values{"order_id": {orderID[1]}, "line": {"beer:0:1"}})
+	page := c.post("/menu", "/orders", url.Values{"order_id": {orderID[1]}, "line": {"beer:0:2"}})
 	if !strings.Contains(page, `<div class="toast" role="status"><i data-icon="circle-check"></i><span>This order was already received</span></div>`) {
 		t.Error("an order sent again is not told by a toast")
 	}
