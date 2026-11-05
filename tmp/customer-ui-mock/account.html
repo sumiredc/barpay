@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>アカウント · The Copper Fox</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-app="customer" data-variants='[{"k":"unlinked","l":"会員（PayPal 未連携）","nav":"member"},{"k":"linked","l":"会員（PayPal 連携済み）","nav":"member"},{"k":"guest","l":"ゲスト","nav":"guest"}]'>
+<main>
+<!-- 会員：名前、来店履歴、PayPal、ログアウト -->
+<button type="button" class="profile" data-sheet="name-edit" data-v="unlinked linked">
+  <span class="avatar">T</span>
+  <span class="who"><strong>Taro</strong><span class="muted">taro@example.com</span></span>
+  <i data-icon="chevron-right"></i>
+</button>
+<ul class="menu-rows" data-v="unlinked linked">
+  <li><a href="receipts.html?v=list"><i data-icon="history"></i><span>来店履歴</span><i data-icon="chevron-right"></i></a></li>
+  <li><a href="paypal.html?v=unlinked" data-v="unlinked"><i data-icon="credit-card"></i><span>PayPal</span><span class="muted">未連携</span><i data-icon="chevron-right"></i></a>
+      <a href="paypal.html?v=linked" data-v="linked"><i data-icon="credit-card"></i><span>PayPal</span><span class="muted">連携済み</span><i data-icon="chevron-right"></i></a></li>
+</ul>
+<form data-go="landing.html?v=visitor" class="center" data-v="unlinked linked"><button class="textbutton muted" type="submit">ログアウト</button></form>
+
+<!-- ゲスト：会員だけの項目は押せない形で見せる -->
+<div class="profile" data-v="guest">
+  <span class="avatar guest"><i data-icon="user"></i></span>
+  <span class="who"><strong>ゲスト</strong></span>
+</div>
+<ul class="menu-rows" data-v="guest">
+  <li><span class="disabled"><i data-icon="history"></i><span>来店履歴</span><span class="muted">会員のみ</span></span></li>
+  <li><span class="disabled"><i data-icon="credit-card"></i><span>PayPal</span><span class="muted">会員のみ</span></span></li>
+</ul>
+<div class="stack" data-v="guest">
+  <a class="button" href="signup.html?v=normal&amp;from=guest">会員登録して引き継ぐ</a>
+  <a class="textbutton" href="login.html?v=normal&amp;from=guest" style="align-self: center">会員の方はログイン</a>
+</div>
+
+<!-- 名前を変える -->
+<dialog class="sheet" id="name-edit">
+  <form class="form" data-go="account.html?v=unlinked" data-v="unlinked guest">
+    <label for="name">名前</label>
+    <input id="name" name="name" type="text" value="Taro" maxlength="60" autocomplete="name">
+    <button class="button block" type="submit">保存</button>
+  </form>
+  <form class="form" data-go="account.html?v=linked" data-v="linked">
+    <label for="name">名前</label>
+    <input id="name" name="name" type="text" value="Taro" maxlength="60" autocomplete="name">
+    <button class="button block" type="submit">保存</button>
+  </form>
+</dialog>
+</main>
+<script src="mock.js"></script>
+</body>
+</html>

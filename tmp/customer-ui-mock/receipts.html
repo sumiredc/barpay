@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>来店履歴 · The Copper Fox</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-app="customer" data-variants='[{"k":"list","l":"来店がある","nav":"member"},{"k":"empty","l":"来店がない","nav":"member"}]'>
+<main>
+<h1>来店履歴</h1>
+<ul class="menu-rows visits" data-v="list">
+  <li><a href="receipt.html?v=paypal-past"><span><strong>11/1（日）19:10</strong></span><span>$52.80</span><i data-icon="chevron-right"></i></a></li>
+  <li><a href="receipt.html?v=unpaid"><span><strong>10/24（土）21:02</strong><span class="pill closed_unpaid">未払い</span></span><span>$28.00</span><i data-icon="chevron-right"></i></a></li>
+</ul>
+<div class="state" data-v="empty">
+  <i data-icon="history"></i>
+  <h1>まだ来店がありません</h1>
+</div>
+</main>
+<script src="mock.js"></script>
+</body>
+</html>
