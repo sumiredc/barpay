@@ -24,7 +24,7 @@
 <script src="/static/customer.js"></script>
 </body>
 </html>
-{{- /* Each page puts the notices at the top of its content: below its h1, or first without one. */ -}}
+{{- /* Each page puts the notices at the top of its content: below its h1, or first when it has no h1 at the top. */ -}}
 {{define "notices"}}
 {{with .Alert}}<p class="notice bad" role="alert"><i data-icon="alert"></i><span>{{.}}</span></p>{{end}}
 {{with .Flash}}<p class="notice info" role="status"><i data-icon="info"></i><span>{{.}}</span></p>{{end}}

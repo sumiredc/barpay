@@ -125,7 +125,6 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("POST /orders", a.placeOrder)
 	mux.HandleFunc("POST /orders/resend", a.resendOrder)
 	mux.HandleFunc("GET /panel", a.panel)
-	mux.HandleFunc("GET /pay", a.payChoice)
 	mux.HandleFunc("POST /pay/register", a.payAtRegister)
 	mux.HandleFunc("GET /exit", a.exitQR)
 	mux.HandleFunc("GET /receipts", a.receipts)

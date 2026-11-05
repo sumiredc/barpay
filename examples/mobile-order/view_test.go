@@ -66,7 +66,6 @@ func TestFrameOfEachCustomerPage(t *testing.T) {
 	}{
 		{"menu", member, "menu", true, true},
 		{"panel", guest, "bill", true, true},
-		{"pay", member, "bill", true, true},
 		{"exit", member, "bill", true, true},
 		{"settings", guest, "account", true, true},
 		{"receipts", member, "account", true, true},

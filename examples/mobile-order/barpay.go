@@ -58,6 +58,10 @@ type Session struct {
 	OrderCount        int        `json:"order_count"`
 	UnpaidAmount      *Money     `json:"unpaid_amount"`
 	Receipt           *Receipt   `json:"receipt"`
+
+	// CoverChargeResumesAt is when the pause ends, while CoverChargeStatus is "paused"; nil
+	// otherwise, and from a BarPay that does not tell it.
+	CoverChargeResumesAt *time.Time `json:"cover_charge_resumes_at"`
 }
 
 // ended says whether the session can change no more.

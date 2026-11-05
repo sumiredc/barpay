@@ -5,8 +5,9 @@
 // - a button with data-sheet="id" opens <dialog class="sheet" id="id">. A sheet has no close
 //   button: it closes by a swipe in any direction or a press on the backdrop
 // - the button in a .password wrapper shows or hides the password in it
-// - <body data-refresh="s"> reloads the page after s seconds, but not while a sheet is open, which
-//   the reload would close under the finger: the page reloads once the sheet closes.
+// - <body data-refresh="s"> reloads the page after s seconds, and [data-countdown="s"] counts s
+//   seconds down as m:ss and reloads at 0. Neither reloads while a sheet is open, which the reload
+//   would close under the finger: the page reloads once the sheet closes.
 (function () {
   const ICONS = {
     "arrow-left": '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
@@ -112,4 +113,20 @@
     d.addEventListener("close", () => { if (due) location.reload(); }));
   const every = Number(document.body.dataset.refresh);
   if (every > 0) setTimeout(reload, every * 1000);
+
+  // The count starts from the seconds the server computed, not from the phone's clock, which may
+  // be off. A count that starts at 0 does not reload: the server already saw the time as over.
+  document.querySelectorAll("[data-countdown]").forEach((el) => {
+    const seconds = Number(el.dataset.countdown);
+    if (!(seconds > 0)) return;
+    const end = performance.now() + seconds * 1000;
+    const tick = () => {
+      const ms = end - performance.now();
+      const left = Math.max(0, Math.ceil(ms / 1000));
+      el.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+      if (left === 0) { reload(); return; }
+      setTimeout(tick, ms % 1000 || 1000);
+    };
+    tick();
+  });
 })();

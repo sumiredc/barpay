@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"html/template"
 	"net/http"
 	"net/mail"
@@ -564,7 +565,8 @@ func (a *App) panel(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := a.ctx(r)
 	defer cancel()
-	end := time.Now()
+	now := time.Now()
+	end := now
 	if s.TotalFixedAt != nil {
 		end = *s.TotalFixedAt
 	}
@@ -582,33 +584,40 @@ func (a *App) panel(w http.ResponseWriter, r *http.Request) {
 			orders = append(orders, v.Orders...)
 		}
 	})
-	v := a.baseView(id, b, "Your visit")
+	v := a.baseView(id, b, "Bill")
 	if !s.ended() {
 		v.Refresh = 15
 	}
-	v.Data = struct {
-		Session *Session
-		Chart   chart
-		Change  *Money
-		Stayed  time.Duration
-		Orders  []Order
-	}{s, rateChart(history, s.CheckedInAt, end), change, end.Sub(s.CheckedInAt), orders}
+	v.Data = billData{s, rateChart(history, s.CheckedInAt, end), change, end.Sub(s.CheckedInAt), orders, pauseLeft(s, now)}
 	a.render(w, http.StatusOK, "panel", v)
 }
 
-func (a *App) payChoice(w http.ResponseWriter, r *http.Request) {
-	id, b := a.browser(w, r)
-	s, ok := a.visitSession(w, r, id, b)
-	if !ok {
-		return
+// billData is what the bill (panel.html) draws.
+type billData struct {
+	Session *Session
+	Chart   chart
+	Change  *Money
+	Stayed  time.Duration
+	Orders  []Order
+	// Pause is the time left in the pause of the cover charge, or nil when there is no pause or
+	// BarPay does not tell when it ends.
+	Pause *countdown
+}
+
+// countdown is a time left, as the bill shows it and counts it down in the browser.
+type countdown struct {
+	Seconds int
+	Clock   string
+}
+
+// pauseLeft is the time until the pause of the cover charge ends at now, rounded up to the
+// second. It is 0 from the instant the pause ends, at which BarPay no longer counts it as paused.
+func pauseLeft(s *Session, now time.Time) *countdown {
+	if s.CoverChargeStatus != "paused" || s.CoverChargeResumesAt == nil {
+		return nil
 	}
-	if s.State != "active" {
-		redirect(w, r, "/panel")
-		return
-	}
-	v := a.baseView(id, b, "Pay")
-	v.Data = s
-	a.render(w, http.StatusOK, "pay", v)
+	left := max(0, int((s.CoverChargeResumesAt.Sub(now)+time.Second-1)/time.Second))
+	return &countdown{left, fmt.Sprintf("%d:%02d", left/60, left%60)}
 }
 
 func (a *App) payAtRegister(w http.ResponseWriter, r *http.Request) {
@@ -627,8 +636,8 @@ func (a *App) payAtRegister(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, id, b, failure{Title: "Couldn't send you to the register", Text: "Please ask a staff member", Button: "Back", Href: "/panel"})
 		return
 	}
+	// The bill tells it by its state at the register, so there is no message on top of it.
 	a.store.update(func(d *Data) error { d.remember(s); return nil })
-	a.flash(id, "Please pay "+formatMoney(s.Total)+" at the register.")
 	redirect(w, r, "/panel")
 }
 
