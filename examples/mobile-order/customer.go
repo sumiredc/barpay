@@ -127,6 +127,8 @@ func (a *App) landing(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	v := a.baseView(id, b, "Welcome")
+	// Before login and before a member's check-in the entrance is the start, so it has no tabs.
+	v.Tabbar = data.InVisit || data.EndedGuestVisit != ""
 	if rate, err := a.barpay.getRate(ctx); err == nil {
 		data.Rate = rate
 	}

@@ -1,5 +1,6 @@
 {{define "content"}}
 <h1>Welcome to {{.StoreName}}</h1>
+{{template "notices" .}}
 <div class="card">
   <p>Our cover charge moves with the room: it is a rate per hour, charged every few minutes while you stay, and capped per visit. You see the rate and your running total on your phone the whole time.</p>
   {{with .Data.Rate}}

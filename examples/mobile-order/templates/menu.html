@@ -1,5 +1,6 @@
 {{define "content"}}
 <h1>Menu</h1>
+{{template "notices" .}}
 {{if .Data.Pending}}{{with .Data.Pending}}
   <div class="card">
     <p>Your last order is not confirmed yet:</p>

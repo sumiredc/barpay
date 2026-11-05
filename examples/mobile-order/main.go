@@ -112,6 +112,7 @@ func (a *App) evaluateRate(ctx context.Context) {
 
 func (a *App) routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.Handle("GET /static/", staticFiles())
 	mux.HandleFunc("GET /{$}", a.landing)
 	mux.HandleFunc("GET /signup", a.signupForm)
 	mux.HandleFunc("POST /signup", a.signup)

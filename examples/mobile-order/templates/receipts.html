@@ -1,5 +1,6 @@
 {{define "content"}}
 <h1>Receipts</h1>
+{{template "notices" .}}
 {{range .Data}}
   <div class="card row" style="justify-content: space-between">
     <div><strong>{{time .Session.CheckedInAt}}</strong> <span class="pill {{.Session.State}}">{{stateLabel .Session.State}}</span><br><span class="muted">Total {{money .Session.Total}}</span></div>

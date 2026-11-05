@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+{{if .Refresh}}<meta http-equiv="refresh" content="{{.Refresh}}">{{end}}
+<title>{{.Title}} · {{.StoreName}}</title>
+<link rel="stylesheet" href="/static/customer.css">
+</head>
+<body data-app="customer"{{with .BodyClass}} class="{{.}}"{{end}}>
+{{if .Header}}<header class="brandmark"><img src="/static/logo.svg" alt=""><span>{{.StoreName}}</span></header>{{end}}
+<main>
+  {{template "content" .}}
+</main>
+{{with .Cartbar}}<div class="cartbar">{{.}}</div>{{end}}
+{{if .Tabbar}}
+<nav class="tabbar" aria-label="Screens">
+  <a href="/menu"{{if eq .Tab "menu"}} aria-current="page"{{end}}><i data-icon="utensils"></i><span>Menu</span></a>
+  <a href="/panel"{{if eq .Tab "bill"}} aria-current="page"{{end}}><i data-icon="receipt"></i><span>Bill</span></a>
+  <a href="/settings"{{if eq .Tab "account"}} aria-current="page"{{end}}><i data-icon="user"></i><span>Account</span></a>
+</nav>
+{{end}}
+{{with .Toast}}<div class="toast" role="status"><i data-icon="circle-check"></i><span>{{.}}</span></div>{{end}}
+<script src="/static/customer.js"></script>
+</body>
+</html>
+{{- /* Each page puts the notices at the top of its content: below its h1, or first without one. */ -}}
+{{define "notices"}}
+{{with .Alert}}<p class="notice bad" role="alert"><i data-icon="alert"></i><span>{{.}}</span></p>{{end}}
+{{with .Flash}}<p class="notice info" role="status"><i data-icon="info"></i><span>{{.}}</span></p>{{end}}
+{{end}}

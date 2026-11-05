@@ -1,6 +1,7 @@
 {{define "content"}}
 {{$s := .Data.Session}}
 <h1>Receipt</h1>
+{{template "notices" .}}
 {{with $s.Receipt}}
 <div class="card">
   <p><strong>{{$.StoreName}}</strong><br><span class="muted">Checked in {{time $s.CheckedInAt}} · ended {{time .EndedAt}}</span></p>

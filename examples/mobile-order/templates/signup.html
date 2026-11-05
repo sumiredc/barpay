@@ -1,12 +1,14 @@
 {{define "content"}}
 <h1>Sign up</h1>
-<form class="card" method="post" action="/signup">
+{{template "notices" .}}
+<form class="card" id="signup-form" method="post" action="/signup">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <label for="name">Name</label><input id="name" name="name" type="text" required maxlength="60" autocomplete="name">
   <label for="email">Email</label><input id="email" name="email" type="email" required autocomplete="email">
-  <label for="password">Password</label><input id="password" name="password" type="password" required minlength="8" autocomplete="new-password">
+  <label for="password">Password</label>
+  <div class="password"><input id="password" name="password" type="password" required minlength="8" autocomplete="new-password"><button type="button"></button></div>
   <p class="muted">At least 8 characters.</p>
-  <button class="button" type="submit">Create account</button>
 </form>
 <p>Already a member? <a href="/login">Log in</a></p>
 {{end}}
+{{define "cartbar"}}<button class="button" type="submit" form="signup-form" style="justify-content: center">Create account</button>{{end}}
