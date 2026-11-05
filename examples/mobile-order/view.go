@@ -61,7 +61,6 @@ var customerPages = map[string]customerPage{
 	"error":    {},
 	"menu":     {tab: "menu", header: true, tabbar: true},
 	"panel":    {tab: "bill", header: true, tabbar: true},
-	"pay":      {tab: "bill", header: true, tabbar: true},
 	"exit":     {tab: "bill", header: true, tabbar: true},
 	"settings": {tab: "account", header: true, tabbar: true},
 	"receipts": {tab: "account", header: true, tabbar: true},
@@ -78,6 +77,7 @@ var funcs = template.FuncMap{
 	"signedMoney": formatSignedMoney,
 	"time":        func(t time.Time) string { return t.Local().Format("Jan 2 15:04:05") },
 	"duration":    formatDuration,
+	"clock":       func(t time.Time) string { return t.Local().Format("15:04") },
 	"deref": func(s *string) string {
 		if s == nil {
 			return ""
@@ -258,20 +258,18 @@ func stateLabel(s string) string {
 	return s
 }
 
-// chart is a stepped ticker of the rate over a visit, drawn as SVG coordinates.
+// chart is the small stepped line of the rate over a visit on the bill, drawn as SVG coordinates.
 type chart struct {
-	Path        string
-	Width       int
-	Height      int
-	Low, High   string
-	Start, End  string
-	HasMultiple bool
+	Path          string
+	Width, Height int
+	// From is the rate at check-in and To the latest one; the line is read out with them.
+	From, To string
 }
 
 // rateChart draws the rate from the session's check-in to end: each rate holds until the next.
 func rateChart(points []RatePoint, start, end time.Time) chart {
-	const w, h, pad = 320, 120, 8
-	c := chart{Width: w, Height: h, Start: start.Local().Format("15:04"), End: end.Local().Format("15:04")}
+	const w, h, pad = 120, 32, 4
+	c := chart{Width: w, Height: h}
 	if len(points) == 0 || !end.After(start) {
 		return c
 	}
@@ -279,14 +277,13 @@ func rateChart(points []RatePoint, start, end time.Time) chart {
 	for _, p := range points {
 		lo, hi = min(lo, p.RatePerHour.Value), max(hi, p.RatePerHour.Value)
 	}
-	c.Low, c.High = formatMoney(Money{lo, points[0].RatePerHour.Currency}), formatMoney(Money{hi, points[0].RatePerHour.Currency})
-	c.HasMultiple = hi != lo
+	c.From, c.To = formatMoney(points[0].RatePerHour), formatMoney(points[len(points)-1].RatePerHour)
 	span := float64(end.Sub(start))
 	x := func(t time.Time) float64 {
 		if t.Before(start) {
 			t = start
 		}
-		return pad + float64(t.Sub(start))/span*(w-2*pad)
+		return float64(t.Sub(start)) / span * w
 	}
 	y := func(v int64) float64 {
 		if hi == lo {

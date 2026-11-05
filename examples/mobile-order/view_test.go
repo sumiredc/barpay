@@ -66,7 +66,6 @@ func TestFrameOfEachCustomerPage(t *testing.T) {
 	}{
 		{"menu", member, "menu", true, true},
 		{"panel", guest, "bill", true, true},
-		{"pay", member, "bill", true, true},
 		{"exit", member, "bill", true, true},
 		{"settings", guest, "account", true, true},
 		{"receipts", member, "account", true, true},
@@ -125,6 +124,20 @@ func TestACartbarGivesTheBodyRoomForIt(t *testing.T) {
 	}
 	if !strings.Contains(body, `<div class="cartbar"><button class="button" type="submit" form="signup-form"`) {
 		t.Error("sign-up page does not put its button in the cartbar")
+	}
+}
+
+// A meta refresh would reload under an open sheet and close it; the script waits for it to close.
+func TestCustomerPagesReloadByScript(t *testing.T) {
+	body := renderPage(t, "receipts", view{Member: &MemberAccount{Name: "Taro"}, Data: []Visit{}, Refresh: 10})
+	if !strings.Contains(body, ` data-refresh="10">`) {
+		t.Error("the body does not carry the time to reload after")
+	}
+	if strings.Contains(body, `http-equiv="refresh"`) {
+		t.Error("the page reloads by a meta refresh")
+	}
+	if strings.Contains(renderPage(t, "receipts", view{Member: &MemberAccount{Name: "Taro"}, Data: []Visit{}}), "data-refresh") {
+		t.Error("a page with nothing to reload for carries data-refresh")
 	}
 }
 

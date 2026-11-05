@@ -1,14 +1,39 @@
 {{define "content"}}
-<h1>Exit</h1>
 {{template "notices" .}}
-{{if .Data.QR}}
-<div class="card" style="text-align: center">
-  <p>Show this QR to the reader at the exit.</p>
-  <img class="qr" src="{{.Data.QR}}" alt="Your exit QR">
-  <p class="muted">It changes regularly, so a screenshot will not work. Running total: {{money .Data.Session.Total}}.</p>
+{{$s := .Data.Session}}
+{{if eq .Data.State "qr"}}
+<div class="exit-qr">
+  <p class="exit-hint">Hold this up to the reader at the exit</p>
+  <div class="qr-card">
+    <img class="qr" src="{{.Data.QR}}" alt="Exit QR">
+    <div class="qr-timer" aria-hidden="true"><span style="animation: qr-left {{.Data.Lifetime}}s linear 1 forwards"></span></div>
+  </div>
+  <p class="exit-amount"><span>{{if eq $s.State "closed"}}Paid with PayPal{{else}}PayPal total{{end}}</span>{{money $s.Total}}</p>
+</div>
+{{else if eq .Data.State "checking_out"}}
+<div class="state">
+  <i data-icon="clock"></i>
+  <h1>Paying with PayPal…</h1>
+</div>
+{{else if eq .Data.State "payment_failed"}}
+<div class="state bad">
+  <i data-icon="alert"></i>
+  <h1>Payment didn&#39;t go through</h1>
+  <p>Please ask a staff member</p>
+</div>
+{{else if eq .Data.State "unavailable"}}
+<div class="state">
+  <i data-icon="lock"></i>
+  <h1>No exit QR for this visit</h1>
+  {{if eq $s.State "active"}}<p>Please pay at the register</p>
+  <form id="register-form" method="post" action="/pay/register"><input type="hidden" name="csrf" value="{{.CSRF}}"></form>
+  {{else}}<p>Please ask a staff member</p>{{end}}
 </div>
 {{else}}
-<div class="card"><p class="big">{{.Data.Message}}</p></div>
+<div class="state bad">
+  <i data-icon="alert"></i>
+  <h1>Couldn&#39;t show the QR</h1>
+</div>
 {{end}}
-<p><a class="button secondary" href="/panel">Back to my visit</a></p>
 {{end}}
+{{define "cartbar"}}{{if eq .Data.State "unavailable"}}{{if eq .Data.Session.State "active"}}<button class="button" type="submit" form="register-form" style="justify-content: center">Pay at the register</button>{{end}}{{else if eq .Data.State "read_failed"}}<a class="button" href="{{.Data.Again}}" style="justify-content: center"><i data-icon="rotate-cw"></i> Try again</a>{{end}}{{end}}

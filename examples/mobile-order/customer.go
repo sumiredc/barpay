@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html/template"
 	"net/http"
 	"net/mail"
@@ -554,7 +555,8 @@ func (a *App) panel(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := a.ctx(r)
 	defer cancel()
-	end := time.Now()
+	now := time.Now()
+	end := now
 	if s.TotalFixedAt != nil {
 		end = *s.TotalFixedAt
 	}
@@ -572,33 +574,40 @@ func (a *App) panel(w http.ResponseWriter, r *http.Request) {
 			orders = append(orders, v.Orders...)
 		}
 	})
-	v := a.baseView(id, b, "Your visit")
+	v := a.baseView(id, b, "Bill")
 	if !s.ended() {
 		v.Refresh = 15
 	}
-	v.Data = struct {
-		Session *Session
-		Chart   chart
-		Change  *Money
-		Stayed  time.Duration
-		Orders  []Order
-	}{s, rateChart(history, s.CheckedInAt, end), change, end.Sub(s.CheckedInAt), orders}
+	v.Data = billData{s, rateChart(history, s.CheckedInAt, end), change, end.Sub(s.CheckedInAt), orders, pauseLeft(s, now)}
 	a.render(w, http.StatusOK, "panel", v)
 }
 
-func (a *App) payChoice(w http.ResponseWriter, r *http.Request) {
-	id, b := a.browser(w, r)
-	s, ok := a.visitSession(w, r, id, b)
-	if !ok {
-		return
+// billData is what the bill (panel.html) draws.
+type billData struct {
+	Session *Session
+	Chart   chart
+	Change  *Money
+	Stayed  time.Duration
+	Orders  []Order
+	// Pause is the time left in the pause of the cover charge, or nil when there is no pause or
+	// BarPay does not tell when it ends.
+	Pause *countdown
+}
+
+// countdown is a time left, as the bill shows it and counts it down in the browser.
+type countdown struct {
+	Seconds int
+	Clock   string
+}
+
+// pauseLeft is the time until the pause of the cover charge ends at now, rounded up to the
+// second. It is 0 from the instant the pause ends, at which BarPay no longer counts it as paused.
+func pauseLeft(s *Session, now time.Time) *countdown {
+	if s.CoverChargeStatus != "paused" || s.CoverChargeResumesAt == nil {
+		return nil
 	}
-	if s.State != "active" {
-		redirect(w, r, "/panel")
-		return
-	}
-	v := a.baseView(id, b, "Pay")
-	v.Data = s
-	a.render(w, http.StatusOK, "pay", v)
+	left := max(0, int((s.CoverChargeResumesAt.Sub(now)+time.Second-1)/time.Second))
+	return &countdown{left, fmt.Sprintf("%d:%02d", left/60, left%60)}
 }
 
 func (a *App) payAtRegister(w http.ResponseWriter, r *http.Request) {
@@ -617,8 +626,8 @@ func (a *App) payAtRegister(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, id, b, failure{Title: "Couldn't send you to the register", Text: "Please ask a staff member", Button: "Back", Href: "/panel"})
 		return
 	}
+	// The bill tells it by its state at the register, so there is no message on top of it.
 	a.store.update(func(d *Data) error { d.remember(s); return nil })
-	a.flash(id, "Please pay "+formatMoney(s.Total)+" at the register.")
 	redirect(w, r, "/panel")
 }
 
@@ -631,18 +640,27 @@ func (a *App) exitQR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := a.baseView(id, b, "Exit")
+	// State is the one the page shows: "qr", "checking_out", "payment_failed", "unavailable" or
+	// "read_failed".
 	data := struct {
-		Session   *Session
-		QR        template.URL
-		ExpiresAt time.Time
-		Message   string
-	}{Session: s}
+		Session *Session
+		State   string
+		QR      template.URL
+		// Lifetime is the time from receiving the token to its expires_at, over which the bar
+		// under the QR empties.
+		Lifetime float64
+		// Again is this page, which "Try again" opens.
+		Again string
+	}{Session: s, Again: "/exit"}
+	if s.State == "closed" {
+		data.Again = "/exit?again=1"
+	}
 	switch {
 	case s.State == "checking_out":
-		data.Message = "Paying with PayPal…"
+		data.State = "checking_out"
 		v.Refresh = 3
 	case s.State == "payment_failed":
-		data.Message = "The payment did not go through. Please see staff."
+		data.State = "payment_failed"
 	case s.State == "closed" && r.URL.Query().Get("again") == "":
 		redirect(w, r, "/receipts/"+s.SessionID)
 		return
@@ -653,25 +671,28 @@ func (a *App) exitQR(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := a.ctx(r)
 		defer cancel()
 		t, err := a.barpay.getExitToken(ctx, s.SessionID)
+		received := time.Now()
 		if err != nil {
+			data.State = "read_failed"
 			if errorCode(err) == "exit_token_unavailable" {
-				data.Message = "The exit QR is not available for this visit. Please pay at the register or see staff."
-			} else {
-				data.Message = "We could not get your exit QR. Try again in a moment."
-				v.Refresh = 5
+				data.State = "unavailable"
 			}
 			break
 		}
 		code, err := qr.Encode(t.Token, qr.M)
 		if err != nil {
-			data.Message = "We could not draw your exit QR. Please see staff."
+			data.State = "read_failed"
 			break
 		}
 		code.Scale = 8
 		// A data URI the app made from its own PNG, which html/template would otherwise refuse.
 		data.QR = template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(code.PNG()))
-		data.ExpiresAt = t.ExpiresAt
-		v.Refresh = max(1, min(30, int(time.Until(t.ExpiresAt).Seconds())+1))
+		data.State = "qr"
+		left := t.ExpiresAt.Sub(received)
+		data.Lifetime = max(1, left.Seconds())
+		// Reload when the QR changes, not before: a reload on the same token would start the bar
+		// full again.
+		v.Refresh = max(1, int(left.Seconds())+1)
 	}
 	v.Data = data
 	a.render(w, http.StatusOK, "exit", v)

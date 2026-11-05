@@ -1,59 +1,78 @@
 {{define "content"}}
-{{$s := .Data.Session}}
-<h1>Your visit</h1>
 {{template "notices" .}}
-{{if eq $s.State "at_register"}}
-  <div class="card"><p class="big">Please pay {{money $s.Total}} at the register.</p><p class="muted">Staff will record your payment. The cover charge has stopped.</p></div>
+{{$s := .Data.Session}}
+{{if eq $s.State "active"}}
+<section class="bill-hero">
+  <p class="label">Total so far</p>
+  <p class="amount">{{money $s.Total}}</p>
+  <p class="muted">Here for {{duration .Data.Stayed}}</p>
+</section>
+{{if eq $s.CoverChargeStatus "paused"}}<p class="notice good"><i data-icon="gift"></i><span>Cover charge on the house{{with .Data.Pause}}{{if .Seconds}}　<strong data-countdown="{{.Seconds}}">{{.Clock}}</strong> left{{end}}{{end}}</span></p>{{end}}
+{{else if eq $s.State "at_register"}}
+<div class="state">
+  <i data-icon="credit-card"></i>
+  <h1>Please pay at the register</h1>
+</div>
 {{else if eq $s.State "checking_out"}}
-  <div class="card"><p class="big">Paying with PayPal…</p></div>
-{{else if eq $s.State "payment_failed"}}
-  <div class="card"><p class="big">Please see staff.</p><p>Your PayPal payment did not go through. Unpaid: {{with $s.UnpaidAmount}}{{money .}}{{end}}.</p></div>
-{{else if or (eq $s.State "closed") (eq $s.State "closed_unpaid")}}
-  <div class="card"><p class="big">Thank you!</p><p><a class="button" href="/receipts/{{$s.SessionID}}">View receipt</a></p></div>
+<div class="state">
+  <i data-icon="clock"></i>
+  <h1>Paying with PayPal…</h1>
+</div>
+{{else if or (eq $s.State "payment_failed") (eq $s.State "closed_unpaid")}}
+<div class="state bad">
+  <i data-icon="alert"></i>
+  <h1>Payment didn&#39;t go through</h1>
+  <p>Please ask a staff member.{{with $s.UnpaidAmount}} Unpaid {{money .}}{{end}}</p>
+</div>
+{{else if eq $s.State "closed"}}
+<div class="state good">
+  <i data-icon="circle-check"></i>
+  <h1>Thank you</h1>
+  <p>Total {{money $s.Total}}</p>
+</div>
 {{end}}
 
-<div class="card">
-  <div class="row" style="justify-content: space-between">
-    <div class="stat"><div class="label">Cover charge rate</div><div class="big">{{money $s.RatePerHour}}/h</div></div>
-    {{with .Data.Change}}<div class="stat"><div class="label">Latest change</div><div class="value {{if gt .Value 0}}up{{else if lt .Value 0}}down{{end}}">{{signedMoney .}}</div></div>{{end}}
+<div class="card bill">
+  <div class="bill-row">
+    <div>
+      <div>Cover charge</div>
+      {{if eq $s.State "active"}}<div class="muted bill-rate">Now {{money $s.RatePerHour}}/h{{with .Data.Change}} <span class="{{if gt .Value 0}}up{{else if lt .Value 0}}down{{end}}">{{signedMoney .}}</span>{{end}}
+        {{with .Data.Chart}}{{if .Path}}<svg class="spark" viewBox="0 0 {{.Width}} {{.Height}}" role="img" aria-label="Rate per hour since check-in, from {{.From}} to {{.To}}"><path d="{{.Path}}" fill="none" stroke="#8a4b16" stroke-width="2" stroke-linejoin="round"/></svg>{{end}}{{end}}
+      </div>{{end}}
+    </div>
+    <div class="bill-amount">{{money $s.CoverCharge}}</div>
   </div>
-  {{with .Data.Chart}}{{if .Path}}
-  <svg class="ticker" viewBox="0 0 {{.Width}} {{.Height}}" role="img" aria-label="Rate per hour since you checked in, from {{.Low}} to {{.High}}">
-    <path d="{{.Path}}" fill="none" stroke="#8a4b16" stroke-width="2.5" stroke-linejoin="round"></path>
-  </svg>
-  <div class="row muted" style="justify-content: space-between"><span>{{.Start}}</span><span>{{if .HasMultiple}}{{.Low}} – {{.High}}{{else}}{{.Low}}{{end}}</span><span>{{.End}}</span></div>
-  {{end}}{{end}}
-  {{if eq $s.CoverChargeStatus "paused"}}<p class="flash">Your order paused the cover charge for a while.</p>{{end}}
-  {{if eq $s.CoverChargeStatus "capped"}}<p class="flash">You reached the cap for this visit: no more cover charge.</p>{{end}}
-</div>
-
-<div class="card grid">
-  <div class="stat"><div class="label">Time stayed</div><div class="value">{{duration .Data.Stayed}}</div></div>
-  <div class="stat"><div class="label">Cover charge so far</div><div class="value">{{money $s.CoverCharge}}</div></div>
-  <div class="stat"><div class="label">Orders ({{$s.OrderCount}})</div><div class="value">{{money $s.OrdersTotal}}</div></div>
-  <div class="stat"><div class="label">Running total</div><div class="value">{{money $s.Total}}</div></div>
-  <div class="stat"><div class="label">Payment</div><div class="value">{{if eq $s.PaymentMethod "paypal"}}PayPal{{else}}Register{{end}}</div></div>
-</div>
-
-{{with .Data.Orders}}
-<h2>Your orders</h2>
-<div class="card">
-  {{range .}}
-    <div><span class="muted">{{time .RecordedAt}}</span> — {{range $i, $l := .Lines}}{{if $i}}, {{end}}{{$l.Quantity}} × {{$l.Name}}{{end}} — {{money .Amount}}</div>
+  <div class="bill-row">
+    <div>Orders<span class="muted"> ({{$s.OrderCount}})</span></div>
+    <div class="bill-amount">{{money $s.OrdersTotal}}</div>
+  </div>
+  {{with .Data.Orders}}
+  <div class="orders">
+    {{range .}}
+    <div class="order">
+      <div class="order-head"><span class="muted">{{clock .RecordedAt}}</span><span>{{money .Amount}}</span></div>
+      <ul>{{range .Lines}}<li><span>{{.Name}}</span><span class="muted">× {{.Quantity}}</span></li>{{end}}</ul>
+    </div>
+    {{end}}
+  </div>
   {{end}}
+  <div class="bill-row total"><div>Total</div><div class="bill-amount">{{money $s.Total}}</div></div>
 </div>
-{{end}}
 
 {{if eq $s.State "active"}}
 <dialog class="sheet" id="pay">
+  {{if eq $s.PaymentMethod "paypal"}}
   <div class="stack">
-    {{if eq $s.PaymentMethod "paypal"}}<a class="button" href="/exit"><i data-icon="qr"></i> Show exit QR</a>{{end}}
-    <form method="post" action="/pay/register">
-      <input type="hidden" name="csrf" value="{{.CSRF}}">
-      <button class="button {{if eq $s.PaymentMethod "paypal"}}secondary{{end}}" type="submit">Pay at register</button>
-    </form>
+    <a class="button" href="/exit"><i data-icon="qr"></i> Pay with PayPal</a>
+    <form method="post" action="/pay/register"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="button secondary" type="submit">Pay at the register</button></form>
   </div>
+  {{else}}
+  <form class="stack" method="post" action="/pay/register">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <button class="button" type="submit">Pay at the register</button>
+  </form>
+  {{end}}
 </dialog>
 {{end}}
 {{end}}
-{{define "cartbar"}}{{$s := .Data.Session}}{{if eq $s.State "active"}}<button class="button" type="button" data-sheet="pay"><span>Pay</span><span>{{money $s.Total}}</span></button>{{end}}{{end}}
+{{define "cartbar"}}{{$s := .Data.Session}}{{if eq $s.State "active"}}<button class="button" type="button" data-sheet="pay"><span>Pay</span><span>{{money $s.Total}}</span></button>{{else if eq $s.State "closed"}}<a class="button" href="/receipts/{{$s.SessionID}}" style="justify-content: center">View receipt</a>{{end}}{{end}}
