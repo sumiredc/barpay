@@ -13,14 +13,20 @@ import (
 	"time"
 )
 
-// entryBarPay stands in for BarPay at the entrance: check-in, and the reads and the register
-// request of the visit it starts.
+// entryBarPay stands in for BarPay at the entrance: the rate, a member's saved PayPal, check-in,
+// and the reads and the register request of the visit it starts.
 type entryBarPay struct {
+	// rate is the body of GET /rate; empty, the rate cannot be read.
+	rate        string
+	savedPaypal bool
 	// checkin answers POST /checkins; nil checks in.
 	checkin func(w http.ResponseWriter)
 	// sessionFails makes reading the session fail; registerFails, the register request.
 	sessionFails, registerFails bool
 }
+
+const rateWithCap = `{"rate_per_hour":{"value":1200,"currency":"USD"},"change":{"value":0,"currency":"USD"},"published_at":"2026-11-05T20:00:00Z","cap_per_visit":{"value":2500,"currency":"USD"}}`
+const rateWithoutCap = `{"rate_per_hour":{"value":1200,"currency":"USD"},"change":{"value":0,"currency":"USD"},"published_at":"2026-11-05T20:00:00Z","cap_per_visit":{"value":0,"currency":"USD"}}`
 
 func apiError(w http.ResponseWriter, status int, code string) {
 	w.WriteHeader(status)
@@ -33,6 +39,18 @@ func (f *entryBarPay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		RatePerHour: usd(1200), CoverChargeStatus: "running", CoverCharge: usd(1200), Total: usd(1200)}
 	w.Header().Set("Content-Type", "application/json")
 	switch {
+	case r.Method == "GET" && r.URL.Path == "/v1/rate":
+		if f.rate == "" {
+			apiError(w, http.StatusNotFound, "rate_not_found")
+			return
+		}
+		io.WriteString(w, f.rate)
+	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/v1/members/"):
+		m := Member{MemberID: strings.TrimPrefix(r.URL.Path, "/v1/members/")}
+		if f.savedPaypal {
+			m.SavedPaypal = &SavedPaypal{Status: "saved", SavedAt: time.Now(), ConsentVersion: consentVersion}
+		}
+		json.NewEncoder(w).Encode(m)
 	case r.Method == "POST" && r.URL.Path == "/v1/checkins":
 		if f.checkin != nil {
 			f.checkin(w)
@@ -103,6 +121,65 @@ func (c *customer) get(path string) (int, string) {
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, string(b)
+}
+
+// sheet returns the dialog with the id from page, or "".
+func sheet(page, id string) string {
+	start := strings.Index(page, `<dialog class="sheet" id="`+id+`">`)
+	if start < 0 {
+		return ""
+	}
+	end := strings.Index(page[start:], "</dialog>")
+	return page[start : start+end]
+}
+
+func TestTheEntranceShowsTheRateAndTheCapInEachSheet(t *testing.T) {
+	visitor := newEntryCustomer(t, &entryBarPay{rate: rateWithCap}).open("/")
+	member := newEntryCustomer(t, &entryBarPay{rate: rateWithCap})
+	page := member.post("/signup", "/signup", url.Values{"name": {"Taro"}, "email": {"taro@example.com"}, "password": {"Abcdef1!"}})
+	for _, s := range []string{sheet(visitor, "rate-info"), sheet(visitor, "guest-confirm"), sheet(page, "checkin-confirm")} {
+		if !strings.Contains(s, "$12.00<small>/h</small>") || !strings.Contains(s, "Cap per visit") || !strings.Contains(s, "$25.00") {
+			t.Errorf("a sheet lacks the rate or the cap: %q", s)
+		}
+	}
+}
+
+func TestTheEntranceLeavesOutACapOfZero(t *testing.T) {
+	visitor := newEntryCustomer(t, &entryBarPay{rate: rateWithoutCap}).open("/")
+	member := newEntryCustomer(t, &entryBarPay{rate: rateWithoutCap})
+	page := member.post("/signup", "/signup", url.Values{"name": {"Taro"}, "email": {"taro@example.com"}, "password": {"Abcdef1!"}})
+	for id, s := range map[string]string{"rate-info": sheet(visitor, "rate-info"), "guest-confirm": sheet(visitor, "guest-confirm"), "checkin-confirm": sheet(page, "checkin-confirm")} {
+		if s == "" || !strings.Contains(s, "$12.00<small>/h</small>") {
+			t.Errorf("%s lacks the rate", id)
+		}
+		if strings.Contains(s, "Cap per visit") {
+			t.Errorf("%s shows a cap of 0", id)
+		}
+	}
+}
+
+func TestAnEntranceThatCannotReadTheRateStillLetsInWithoutFigures(t *testing.T) {
+	page := newEntryCustomer(t, &entryBarPay{}).open("/")
+	if !strings.Contains(page, `<span class="chip off"><i data-icon="clock"></i>Can't load the rate</span>`) {
+		t.Error("the chip does not say the rate cannot be read")
+	}
+	if strings.Contains(page, `data-sheet="rate-info"`) || sheet(page, "rate-info") != "" {
+		t.Error("the rate sheet can be opened")
+	}
+	guest := sheet(page, "guest-confirm")
+	if guest == "" || strings.Contains(guest, "rate-pair") || !strings.Contains(guest, `action="/guest"`) {
+		t.Error("the guest sheet does not let in without the figures")
+	}
+}
+
+func TestTheEntranceOffersToLinkPayPalOnlyWithoutASavedOne(t *testing.T) {
+	for _, saved := range []bool{false, true} {
+		c := newEntryCustomer(t, &entryBarPay{rate: rateWithCap, savedPaypal: saved})
+		page := c.post("/signup", "/signup", url.Values{"name": {"Taro"}, "email": {"taro@example.com"}, "password": {"Abcdef1!"}})
+		if offered := strings.Contains(page, "PayPal not linked"); offered == saved {
+			t.Errorf("saved PayPal %v: PayPal not linked shown %v", saved, offered)
+		}
+	}
 }
 
 func TestAFailedCheckInTellsWhatToDoByItsCause(t *testing.T) {

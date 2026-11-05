@@ -22,12 +22,6 @@ func renderPage(t *testing.T, name string, v view) string {
 	return rec.Body.String()
 }
 
-type landingData struct {
-	Rate            *RatePoint
-	InVisit         bool
-	EndedGuestVisit string
-}
-
 func TestCustomerPagesUseTheCustomerLayout(t *testing.T) {
 	body := renderPage(t, "login", view{})
 	for _, want := range []string{`data-app="customer"`, `href="/static/customer.css"`, `src="/static/customer.js"`} {
@@ -152,7 +146,7 @@ func TestMessagesOfTheCustomerPages(t *testing.T) {
 func TestEveryCustomerPageShowsTheNotices(t *testing.T) {
 	heading := regexp.MustCompile(`(?m)^<h1>`)
 	belowH1 := regexp.MustCompile(`(?m)^<h1>.*</h1>\n\{\{template "notices" \.\}\}$`)
-	first := regexp.MustCompile(`^\{\{define "content"\}\}\n\{\{template "notices" \.\}\}\n`)
+	first := regexp.MustCompile(`(?m)^\{\{define "content"\}\}\n\{\{template "notices" \.\}\}\n`)
 	for name := range customerPages {
 		src, err := templateFS.ReadFile("templates/" + name + ".html")
 		if err != nil {

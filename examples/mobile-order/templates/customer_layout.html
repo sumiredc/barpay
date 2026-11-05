@@ -10,7 +10,7 @@
 </head>
 <body data-app="customer"{{with .BodyClass}} class="{{.}}"{{end}}>
 {{if .Header}}<header class="brandmark"><img src="/static/logo.svg" alt=""><span>{{.StoreName}}</span></header>{{end}}
-<main>
+<main{{block "main-class" .}}{{end}}>
   {{template "content" .}}
 </main>
 {{with .Cartbar}}<div class="cartbar">{{.}}</div>{{end}}

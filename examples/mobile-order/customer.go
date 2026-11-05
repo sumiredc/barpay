@@ -122,14 +122,7 @@ func (a *App) landing(w http.ResponseWriter, r *http.Request) {
 	id, b := a.browser(w, r)
 	ctx, cancel := a.ctx(r)
 	defer cancel()
-	data := struct {
-		Rate    *RatePoint
-		InVisit bool
-		// EndedGuestVisit is a guest visit that ended, whose receipt is seen only until Done, also
-		// by a guest who signed up during it. A member's ended visit needs nothing here: its
-		// receipt stays in Receipts and Check in starts a new one.
-		EndedGuestVisit string
-	}{InVisit: b.SessionID != ""}
+	data := landingData{InVisit: b.SessionID != ""}
 	if b.SessionID != "" {
 		// A visit read as ended is over; one that could not be read is taken as still open.
 		s, err := a.barpay.getSession(ctx, b.SessionID)
@@ -150,11 +143,31 @@ func (a *App) landing(w http.ResponseWriter, r *http.Request) {
 	v := a.baseView(id, b, "Welcome")
 	// Before login and before a member's check-in the entrance is the start, so it has no tabs.
 	v.Tabbar = data.InVisit || data.EndedGuestVisit != ""
-	if rate, err := a.barpay.getRate(ctx); err == nil {
-		data.Rate = rate
+	if !v.Tabbar {
+		// The rate is shown before entering only. One that cannot be read is left out, and the
+		// customer can still enter: the bill shows it later.
+		if rate, err := a.barpay.getRate(ctx); err == nil {
+			data.Rate = rate
+		}
+		if v.Member != nil {
+			// A saved PayPal that cannot be read is not said to be missing.
+			m, err := a.barpay.getMember(ctx, v.Member.ID)
+			data.PaypalUnlinked = err == nil && m.SavedPaypal == nil
+		}
 	}
 	v.Data = data
 	a.render(w, http.StatusOK, "landing", v)
+}
+
+type landingData struct {
+	// Rate is nil when BarPay's rate could not be read.
+	Rate    *CurrentRate
+	InVisit bool
+	// EndedGuestVisit is a guest visit that ended, whose receipt is seen only until Done, also
+	// by a guest who signed up during it. A member's ended visit needs nothing here: its
+	// receipt stays in Receipts and Check in starts a new one.
+	EndedGuestVisit string
+	PaypalUnlinked  bool
 }
 
 func (a *App) signupForm(w http.ResponseWriter, r *http.Request) {
