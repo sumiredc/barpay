@@ -78,8 +78,8 @@ var funcs = template.FuncMap{
 	"signedMoney": formatSignedMoney,
 	"time":        func(t time.Time) string { return t.Local().Format("Jan 2 15:04:05") },
 	"day":         func(t time.Time) string { return t.Local().Format("Mon, Jan 2") },
-	"duration":    formatDuration,
 	"clock":       func(t time.Time) string { return t.Local().Format("15:04") },
+	"duration":    formatDuration,
 	"deref": func(s *string) string {
 		if s == nil {
 			return ""

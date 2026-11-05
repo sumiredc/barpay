@@ -157,9 +157,11 @@ func TestMessagesOfTheCustomerPages(t *testing.T) {
 
 // The layout leaves the notices to each page, so a page that forgets them drops its messages. A
 // page whose h1 is inside a state (.state) puts them first, as it has no h1 heading its content.
+// A page that picks its h1 in one {{if}} on one line, such as the receipt's thanks or visit time,
+// puts the notices below that line, whichever h1 it shows.
 func TestEveryCustomerPageShowsTheNotices(t *testing.T) {
-	heading := regexp.MustCompile(`(?m)^<h1>`)
-	belowH1 := regexp.MustCompile(`(?m)^<h1>.*</h1>\n\{\{template "notices" \.\}\}$`)
+	heading := regexp.MustCompile(`(?m)^(<h1>|\{\{if .*<h1>)`)
+	belowH1 := regexp.MustCompile(`(?m)^(<h1>.*</h1>|\{\{if .*<h1>.*</h1>.*\{\{end\}\})\n\{\{template "notices" \.\}\}$`)
 	first := regexp.MustCompile(`(?m)^\{\{define "content"\}\}\n\{\{template "notices" \.\}\}\n`)
 	for name := range customerPages {
 		src, err := templateFS.ReadFile("templates/" + name + ".html")

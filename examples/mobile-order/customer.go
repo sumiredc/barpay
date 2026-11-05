@@ -733,9 +733,15 @@ func (a *App) ownsVisit(b Browser, sessionID string) bool {
 	return owned
 }
 
+// receipts is the member's visit history: the visits that ended, newest first. The visit going on
+// is on the bill, and a guest keeps no history.
 func (a *App) receipts(w http.ResponseWriter, r *http.Request) {
 	id, b := a.browser(w, r)
-	if b.MemberID == "" && !b.Guest {
+	switch {
+	case b.Guest:
+		redirect(w, r, "/account")
+		return
+	case b.MemberID == "":
 		redirect(w, r, "/")
 		return
 	}
@@ -744,18 +750,42 @@ func (a *App) receipts(w http.ResponseWriter, r *http.Request) {
 		var ids []string
 		if m := d.Members[b.MemberID]; m != nil {
 			ids = m.SessionIDs
-		} else if b.SessionID != "" {
-			ids = []string{b.SessionID}
 		}
 		for i := len(ids) - 1; i >= 0; i-- {
-			if v := d.Visits[ids[i]]; v != nil && v.Session != nil {
+			if v := d.Visits[ids[i]]; v != nil && v.Session != nil && v.Session.ended() && v.Session.Receipt != nil {
 				visits = append(visits, *v)
 			}
 		}
 	})
-	v := a.baseView(id, b, "Receipts")
+	v := a.baseView(id, b, "Visit history")
 	v.Data = visits
 	a.render(w, http.StatusOK, "receipts", v)
+}
+
+// receiptLine is one item of a receipt, the same item of every order of the visit added up.
+type receiptLine struct {
+	Name     string
+	Quantity int
+	Amount   Money
+}
+
+func receiptLines(orders []Order) []receiptLine {
+	var lines []receiptLine
+	at := map[OrderLine]int{}
+	for _, o := range orders {
+		for _, l := range o.Lines {
+			key := OrderLine{Name: l.Name, UnitPrice: l.UnitPrice}
+			i, ok := at[key]
+			if !ok {
+				i = len(lines)
+				at[key] = i
+				lines = append(lines, receiptLine{Name: l.Name, Amount: Money{Currency: l.UnitPrice.Currency}})
+			}
+			lines[i].Quantity += l.Quantity
+			lines[i].Amount.Value += int64(l.Quantity) * l.UnitPrice.Value
+		}
+	}
+	return lines
 }
 
 func (a *App) receipt(w http.ResponseWriter, r *http.Request) {
@@ -768,7 +798,7 @@ func (a *App) receipt(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := a.ctx(r)
 	defer cancel()
 	s, err := a.barpay.getSession(ctx, sessionID)
-	if err != nil {
+	if err != nil || (s.ended() && s.Receipt == nil) {
 		a.fail(w, id, b, couldNotLoad(r))
 		return
 	}
@@ -778,15 +808,25 @@ func (a *App) receipt(w http.ResponseWriter, r *http.Request) {
 		orders = append(orders, d.Visits[sessionID].Orders...)
 		return nil
 	})
-	v := a.baseView(id, b, "Receipt")
 	if !s.ended() {
-		v.Refresh = 10
+		// A visit going on has no receipt yet: its bill shows where it stands.
+		redirect(w, r, "/panel")
+		return
 	}
+	v := a.baseView(id, b, "Receipt")
+	current := b.SessionID == sessionID
 	v.Data = struct {
 		Session *Session
-		Orders  []Order
+		Lines   []receiptLine
+		Stayed  time.Duration
+		// Current is the visit of this browser that just ended, which the customer finishes with
+		// Done. It is thanked for unless it ended unpaid.
 		Current bool
-	}{s, orders, b.SessionID == sessionID}
+		Thanks  bool
+		// GateAgain offers the exit QR again after a PayPal checkout, for a gate that did not open.
+		GateAgain bool
+	}{s, receiptLines(orders), s.Receipt.EndedAt.Sub(s.CheckedInAt), current,
+		current && s.Receipt.Settlement != "unpaid", current && s.Receipt.Settlement == "paypal"}
 	a.render(w, http.StatusOK, "receipt", v)
 }
 

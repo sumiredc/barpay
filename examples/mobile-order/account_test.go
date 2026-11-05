@@ -394,3 +394,206 @@ func TestAGuestOpeningThePayPalPageIsSentToTheAccount(t *testing.T) {
 		t.Errorf("a guest opening the PayPal page ends on %s", at)
 	}
 }
+
+var (
+	checkedIn = time.Date(2026, 11, 5, 20, 48, 0, 0, time.Local)
+	ended     = time.Date(2026, 11, 5, 22, 0, 0, 0, time.Local)
+)
+
+// end ends the session in BarPay with the settlement and total given; a PayPal one with a total
+// is charged under a capture ID.
+func (s *shop) end(sessionID, settlement string, total int64) {
+	s.barpay.mu.Lock()
+	defer s.barpay.mu.Unlock()
+	usd := func(v int64) Money { return Money{Value: v, Currency: "USD"} }
+	ss := s.barpay.sessions[sessionID]
+	ss.State, ss.CheckedInAt, ss.TotalFixedAt = "closed", checkedIn, &ended
+	ss.OrdersTotal, ss.CoverCharge, ss.Total = usd(0), usd(total), usd(total)
+	ss.Receipt = &Receipt{Settlement: settlement, OrdersTotal: usd(0), CoverCharge: usd(total), Total: usd(total), EndedAt: ended}
+	switch settlement {
+	case "paypal":
+		ss.PaymentMethod = "paypal"
+		if total > 0 {
+			capture := "CAP-123"
+			ss.Receipt.PaypalCaptureID = &capture
+		}
+	case "register", "outside":
+		ss.Receipt.AmountRecorded = &ss.Total
+	case "unpaid":
+		ss.State = "closed_unpaid"
+		ss.Receipt.UnpaidAmount = &ss.Total
+	}
+}
+
+// checkIn checks the browser in and returns the session ID.
+func (s *shop) checkIn(path string) string {
+	s.t.Helper()
+	s.post("/", path, url.Values{})
+	var id string
+	s.a.store.view(func(d *Data) {
+		for _, b := range d.Browsers {
+			if b.SessionID != "" {
+				id = b.SessionID
+			}
+		}
+	})
+	return id
+}
+
+// pastVisit gives the member a visit that ended, and the app the session BarPay told it of.
+func (s *shop) pastVisit(settlement string, total int64) string {
+	s.t.Helper()
+	id := s.checkIn("/checkin")
+	s.end(id, settlement, total)
+	s.open("/receipts/" + id)
+	s.post("/account", "/visit/done", url.Values{})
+	return id
+}
+
+func TestTheVisitHistoryListsTheVisitsThatEnded(t *testing.T) {
+	s := newShop(t)
+	s.signUp()
+	s.setMember(&Member{})
+	paid := s.pastVisit("paypal", 5280)
+	unpaid := s.pastVisit("unpaid", 2800)
+	open := s.checkIn("/checkin")
+	page := s.open("/receipts")
+	for _, want := range []string{
+		`<li><a href="/receipts/` + paid + `"><span><strong>Thu, Nov 5 20:48</strong></span><span>$52.80</span>`,
+		`<li><a href="/receipts/` + unpaid + `"><span><strong>Thu, Nov 5 20:48</strong><span class="pill closed_unpaid">Unpaid</span></span><span>$28.00</span>`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the visit history lacks %s", want)
+		}
+	}
+	if strings.Index(page, unpaid) > strings.Index(page, paid) {
+		t.Error("the visit history is not newest first")
+	}
+	if strings.Contains(page, open) {
+		t.Error("the visit history lists the visit going on")
+	}
+}
+
+func TestAnEmptyVisitHistorySaysSo(t *testing.T) {
+	s := newShop(t)
+	s.signUp()
+	if !strings.Contains(s.open("/receipts"), "<h1>No visits yet</h1>") {
+		t.Error("an empty visit history does not say there are no visits yet")
+	}
+}
+
+func TestAGuestOpeningTheVisitHistoryIsSentToTheAccount(t *testing.T) {
+	s := newShop(t)
+	s.post("/", "/guest", url.Values{})
+	if at, _ := s.visit("/receipts"); at != "/account" {
+		t.Errorf("a guest opening the visit history ends on %s", at)
+	}
+}
+
+func TestTheReceiptOfAVisitGoingOnIsTheBill(t *testing.T) {
+	s := newShop(t)
+	id := s.checkIn("/guest")
+	if at, _ := s.visit("/receipts/" + id); at != "/panel" {
+		t.Errorf("the receipt of a visit going on ends on %s", at)
+	}
+}
+
+func TestAPastReceiptIsHeadedByTheVisitsTime(t *testing.T) {
+	s := newShop(t)
+	s.signUp()
+	s.setMember(&Member{})
+	id := s.pastVisit("paypal", 3740)
+	page := s.open("/receipts/" + id)
+	for _, want := range []string{
+		"<h1>Thu, Nov 5 20:48 – 22:00</h1>",
+		`<div>Cover charge <span class="muted">1 h 12 min</span></div><div>$37.40</div>`,
+		`<div class="bill-row total"><div>Total</div><div class="bill-amount">$37.40</div></div>`,
+		`<div><i data-icon="credit-card"></i> PayPal</div><div>$37.40</div>`,
+		"<br>PayPal transaction CAP-123</p>",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the past receipt lacks %s", want)
+		}
+	}
+	if strings.Contains(page, "Thank you") || strings.Contains(page, "/visit/done") {
+		t.Error("a past receipt thanks or asks for Done")
+	}
+}
+
+// Nothing is charged to PayPal for a total of 0, so there is no transaction to show.
+func TestAZeroPayPalReceiptHasNoTransaction(t *testing.T) {
+	s := newShop(t)
+	s.signUp()
+	s.setMember(&Member{})
+	id := s.pastVisit("paypal", 0)
+	page := s.open("/receipts/" + id)
+	if !strings.Contains(page, `<div><i data-icon="credit-card"></i> PayPal</div><div>$0.00</div>`) {
+		t.Error("a PayPal receipt of 0 lacks the PayPal $0.00 line")
+	}
+	if strings.Contains(page, "PayPal transaction") {
+		t.Error("a PayPal receipt of 0 has a transaction line")
+	}
+}
+
+func TestTheReceiptRightAfterAPayPalCheckoutThanksAndOffersTheGateAgain(t *testing.T) {
+	s := newShop(t)
+	s.signUp()
+	s.setMember(&Member{})
+	id := s.checkIn("/checkin")
+	s.end(id, "paypal", 3740)
+	page := s.open("/receipts/" + id)
+	for _, want := range []string{
+		"<h1>Thank you</h1>",
+		`<a class="textbutton" href="/exit?again=1">`,
+		`<div class="cartbar"><form method="post" action="/visit/done">`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the receipt after a PayPal checkout lacks %s", want)
+		}
+	}
+}
+
+func TestAGuestsDoneAsksFirst(t *testing.T) {
+	s := newShop(t)
+	id := s.checkIn("/guest")
+	s.end(id, "register", 3740)
+	page := s.open("/receipts/" + id)
+	for _, want := range []string{
+		"<h1>Thank you</h1>",
+		`<div>Register</div><div>$37.40</div>`,
+		`<div class="cartbar"><button class="button" type="button" data-sheet="done-confirm"`,
+		"<h2>Finish your visit?</h2>",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("a guest's receipt lacks %s", want)
+		}
+	}
+	if strings.Contains(page, "exit?again") {
+		t.Error("a receipt paid at the register offers the exit QR again")
+	}
+}
+
+func TestTheReceiptTellsHowTheVisitWasSettled(t *testing.T) {
+	for settlement, want := range map[string]string{
+		"outside": `<div class="bill-row pay-line"><div>Settled with staff</div><div>$37.40</div></div>`,
+		"unpaid":  `<div class="bill-row pay-line bad"><div>Unpaid</div><div>$37.40</div></div>`,
+	} {
+		s := newShop(t)
+		s.signUp()
+		s.setMember(&Member{})
+		id := s.pastVisit(settlement, 3740)
+		if page := s.open("/receipts/" + id); !strings.Contains(page, want) {
+			t.Errorf("a receipt settled %s lacks %s", settlement, want)
+		}
+	}
+}
+
+func TestReceiptLinesAddUpTheSameItem(t *testing.T) {
+	beer := OrderLine{Name: "Draft beer", Quantity: 1, UnitPrice: Money{700, "USD"}}
+	fries := OrderLine{Name: "French fries", Quantity: 1, UnitPrice: Money{600, "USD"}}
+	got := receiptLines([]Order{{Lines: []OrderLine{beer, fries}}, {Lines: []OrderLine{beer}}})
+	want := []receiptLine{{"Draft beer", 2, Money{1400, "USD"}}, {"French fries", 1, Money{600, "USD"}}}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("receiptLines = %v, want %v", got, want)
+	}
+}

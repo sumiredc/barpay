@@ -1,12 +1,16 @@
 {{define "content"}}
-<h1>Receipts</h1>
+<h1>Visit history</h1>
 {{template "notices" .}}
-{{range .Data}}
-  <div class="card row" style="justify-content: space-between">
-    <div><strong>{{time .Session.CheckedInAt}}</strong> <span class="pill {{.Session.State}}">{{stateLabel .Session.State}}</span><br><span class="muted">Total {{money .Session.Total}}</span></div>
-    <a class="button small secondary" href="/receipts/{{.SessionID}}">{{if .Session.Receipt}}Receipt{{else}}Details{{end}}</a>
-  </div>
+{{with .Data}}
+<ul class="menu-rows visits">
+  {{range .}}
+  <li><a href="/receipts/{{.SessionID}}"><span><strong>{{day .Session.CheckedInAt}} {{clock .Session.CheckedInAt}}</strong>{{if eq .Session.Receipt.Settlement "unpaid"}}<span class="pill closed_unpaid">Unpaid</span>{{end}}</span><span>{{money .Session.Receipt.Total}}</span><i data-icon="chevron-right"></i></a></li>
+  {{end}}
+</ul>
 {{else}}
-  <div class="card"><p>No visits yet.</p></div>
+<div class="state">
+  <i data-icon="history"></i>
+  <h1>No visits yet</h1>
+</div>
 {{end}}
 {{end}}
