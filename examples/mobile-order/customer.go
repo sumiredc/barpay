@@ -4,12 +4,12 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"html/template"
 	"net/http"
 	"net/mail"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -22,25 +22,6 @@ import (
 const consentVersion = "walkout-v1"
 
 const consentText = "When you link PayPal, the whole total of each visit (your orders and the cover charge) is charged to your PayPal when you leave through the exit gate, without asking you again. Linking itself charges nothing. You can delete your saved PayPal in Settings at any time when you have no unpaid visit."
-
-type menuItem struct {
-	ID    string
-	Name  string
-	Price int64 // cents
-	Kind  string
-}
-
-var menuItems = []menuItem{
-	{"beer", "Draft beer", 700, "Drinks"},
-	{"highball", "Whisky highball", 800, "Drinks"},
-	{"gin", "Gin and tonic", 900, "Drinks"},
-	{"soda", "Ginger ale", 400, "Drinks"},
-	{"fries", "French fries", 600, "Food"},
-	{"edamame", "Edamame", 500, "Food"},
-	{"karaage", "Fried chicken", 950, "Food"},
-}
-
-const menuCurrency = "USD"
 
 var orderIDPattern = regexp.MustCompile(`^ord_[a-z0-9]{20}$`)
 
@@ -445,14 +426,29 @@ func (a *App) menu(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := a.baseView(id, b, "Menu")
+	items := map[string]menuItem{}
+	for _, item := range menuItems {
+		// The script reads the options of every item as a list, also of one without options.
+		if item.Options == nil {
+			item.Options = []menuOption{}
+		}
+		items[item.ID] = item
+	}
+	// The cart is kept by the page's script, which draws the item sheet from the menu.
+	itemsJSON, err := json.Marshal(items)
+	if err != nil {
+		panic(err)
+	}
 	// The order_id is minted with the form, so submitting the same form again, or twice at once,
 	// reports the same order, which BarPay records once.
 	v.Data = struct {
-		Items   []menuItem
-		Session *Session
-		Pending *PendingOrder
-		OrderID string
-	}{menuItems, s, b.PendingOrder, randomID("ord_")}
+		Sections   []menuSection
+		ItemsJSON  string
+		Session    *Session
+		StateLabel string
+		Pending    *PendingOrder
+		OrderID    string
+	}{menuSections(), string(itemsJSON), s, customerStateLabel(s.State), b.PendingOrder, randomID("ord_")}
 	a.render(w, http.StatusOK, "menu", v)
 }
 
@@ -470,21 +466,15 @@ func (a *App) placeOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orderID := r.PostFormValue("order_id")
-	if !orderIDPattern.MatchString(orderID) {
-		a.flash(id, "This form has expired. Choose your items again.")
+	// A form from before the menu changed is chosen again, as an expired one is.
+	lines, known := orderLines(r.PostForm["line"])
+	if !orderIDPattern.MatchString(orderID) || !known {
+		a.flash(id, "Please choose again")
 		redirect(w, r, "/menu")
 		return
 	}
-	var lines []OrderLine
-	for _, item := range menuItems {
-		q, err := strconv.Atoi(r.PostFormValue("qty_" + item.ID))
-		if err != nil || q <= 0 {
-			continue
-		}
-		lines = append(lines, OrderLine{Name: item.Name, Quantity: min(q, 99), UnitPrice: Money{item.Price, menuCurrency}})
-	}
 	if len(lines) == 0 {
-		a.flash(id, "Choose at least one item.")
+		a.flash(id, "Choose at least one item")
 		redirect(w, r, "/menu")
 		return
 	}
@@ -512,11 +502,11 @@ func (a *App) sendOrder(w http.ResponseWriter, r *http.Request, id, sessionID st
 	defer cancel()
 	recorded, err := a.barpay.reportOrder(ctx, sessionID, order.OrderID, order.Lines)
 	if errors.Is(err, ErrNoAnswer) {
-		a.flash(id, "We could not confirm your order. Send it again: it will not be ordered twice.")
+		// The menu shows the order that is still pending, to be sent again.
 		redirect(w, r, "/menu")
 		return
 	}
-	// A recorded order is told by a toast; one that was not stays on the menu as a flash.
+	// A recorded order is told by a toast; one that was not stays on the menu in red.
 	msg := "Order received"
 	switch code := errorCode(err); {
 	case err == nil:
@@ -535,16 +525,16 @@ func (a *App) sendOrder(w http.ResponseWriter, r *http.Request, id, sessionID st
 		msg = "This order was already received"
 		err = nil
 	case code == "session_not_active":
-		msg = "This visit can take no more orders. Please see staff."
+		msg = "This visit can't take more orders. Please ask a staff member"
 	default:
-		msg = "We could not place your order. Please see staff."
+		msg = "Couldn't place the order. Please ask a staff member"
 	}
 	a.updateBrowser(id, func(b *Browser) {
 		b.PendingOrder = nil
 		if err == nil {
 			b.Toast = msg
 		} else {
-			b.Flash = msg
+			b.Alert = msg
 		}
 	})
 	if err != nil {
