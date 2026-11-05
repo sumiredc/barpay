@@ -1,16 +1,17 @@
 {{define "content"}}
 {{template "notices" .}}
-{{if .Data.Pending}}{{with .Data.Pending}}
-  <div class="card">
-    <p>Your last order is not confirmed yet:</p>
-    <ul>{{range .Lines}}<li>{{.Quantity}} × {{.Name}}</li>{{end}}</ul>
-    <form method="post" action="/orders/resend">
-      <input type="hidden" name="csrf" value="{{$.CSRF}}">
-      <button class="button" type="submit">Send it again</button>
-    </form>
-  </div>
-{{end}}{{else if ne .Data.Session.State "active"}}
-  <div class="card"><p>This visit takes no more orders ({{stateLabel .Data.Session.State}}).</p><a class="button secondary" href="/panel">My visit</a></div>
+{{if .Data.Pending}}
+<p class="notice bad" role="alert"><i data-icon="alert"></i><span>Your last order isn't confirmed yet</span></p>
+<ul class="lines">
+  {{range .Data.Pending.Lines}}<li><span>{{.Name}} ×{{.Quantity}}</span></li>
+  {{end}}
+</ul>
+{{else if ne .Data.Session.State "active"}}
+<div class="state">
+  <i data-icon="lock"></i>
+  <h1>Not taking orders</h1>
+  <p><span class="pill {{.Data.Session.State}}">{{.Data.StateLabel}}</span></p>
+</div>
 {{else}}
 <div class="menu" data-items="{{.Data.ItemsJSON}}">
   {{range .Data.Sections}}
@@ -55,3 +56,4 @@
 <script src="/static/menu.js" defer></script>
 {{end}}
 {{end}}
+{{define "cartbar"}}{{if .Data.Pending}}<form method="post" action="/orders/resend"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="button" type="submit" style="justify-content: center"><i data-icon="rotate-cw"></i> Send again</button></form>{{end}}{{end}}

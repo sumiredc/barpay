@@ -442,12 +442,13 @@ func (a *App) menu(w http.ResponseWriter, r *http.Request) {
 	// The order_id is minted with the form, so submitting the same form again, or twice at once,
 	// reports the same order, which BarPay records once.
 	v.Data = struct {
-		Sections  []menuSection
-		ItemsJSON string
-		Session   *Session
-		Pending   *PendingOrder
-		OrderID   string
-	}{menuSections(), string(itemsJSON), s, b.PendingOrder, randomID("ord_")}
+		Sections   []menuSection
+		ItemsJSON  string
+		Session    *Session
+		StateLabel string
+		Pending    *PendingOrder
+		OrderID    string
+	}{menuSections(), string(itemsJSON), s, customerStateLabel(s.State), b.PendingOrder, randomID("ord_")}
 	a.render(w, http.StatusOK, "menu", v)
 }
 
@@ -501,11 +502,11 @@ func (a *App) sendOrder(w http.ResponseWriter, r *http.Request, id, sessionID st
 	defer cancel()
 	recorded, err := a.barpay.reportOrder(ctx, sessionID, order.OrderID, order.Lines)
 	if errors.Is(err, ErrNoAnswer) {
-		a.flash(id, "We could not confirm your order. Send it again: it will not be ordered twice.")
+		// The menu shows the order that is still pending, to be sent again.
 		redirect(w, r, "/menu")
 		return
 	}
-	// A recorded order is told by a toast; one that was not stays on the menu as a flash.
+	// A recorded order is told by a toast; one that was not stays on the menu in red.
 	msg := "Order received"
 	switch code := errorCode(err); {
 	case err == nil:
@@ -524,16 +525,16 @@ func (a *App) sendOrder(w http.ResponseWriter, r *http.Request, id, sessionID st
 		msg = "This order was already received"
 		err = nil
 	case code == "session_not_active":
-		msg = "This visit can take no more orders. Please see staff."
+		msg = "This visit can't take more orders. Please ask a staff member"
 	default:
-		msg = "We could not place your order. Please see staff."
+		msg = "Couldn't place the order. Please ask a staff member"
 	}
 	a.updateBrowser(id, func(b *Browser) {
 		b.PendingOrder = nil
 		if err == nil {
 			b.Toast = msg
 		} else {
-			b.Flash = msg
+			b.Alert = msg
 		}
 	})
 	if err != nil {

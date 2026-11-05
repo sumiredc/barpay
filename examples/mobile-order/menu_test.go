@@ -240,19 +240,37 @@ func TestTheMenuPageGivesItsScriptEveryItemWithItsOptions(t *testing.T) {
 	}
 }
 
+// An order BarPay refused stays on the menu, with a red notice that sends the customer to staff.
+func TestARefusedOrderIsARedNotice(t *testing.T) {
+	for code, msg := range map[string]string{
+		"session_not_active": "This visit can&#39;t take more orders. Please ask a staff member",
+		"validation_error":   "Couldn&#39;t place the order. Please ask a staff member",
+	} {
+		c, _ := orderingCustomer(t, code)
+		page := c.order([]string{"beer:0:1"}, nil)
+		if !strings.Contains(page, `<p class="notice bad" role="alert"><i data-icon="alert"></i><span>`+msg+`</span></p>`) {
+			t.Errorf("%s: the menu does not say %q in red", code, msg)
+		}
+		if !strings.Contains(page, `class="menu"`) {
+			t.Errorf("%s: the menu is not shown", code)
+		}
+	}
+}
+
 // menuData is what the menu handler gives the menu page.
 type menuData struct {
-	Sections  []menuSection
-	ItemsJSON string
-	Session   *Session
-	Pending   *PendingOrder
-	OrderID   string
+	Sections   []menuSection
+	ItemsJSON  string
+	Session    *Session
+	StateLabel string
+	Pending    *PendingOrder
+	OrderID    string
 }
 
 func renderMenu(t *testing.T, state string, pending *PendingOrder, v view) string {
 	t.Helper()
 	v.Guest = true
-	v.Data = menuData{menuSections(), "{}", &Session{State: state}, pending, "ord_00000000000000000000"}
+	v.Data = menuData{menuSections(), "{}", &Session{State: state}, customerStateLabel(state), pending, "ord_00000000000000000000"}
 	return renderPage(t, "menu", v)
 }
 
@@ -273,5 +291,50 @@ func TestEveryItemHasItsImage(t *testing.T) {
 		if _, err := staticFS.Open("static/img/" + item.ID + ".svg"); err != nil {
 			t.Errorf("%s has no image: %v", item.ID, err)
 		}
+	}
+}
+
+func TestAPendingOrderIsShownInsteadOfTheMenu(t *testing.T) {
+	page := renderMenu(t, "active", &PendingOrder{OrderID: "ord_1", Lines: []OrderLine{line("Draft beer (Pint)", 2, 900)}}, view{})
+	for _, want := range []string{
+		`<p class="notice bad" role="alert"><i data-icon="alert"></i><span>Your last order isn't confirmed yet</span></p>`,
+		`<li><span>Draft beer (Pint) ×2</span></li>`,
+		`<div class="cartbar"><form method="post" action="/orders/resend">`,
+		`<i data-icon="rotate-cw"></i> Send again</button>`,
+		`class="has-tabbar has-cart"`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the pending order lacks %s", want)
+		}
+	}
+	if strings.Contains(page, `class="menu"`) {
+		t.Error("the menu is shown while an order is pending")
+	}
+}
+
+var buttonToBill = regexp.MustCompile(`<a [^>]*class="button[^>]*href="/panel"|<a [^>]*href="/panel"[^>]*class="button`)
+
+func TestAVisitNotTakingOrdersShowsItsState(t *testing.T) {
+	for state, label := range map[string]string{
+		"checking_out":   "Paying with PayPal",
+		"at_register":    "At the register",
+		"payment_failed": "Payment failed",
+		"closed":         "Paid",
+		"closed_unpaid":  "Unpaid",
+	} {
+		page := renderMenu(t, state, nil, view{})
+		if !strings.Contains(page, `<h1>Not taking orders</h1>`) || !strings.Contains(page, `<span class="pill `+state+`">`+label+`</span>`) {
+			t.Errorf("%s: the page does not say it takes no orders, with the state %q", state, label)
+		}
+		// The Bill tab is the way to the bill, so the page has no button of its own to it.
+		if strings.Contains(page, `class="menu"`) || buttonToBill.MatchString(page) {
+			t.Errorf("%s: the page shows the menu or a button to the bill", state)
+		}
+	}
+}
+
+func TestStaffStateLabelsStayTheSame(t *testing.T) {
+	if got := stateLabel("at_register"); got != "Waiting at the register" {
+		t.Errorf("stateLabel(at_register) = %q", got)
 	}
 }

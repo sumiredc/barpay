@@ -120,3 +120,21 @@ func menuSections() []menuSection {
 	}
 	return sections
 }
+
+// customerStateLabel names a session state for the customer, who is told what is happening to the
+// visit; the staff pages name the state itself with stateLabel.
+func customerStateLabel(state string) string {
+	switch state {
+	case "checking_out":
+		return "Paying with PayPal"
+	case "at_register":
+		return "At the register"
+	case "payment_failed":
+		return "Payment failed"
+	case "closed":
+		return "Paid"
+	case "closed_unpaid":
+		return "Unpaid"
+	}
+	return state
+}
