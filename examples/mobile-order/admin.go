@@ -55,7 +55,9 @@ type sideItem struct {
 	Href, Icon, Label string
 	Current           bool
 	// Badge is a count beside the label, left out at 0. What it counts is up to the page it opens.
+	// BadgeMore adds a "+" for a count that stopped short of the end.
 	Badge      int
+	BadgeMore  bool
 	BadgeLabel string
 }
 
@@ -75,17 +77,35 @@ func (a *App) adminView(r *http.Request, id string, b Browser, title, nav string
 	return a.adminViewWithAlerts(r, id, b, title, nav, nil)
 }
 
-// adminViewWithAlerts is adminView for a page that has read the first page of the alerts
-// itself, which the gate dialog takes its customers from instead of reading it again.
-func (a *App) adminViewWithAlerts(r *http.Request, id string, b Browser, title, nav string, firstAlerts *[]Alert) view {
+// alertsRead is a page's own read of the first screen of the open failed unlocks: what it read,
+// or the error that kept it from reading it.
+type alertsRead struct {
+	scan *alertScan
+	err  error
+}
+
+// adminViewWithAlerts is adminView for a page that has read the first screen of the open failed
+// unlocks itself, which the frame takes instead of reading it again, even when that read failed.
+// With read nil, they are read here, for the count beside Alerts and the customers of the gate
+// dialog.
+func (a *App) adminViewWithAlerts(r *http.Request, id string, b Browser, title, nav string, read *alertsRead) view {
 	v := a.baseView(id, b, title)
 	v.Admin = true
 	v.Here = r.URL.RequestURI()
-	f := &staffFrame{Gate: a.gateDialog(r, b.StaffID, firstAlerts)}
+	ctx, cancel := context.WithTimeout(r.Context(), gateLookupTimeout)
+	defer cancel()
+	if read == nil {
+		read = &alertsRead{}
+		read.scan, read.err = a.scanAlerts(ctx, b.StaffID, "", a.notDone(), false)
+	}
+	f := &staffFrame{Gate: a.gateDialog(ctx, read)}
 	for _, m := range staffMenu {
 		item := sideItem{Href: m.href, Icon: m.icon, Label: m.label, Current: m.key == nav}
 		if m.key == "orders" {
 			item.Badge, item.BadgeLabel = a.ordersBadge()
+		}
+		if m.key == "alerts" && read.err == nil {
+			item.Badge, item.BadgeMore, item.BadgeLabel = read.scan.count()
 		}
 		f.Menu = append(f.Menu, item)
 	}
@@ -104,72 +124,39 @@ type gateCustomer struct {
 	SessionID, Label string
 }
 
-// gateLookupTimeout bounds what every admin page spends on the customers of the gate dialog, so
-// a BarPay that is down or slow holds the page up no longer than this. Within it, each read is
-// sent once.
+// gateLookupTimeout bounds what every admin page spends on the open failed unlocks and the
+// customers of the gate dialog, so a BarPay that is down or slow holds the page up no longer than
+// this. Within it, each read is sent once.
 const gateLookupTimeout = 3 * time.Second
 
-// gateDialog offers the customers the gate failed to open for: the sessions of the unlock_failed
-// alerts on the first page of the alerts, newest first, each once. An unlock_failed without a
-// session is an unlock by hand that failed; staff open the gate again for no particular customer.
-// firstAlerts is that page when the caller has read it; otherwise it is read here. When it cannot
-// be read in time, the dialog offers no customer.
-func (a *App) gateDialog(r *http.Request, staffID string, firstAlerts *[]Alert) *gateDialog {
-	ctx, cancel := context.WithTimeout(r.Context(), gateLookupTimeout)
-	defer cancel()
-	var alerts []Alert
-	if firstAlerts != nil {
-		alerts = *firstAlerts
-	} else {
-		var err error
-		if alerts, _, err = a.barpay.listAlertsOnce(ctx, staffID, ""); err != nil {
-			return &gateDialog{ReadFailed: true}
-		}
+// gateDialog offers the customers the gate failed to open for: the sessions of the open failed
+// unlocks, as on the first screen of the alerts page, newest first, each once. A customer marked
+// done is not offered again. A failed unlock without a session is an unlock by hand; staff open
+// the gate again for no particular customer. When the open failed unlocks could not be read in
+// time, the dialog offers no customer.
+func (a *App) gateDialog(ctx context.Context, read *alertsRead) *gateDialog {
+	if read.err != nil {
+		return &gateDialog{ReadFailed: true}
 	}
+	sc := read.scan
 	g := &gateDialog{}
 	seen := map[string]bool{}
-	for _, al := range alerts {
-		if al.Kind != "unlock_failed" || al.SessionID == "" || seen[al.SessionID] {
+	for _, al := range sc.Alerts {
+		if al.SessionID == "" || seen[al.SessionID] {
 			continue
 		}
 		seen[al.SessionID] = true
-		g.Customers = append(g.Customers, gateCustomer{SessionID: al.SessionID, Label: a.gateLabel(ctx, al)})
+		g.Customers = append(g.Customers, gateCustomer{SessionID: al.SessionID, Label: a.gateLabel(ctx, sc, al)})
 	}
 	return g
 }
 
 // gateLabel names a customer of the gate dialog by their name and how and when they paid, such
-// as "Yui Tanaka (paid with PayPal at 21:59)". The session is read from BarPay when the app has
-// not stored it ended; without it, the session ID tells customers of the same name apart.
-func (a *App) gateLabel(ctx context.Context, al Alert) string {
-	var s *Session
-	memberID := al.MemberID
-	a.store.view(func(d *Data) {
-		if v := d.Visits[al.SessionID]; v != nil {
-			if v.Session != nil && v.Session.Receipt != nil {
-				cp := *v.Session
-				s = &cp
-			}
-			if memberID == "" {
-				memberID = v.MemberID
-			}
-		}
-	})
+// as "Yui Tanaka (paid with PayPal at 21:59)". Without the receipt, the session ID tells
+// customers of the same name apart.
+func (a *App) gateLabel(ctx context.Context, sc *alertScan, al Alert) string {
+	name, s := a.customer(ctx, sc, al)
 	if s == nil {
-		if read, err := a.barpay.getSessionOnce(ctx, al.SessionID); err == nil {
-			s = read
-		}
-	}
-	if memberID == "" && s != nil && s.MemberID != nil {
-		memberID = *s.MemberID
-	}
-	name := "Guest"
-	a.store.view(func(d *Data) {
-		if m := d.Members[memberID]; m != nil {
-			name = m.Name
-		}
-	})
-	if s == nil || s.Receipt == nil {
 		return name + " (" + al.SessionID + ")"
 	}
 	return name + " (" + paidHow(s.Receipt.Settlement) + " at " + s.Receipt.EndedAt.Local().Format("15:04") + ")"
@@ -480,26 +467,4 @@ func (a *App) adminUpdateSettings(w http.ResponseWriter, r *http.Request, id str
 		a.flash(id, "The settings were saved.")
 	}
 	redirect(w, r, "/admin/settings")
-}
-
-func (a *App) adminAlerts(w http.ResponseWriter, r *http.Request, id string, b Browser) {
-	ctx, cancel := a.ctx(r)
-	defer cancel()
-	cursor := r.URL.Query().Get("cursor")
-	alerts, next, err := a.barpay.listAlerts(ctx, b.StaffID, cursor)
-	var firstAlerts *[]Alert
-	if cursor == "" && err == nil {
-		firstAlerts = &alerts
-	}
-	v := a.adminViewWithAlerts(r, id, b, "Alerts", "alerts", firstAlerts)
-	data := struct {
-		Alerts []Alert
-		Next   string
-		Failed bool
-	}{Alerts: alerts, Failed: err != nil}
-	if next != nil {
-		data.Next = "/admin/alerts?" + url.Values{"cursor": {*next}}.Encode()
-	}
-	v.Data = data
-	a.render(w, http.StatusOK, "admin_alerts", v)
 }

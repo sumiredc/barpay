@@ -31,6 +31,14 @@ type Data struct {
 	// ToldByAnswer holds, per member, the member.* event type the member was already told of in
 	// their own request's answer, so the notification of that event adds no second notice.
 	ToldByAnswer map[string]string `json:"told_by_answer"`
+	// AlertsDone holds, by BarPay alert ID, who marked the alert as done and when. BarPay's alerts
+	// have no such state: whether staff dealt with one is the store's to keep.
+	AlertsDone map[string]AlertDone `json:"alerts_done"`
+}
+
+type AlertDone struct {
+	StaffID string    `json:"staff_id"`
+	At      time.Time `json:"at"`
 }
 
 type MemberAccount struct {
@@ -154,6 +162,9 @@ func decode(raw []byte) (*Data, error) {
 	}
 	if d.ToldByAnswer == nil {
 		d.ToldByAnswer = map[string]string{}
+	}
+	if d.AlertsDone == nil {
+		d.AlertsDone = map[string]AlertDone{}
 	}
 	return d, nil
 }

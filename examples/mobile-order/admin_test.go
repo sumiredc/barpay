@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -32,6 +33,13 @@ type adminBarPay struct {
 	// alertsDown answers it with a 503; alertReads counts the reads.
 	alertsHang, alertsDown bool
 	alertReads             int
+	// alertPages, when set, are the pages of the alerts in place of alerts, read on with the
+	// cursors "page-1", "page-2" and so on. The pages after the first hang like alertsHang with
+	// laterPagesHang.
+	alertPages     [][]Alert
+	laterPagesHang bool
+	// sessionReadsFailing answers that many reads of a session with a 503 before answering.
+	sessionReadsFailing int
 }
 
 func (f *adminBarPay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -39,7 +47,7 @@ func (f *adminBarPay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	hang := false
 	if r.URL.Path == "/v1/admin/alerts" {
 		f.alertReads++
-		hang = f.alertsHang
+		hang = f.alertsHang || f.laterPagesHang && r.URL.Query().Get("cursor") != ""
 	}
 	f.mu.Unlock()
 	if hang {
@@ -62,6 +70,13 @@ func (f *adminBarPay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "GET" && r.URL.Path == "/v1/admin/alerts" && f.alertsDown:
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "unavailable", "message": "down for the test"}})
+	case r.Method == "GET" && r.URL.Path == "/v1/admin/alerts" && f.alertPages != nil:
+		n, _ := strconv.Atoi(strings.TrimPrefix(r.URL.Query().Get("cursor"), "page-"))
+		var next any
+		if n+1 < len(f.alertPages) {
+			next = "page-" + strconv.Itoa(n+1)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"alerts": append([]Alert{}, f.alertPages[n]...), "next_cursor": next})
 	case r.Method == "GET" && r.URL.Path == "/v1/admin/alerts":
 		json.NewEncoder(w).Encode(map[string]any{"alerts": append([]Alert{}, f.alerts...), "next_cursor": nil})
 	case r.Method == "POST" && r.URL.Path == "/v1/admin/gate/unlock":
@@ -74,6 +89,10 @@ func (f *adminBarPay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
+	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/v1/sessions/") && f.sessionReadsFailing > 0:
+		f.sessionReadsFailing--
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "unavailable", "message": "down for the test"}})
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/v1/sessions/"):
 		s := f.sessions[strings.TrimPrefix(r.URL.Path, "/v1/sessions/")]
 		if s == nil {
@@ -271,7 +290,7 @@ func (s *staff) paidWithPayPal(sessionID, name string) {
 	defer s.barpay.mu.Unlock()
 	s.barpay.sessions[sessionID] = &Session{SessionID: sessionID, State: "closed", MemberID: &memberID, PaymentMethod: "paypal",
 		Receipt: &Receipt{Settlement: "paypal", EndedAt: ended}}
-	s.barpay.alerts = append(s.barpay.alerts, Alert{ID: "alt_" + sessionID, Kind: "unlock_failed", RaisedAt: ended, SessionID: sessionID, MemberID: memberID, Message: "The gate did not open."})
+	s.barpay.alerts = append(s.barpay.alerts, Alert{ID: "alt_" + strings.TrimPrefix(sessionID, "ses_"), Kind: "unlock_failed", RaisedAt: ended, SessionID: sessionID, MemberID: memberID, Message: "The gate did not open."})
 }
 
 func (s *staff) lastUnlock() map[string]any {
