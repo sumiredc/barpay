@@ -79,6 +79,10 @@ type Visit struct {
 	Orders    []Order   `json:"orders"`
 	Session   *Session  `json:"session,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// Served holds, by order ID, the orders staff marked served: the store's own record, which
+	// BarPay does not keep.
+	Served map[string]Served `json:"served,omitempty"`
 }
 
 type ReceivedEvent struct {
