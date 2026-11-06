@@ -62,6 +62,7 @@ type sideItem struct {
 // staffMenu lists the side menu from the top. key is what an admin page names as its own item.
 var staffMenu = []struct{ key, href, icon, label string }{
 	{"visits", "/admin", "users", "Visits"},
+	{"orders", "/admin/orders", "utensils", "Orders"},
 	{"alerts", "/admin/alerts", "bell", "Alerts"},
 	{"pricing", "/admin/pricing", "trending-up", "Pricing"},
 	{"log", "/admin/notifications", "history", "Log"},
@@ -82,7 +83,11 @@ func (a *App) adminViewWithAlerts(r *http.Request, id string, b Browser, title, 
 	v.Here = r.URL.RequestURI()
 	f := &staffFrame{Gate: a.gateDialog(r, b.StaffID, firstAlerts)}
 	for _, m := range staffMenu {
-		f.Menu = append(f.Menu, sideItem{Href: m.href, Icon: m.icon, Label: m.label, Current: m.key == nav})
+		item := sideItem{Href: m.href, Icon: m.icon, Label: m.label, Current: m.key == nav}
+		if m.key == "orders" {
+			item.Badge, item.BadgeLabel = a.ordersBadge()
+		}
+		f.Menu = append(f.Menu, item)
 	}
 	v.Frame = f
 	return v

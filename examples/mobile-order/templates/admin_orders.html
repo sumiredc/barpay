@@ -1,0 +1,50 @@
+{{define "reload"}}30{{end}}
+{{define "content"}}
+<div class="pagehead"><h1>Orders</h1></div>
+{{template "notices" .}}
+<nav class="tabs" aria-label="Filter">
+  <a href="/admin/orders"{{if not .Data.Served}} aria-current="page"{{end}}>To serve{{with .Data.ToServe}}<span class="badge">{{.}}</span>{{end}}</a>
+  <a href="/admin/orders?tab=served"{{if .Data.Served}} aria-current="page"{{end}}>Served</a>
+</nav>
+<div class="card scroll">
+<table class="clickable">
+  <thead><tr><th>Ordered</th><th>Customer</th><th>Items</th><th class="num">Amount</th><th>State</th></tr></thead>
+  <tbody>
+  {{range .Data.Rows}}
+    <tr{{if .Served}} class="done"{{end}} data-sheet="{{.Sheet}}" tabindex="0">
+      <td class="nowrap">{{clock .RecordedAt}}</td>
+      <td class="nowrap">{{.Customer}}</td>
+      <td>{{.Summary}}</td>
+      <td class="num">{{money .Amount}}</td>
+      <td>{{template "order-state" .}}</td>
+    </tr>
+  {{else}}
+    {{if .Data.Served}}
+    <tr><td colspan="5">No served orders.</td></tr>
+    {{else}}
+    <tr><td colspan="5"><p class="notice good" style="justify-content: center"><i data-icon="circle-check"></i><span>Nothing to serve</span></p></td></tr>
+    {{end}}
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{with .Data.Next}}<div class="pager"><a class="textbutton" href="{{.}}">Older orders<i data-icon="chevron-right"></i></a></div>{{end}}
+
+{{range .Data.Rows}}
+<dialog class="sheet" id="{{.Sheet}}">
+  <h2>{{.Customer}} · {{clock .RecordedAt}}</h2>
+  <p style="margin-top: 0">{{template "order-state" .}}</p>
+  {{with .Served}}<p class="muted">Served ({{.StaffID}}, {{clock .At}})</p>{{end}}
+  <ul class="order-lines">{{range .Lines}}<li><span>{{.Name}} ×{{.Quantity}}</span><span>{{money .Amount}}</span></li>{{end}}<li class="sum"><span>Total</span><span>{{money .Amount}}</span></li></ul>
+  {{if .Served}}
+  <div class="dialog-actions"><button class="textbutton muted" type="button" data-close>Close</button></div>
+  {{else}}
+  <form class="dialog-actions" method="post" action="/admin/sessions/{{.SessionID}}/orders/{{.OrderID}}/served">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <button class="textbutton muted" type="button" data-close>Close</button><button class="button" type="submit">Served</button>
+  </form>
+  {{end}}
+</dialog>
+{{end}}
+{{end}}
+{{define "order-state"}}{{if .Served}}<span class="pill closed">Served</span>{{else}}<span class="pill at_register">To serve</span>{{end}}{{end}}
