@@ -277,7 +277,7 @@ func chargeKeyName(action, sessionID, staffID string) string {
 func parseAmount(s string) (int64, bool) {
 	s = strings.TrimPrefix(strings.TrimSpace(s), "$")
 	whole, frac, _ := strings.Cut(s, ".")
-	if whole == "" || len(frac) > 2 {
+	if whole == "" || len(frac) > 2 || !onlyDigits(whole) || !onlyDigits(frac) {
 		return 0, false
 	}
 	w, err := strconv.ParseInt(whole, 10, 64)
@@ -292,6 +292,17 @@ func parseAmount(s string) (int64, bool) {
 		}
 	}
 	return w*100 + f, true
+}
+
+// onlyDigits reports whether s has no character but 0-9, so a sign that strconv.ParseInt would
+// take is refused.
+func onlyDigits(s string) bool {
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *App) adminSessionAction(w http.ResponseWriter, r *http.Request, id string, b Browser) {
@@ -432,39 +443,4 @@ func adminPath(s string) string {
 		p += "?" + u.RawQuery
 	}
 	return p
-}
-
-// adminUpdateSettings saves the form of the "Settings" tab and goes back to it.
-func (a *App) adminUpdateSettings(w http.ResponseWriter, r *http.Request, id string, b Browser) {
-	ctx, cancel := a.ctx(r)
-	defer cancel()
-	currency := r.PostFormValue("currency")
-	money := func(field string) (Money, bool) {
-		c, ok := parseAmount(r.PostFormValue(field))
-		return Money{Value: c, Currency: currency}, ok
-	}
-	integer := func(field string) (int, bool) {
-		n, err := strconv.Atoi(strings.TrimSpace(r.PostFormValue(field)))
-		return n, err == nil
-	}
-	floor, ok1 := money("floor")
-	ceiling, ok2 := money("ceiling")
-	capPerVisit, ok3 := money("cap_per_visit")
-	block, ok4 := integer("block_minutes")
-	pause, ok5 := integer("pause_minutes")
-	goal, ok6 := integer("goal")
-	if !(ok1 && ok2 && ok3 && ok4 && ok5 && ok6) {
-		a.flash(id, "Every field needs a value: amounts such as 12.50, minutes and the goal as whole numbers.")
-		redirect(w, r, "/admin/settings")
-		return
-	}
-	_, err := a.barpay.updateSettings(ctx, b.StaffID, Settings{
-		Floor: floor, Ceiling: ceiling, BlockMinutes: block, PauseMinutes: pause, CapPerVisit: capPerVisit, Goal: goal,
-	})
-	if err != nil {
-		a.flash(id, "The settings were not changed: "+err.Error())
-	} else {
-		a.flash(id, "The settings were saved.")
-	}
-	redirect(w, r, "/admin/settings")
 }

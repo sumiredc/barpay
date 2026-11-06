@@ -9,6 +9,9 @@
 // - <body data-reload="s"> reloads the page every s seconds, but not while a dialog is open: the
 //   reload would throw away what is chosen in it. The page reloads once the dialog closes.
 // - <div class="hscroll" data-start="end"> is scrolled to its right end (now) when the page opens
+// - #goal-effect says, under the pricing goal's slider (#goal), which way the goal asks the AI to
+//   move the rate when the room is quiet and when it is busy. It is a rough guide in five steps:
+//   what the AI is given is the goal's number and what its two ends mean
 (function () {
   const ICONS = {
     "chevron-right": '<path d="m9 18 6-6-6-6"/>',
@@ -106,6 +109,23 @@
   });
 
   document.querySelectorAll('.hscroll[data-start="end"]').forEach((el) => { el.scrollLeft = el.scrollWidth; });
+
+  const goal = document.getElementById("goal");
+  const effect = document.getElementById("goal-effect");
+  if (goal && effect) {
+    const words = (v) => v <= 20 ? ["Down to near the floor", "Keep"]
+      : v <= 40 ? ["Lower", "A little higher"]
+      : v <= 60 ? ["A little lower", "Higher"]
+      : v <= 80 ? ["Keep", "Higher"]
+      : ["Keep", "Up to near the ceiling"];
+    const show = () => {
+      const [quiet, busy] = words(Number(goal.value));
+      effect.querySelector('[data-g="low"]').textContent = quiet;
+      effect.querySelector('[data-g="high"]').textContent = busy;
+    };
+    goal.addEventListener("input", show);
+    show();
+  }
 
   let due = false;
   const reload = () => {
