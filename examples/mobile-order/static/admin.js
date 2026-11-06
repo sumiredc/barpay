@@ -7,6 +7,7 @@
 //   [data-close] button, a press on the backdrop, Escape or a swipe in any direction
 // - <body data-reload="s"> reloads the page every s seconds, but not while a dialog is open: the
 //   reload would throw away what is chosen in it. The page reloads once the dialog closes.
+// - <div class="hscroll" data-start="end"> is scrolled to its right end (now) when the page opens
 (function () {
   const ICONS = {
     "chevron-right": '<path d="m9 18 6-6-6-6"/>',
@@ -100,6 +101,8 @@
     d.addEventListener("pointerup", end);
     d.addEventListener("pointercancel", end);
   });
+
+  document.querySelectorAll('.hscroll[data-start="end"]').forEach((el) => { el.scrollLeft = el.scrollWidth; });
 
   let due = false;
   const reload = () => {

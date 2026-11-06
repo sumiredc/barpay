@@ -447,55 +447,7 @@ func adminPath(s string) string {
 	return p
 }
 
-// Pricing: the rate, evaluate now, settings and the decision log.
-
-func (a *App) adminPricing(w http.ResponseWriter, r *http.Request, id string, b Browser) {
-	ctx, cancel := a.ctx(r)
-	defer cancel()
-	v := a.adminView(r, id, b, "Pricing", "pricing")
-	data := struct {
-		Rate      *CurrentRate
-		Settings  *Settings
-		Decisions []Decision
-		Next      string
-		Failed    bool
-	}{}
-	var err1, err2, err3 error
-	data.Rate, err1 = a.barpay.getRate(ctx)
-	data.Settings, err2 = a.barpay.getSettings(ctx, b.StaffID)
-	var next *string
-	data.Decisions, next, err3 = a.barpay.listDecisions(ctx, b.StaffID, r.URL.Query().Get("cursor"))
-	data.Failed = err1 != nil || err2 != nil || err3 != nil
-	if err1 != nil {
-		data.Rate = nil
-	}
-	if err2 != nil {
-		data.Settings = nil
-	}
-	if next != nil {
-		data.Next = "/admin/pricing?" + url.Values{"cursor": {*next}}.Encode()
-	}
-	v.Data = data
-	a.render(w, http.StatusOK, "admin_pricing", v)
-}
-
-func (a *App) adminEvaluate(w http.ResponseWriter, r *http.Request, id string, b Browser) {
-	ctx, cancel := a.ctx(r)
-	defer cancel()
-	e, err := a.barpay.requestRateEvaluation(ctx)
-	switch {
-	case err != nil:
-		a.flash(id, "BarPay did not evaluate the rate: "+err.Error())
-	case e.Fallback != nil:
-		a.flash(id, "The AI gave no usable answer ("+*e.Fallback+"); the rate stays at "+formatMoney(e.Rate.RatePerHour)+"/h.")
-	case !e.Evaluated:
-		a.flash(id, "Too soon after the last evaluation; the rate stays at "+formatMoney(e.Rate.RatePerHour)+"/h.")
-	default:
-		a.flash(id, "Evaluated: "+formatMoney(e.Rate.RatePerHour)+"/h ("+formatSignedMoney(e.Rate.Change)+").")
-	}
-	redirect(w, r, "/admin/pricing")
-}
-
+// adminUpdateSettings saves the form of the "Settings" tab and goes back to it.
 func (a *App) adminUpdateSettings(w http.ResponseWriter, r *http.Request, id string, b Browser) {
 	ctx, cancel := a.ctx(r)
 	defer cancel()
@@ -516,7 +468,7 @@ func (a *App) adminUpdateSettings(w http.ResponseWriter, r *http.Request, id str
 	goal, ok6 := integer("goal")
 	if !(ok1 && ok2 && ok3 && ok4 && ok5 && ok6) {
 		a.flash(id, "Every field needs a value: amounts such as 12.50, minutes and the goal as whole numbers.")
-		redirect(w, r, "/admin/pricing")
+		redirect(w, r, "/admin/settings")
 		return
 	}
 	_, err := a.barpay.updateSettings(ctx, b.StaffID, Settings{
@@ -527,7 +479,7 @@ func (a *App) adminUpdateSettings(w http.ResponseWriter, r *http.Request, id str
 	} else {
 		a.flash(id, "The settings were saved.")
 	}
-	redirect(w, r, "/admin/pricing")
+	redirect(w, r, "/admin/settings")
 }
 
 func (a *App) adminAlerts(w http.ResponseWriter, r *http.Request, id string, b Browser) {

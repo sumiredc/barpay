@@ -1,0 +1,25 @@
+{{define "content"}}
+<div class="pagehead"><h1>Pricing</h1></div>
+<nav class="tabs" aria-label="Pricing">
+  <a href="/admin/pricing">Now</a>
+  <a href="/admin/settings" aria-current="page">Settings</a>
+</nav>
+<div class="tab-body"></div>
+{{template "notices" .}}
+{{if .Data.Failed}}{{template "no-answer" .}}{{end}}
+{{with .Data.Settings}}
+<form class="card" method="post" action="/admin/settings">
+  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+  <input type="hidden" name="currency" value="{{.Floor.Currency}}">
+  <div class="grid">
+    <div><label for="floor">Floor ({{.Floor.Currency}}/h)</label><input id="floor" name="floor" type="text" value="{{dollars .Floor}}"></div>
+    <div><label for="ceiling">Ceiling ({{.Ceiling.Currency}}/h)</label><input id="ceiling" name="ceiling" type="text" value="{{dollars .Ceiling}}"></div>
+    <div><label for="cap">Cap per visit ({{.CapPerVisit.Currency}}, 0 for none)</label><input id="cap" name="cap_per_visit" type="text" value="{{dollars .CapPerVisit}}"></div>
+    <div><label for="block">Block (minutes)</label><input id="block" name="block_minutes" type="number" min="1" max="240" value="{{.BlockMinutes}}"></div>
+    <div><label for="pause">Pause after an order (minutes, 0 for off)</label><input id="pause" name="pause_minutes" type="number" min="0" max="240" value="{{.PauseMinutes}}"></div>
+    <div><label for="goal">Goal (0 fill the room – 100 maximize revenue)</label><input id="goal" name="goal" type="number" min="0" max="100" value="{{.Goal}}"></div>
+  </div>
+  <p><button class="button" type="submit">Save settings</button></p>
+</form>
+{{end}}
+{{end}}

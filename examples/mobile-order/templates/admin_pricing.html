@@ -1,51 +1,65 @@
 {{define "content"}}
 <div class="pagehead"><h1>Pricing</h1></div>
+<nav class="tabs" aria-label="Pricing">
+  <a href="/admin/pricing" aria-current="page">Now</a>
+  <a href="/admin/settings">Settings</a>
+</nav>
+<div class="tab-body"></div>
 {{template "notices" .}}
-{{if .Data.Failed}}{{template "no-answer" .}}{{end}}
-<div class="card row" style="justify-content: space-between">
-  {{with .Data.Rate}}<div class="stat"><div class="label">Published rate</div><div class="big">{{money .RatePerHour}}/h</div><div class="muted">{{signedMoney .Change}} at {{time .PublishedAt}}</div></div>{{end}}
-  <form method="post" action="/admin/evaluate">
+{{if not .Data.Rate}}{{template "no-answer" .}}{{end}}
+<div class="card rate-now">
+  {{with .Data.Rate}}
+  <div class="stat">
+    <div class="label">Published rate</div>
+    <div class="big">{{money .RatePerHour}}<small>/h</small></div>
+    <div class="muted"><span class="{{if gt .Change.Value 0}}up{{else if lt .Change.Value 0}}down{{end}}">{{signedMoney .Change}}</span> (changed at {{clock .PublishedAt}})</div>
+  </div>
+  {{else}}<div></div>{{end}}
+  <form class="row" method="post" action="/admin/evaluate" style="flex-direction: column; align-items: flex-end">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
-    <button class="button" type="submit">Evaluate now</button>
-    <p class="muted">The app also asks every 5 minutes.</p>
+    <button class="button" type="submit"><i data-icon="rotate-cw"></i> Update</button>
+    {{with .Data.NextAutomatic}}<span class="muted">Next automatic update at {{.}}</span>{{end}}
   </form>
 </div>
 
-<h2>Decision log</h2>
-<div class="card scroll">
-<table>
-  <thead><tr><th>When</th><th>Explanation</th><th>Rate</th><th>Inputs</th><th>Proposal and reasoning</th></tr></thead>
-  <tbody>
-  {{range .Data.Decisions}}
-    <tr>
-      <td>{{time .DecidedAt}}<br><span class="muted">{{if eq .Trigger "range_change"}}range change by {{.StaffID}}{{else}}evaluation{{end}}</span></td>
-      <td>{{.Explanation}}{{with .Fallback}}<br><span class="up">fallback: {{.}}</span>{{end}}</td>
-      <td>{{money .Published.RatePerHour}}/h<br><span class="muted">{{signedMoney .Published.Change}}</span></td>
-      <td>{{with .Inputs}}occupancy {{percent .Occupancy}}<br>liveliness {{with .Liveliness}}{{percent .}}{{else}}none{{end}}<br>goal {{.Goal}}{{else}}—{{end}}</td>
-      <td>{{with .Proposal}}{{money .}}/h proposed<br>{{end}}<span class="muted">{{deref .Reasoning}}</span></td>
-    </tr>
-  {{else}}
-    <tr><td colspan="5">No decisions yet.</td></tr>
-  {{end}}
-  </tbody>
-</table>
-</div>
-{{with .Data.Next}}<p><a class="button small secondary" href="{{.}}">Older decisions</a></p>{{end}}
-
-{{with .Data.Settings}}
-<h2>Settings</h2>
-<form class="card" method="post" action="/admin/settings">
-  <input type="hidden" name="csrf" value="{{$.CSRF}}">
-  <input type="hidden" name="currency" value="{{.Floor.Currency}}">
-  <div class="grid">
-    <div><label for="floor">Floor ({{.Floor.Currency}}/h)</label><input id="floor" name="floor" type="text" value="{{dollars .Floor}}"></div>
-    <div><label for="ceiling">Ceiling ({{.Ceiling.Currency}}/h)</label><input id="ceiling" name="ceiling" type="text" value="{{dollars .Ceiling}}"></div>
-    <div><label for="cap">Cap per visit ({{.CapPerVisit.Currency}}, 0 for none)</label><input id="cap" name="cap_per_visit" type="text" value="{{dollars .CapPerVisit}}"></div>
-    <div><label for="block">Block (minutes)</label><input id="block" name="block_minutes" type="number" min="1" max="240" value="{{.BlockMinutes}}"></div>
-    <div><label for="pause">Pause after an order (minutes, 0 for off)</label><input id="pause" name="pause_minutes" type="number" min="0" max="240" value="{{.PauseMinutes}}"></div>
-    <div><label for="goal">Goal (0 fill the room – 100 maximize revenue)</label><input id="goal" name="goal" type="number" min="0" max="100" value="{{.Goal}}"></div>
+<h2>History</h2>
+{{if .Data.HistoryFailed}}
+<p class="notice info"><i data-icon="info"></i><span>BarPay didn't return the history. Wait a moment, then <a href="{{.Here}}">reload</a>.{{if .Data.Rate}} The published rate above is current.{{end}}</span></p>
+{{else}}{{with .Data.Chart}}
+<div class="card">
+  <div class="row" style="justify-content: space-between; margin-bottom: 4px">
+    <strong>{{.Day}}</strong>
+    <div class="legend"><span><i class="sw rate"></i>Rate</span><span><i class="sw bound"></i>Range</span><span><i class="dotkey ai"></i>AI decision</span><span><i class="dotkey fallback"></i>AI didn't answer</span><span><i class="dotkey settings"></i>Settings change</span></div>
   </div>
-  <p><button class="button" type="submit">Save settings</button></p>
-</form>
-{{end}}
+  {{if .NoDecision}}<p class="muted">No decisions yet.</p>{{else}}
+  <div class="rate-scroll"><svg class="rate-axis" width="56" height="260" viewBox="0 0 56 260" aria-hidden="true">
+    {{range .YTicks}}<text class="tick" x="48" y="{{.Y}}" dy="4" text-anchor="end">{{.Label}}</text>{{end}}
+  </svg><div class="hscroll" data-start="end"><svg class="rate-chart" width="{{.Width}}" height="260" viewBox="0 0 {{.Width}} 260" role="img" aria-label="Rate history">
+    {{range .YTicks}}<line class="grid" x1="0" x2="{{$.Data.Chart.Width}}" y1="{{.Y}}" y2="{{.Y}}"/>{{end}}
+    {{range .XTicks}}<text class="tick" x="{{.X}}" y="248" text-anchor="middle">{{.Label}}</text>{{end}}
+    <line class="now" x1="{{.NowX}}" x2="{{.NowX}}" y1="20" y2="224"/>
+    <text class="tick now-label" x="{{.NowX}}" dx="-4" y="30" text-anchor="end">Now</text>
+    {{with .FloorPath}}<path class="bound" d="{{.}}"><title>Floor</title></path>{{end}}
+    {{with .CeilPath}}<path class="bound" d="{{.}}"><title>Ceiling</title></path>{{end}}
+    <path class="rate-line" d="{{.RatePath}}"/>
+    {{range .Points}}<g class="pt {{.Kind}}" data-sheet="{{.Detail.ID}}" tabindex="0" role="button" aria-label="{{.Label}}"><circle cx="{{.X}}" cy="{{.Y}}" r="6"/><title>{{.Label}}</title></g>{{end}}
+  </svg></div></div>
+  {{end}}
+</div>
+{{range .Points}}{{with .Detail}}
+<dialog class="sheet" id="{{.ID}}">
+  <h2>{{.Heading}}</h2>
+  <dl class="summary detail">
+    <dt>Rate</dt><dd>{{money .Rate.RatePerHour}}/h ({{if eq .Rate.Change.Value 0}}<span class="muted">No change</span>{{else}}<span class="{{if gt .Rate.Change.Value 0}}up{{else}}down{{end}}">{{signedMoney .Rate.Change}}</span>{{end}})</dd>
+    <dt>Trigger</dt><dd>{{.Trigger}}</dd>
+    {{with .Changed}}<dt>Changed</dt><dd>{{.}}</dd>{{end}}
+    {{with .Input}}<dt>Input</dt><dd>{{.}}</dd>{{end}}
+    {{with .Output}}<dt>Output</dt><dd>{{.}}</dd>{{end}}
+    {{with .Reasoning}}<dt>AI's reasoning</dt><dd>{{.}}</dd>{{end}}
+    <dt>BarPay's explanation</dt><dd>{{.Explanation}}</dd>
+  </dl>
+  <div class="dialog-actions"><button class="button" type="button" data-close>Close</button></div>
+</dialog>
+{{end}}{{end}}
+{{end}}{{end}}
 {{end}}
