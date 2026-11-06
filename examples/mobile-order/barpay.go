@@ -315,8 +315,18 @@ func (b *BarPay) createCheckin(ctx context.Context, idemKey string, memberID str
 }
 
 func (b *BarPay) getSession(ctx context.Context, id string) (*Session, error) {
+	return b.readSession(ctx, id, true)
+}
+
+// getSessionOnce reads a session without resending, for a page that would rather go without it
+// than wait.
+func (b *BarPay) getSessionOnce(ctx context.Context, id string) (*Session, error) {
+	return b.readSession(ctx, id, false)
+}
+
+func (b *BarPay) readSession(ctx context.Context, id string, resend bool) (*Session, error) {
 	var s Session
-	_, err := b.do(ctx, call{method: "GET", path: "/sessions/" + url.PathEscape(id), out: &s}, true)
+	_, err := b.do(ctx, call{method: "GET", path: "/sessions/" + url.PathEscape(id), out: &s}, resend)
 	return &s, err
 }
 
@@ -486,11 +496,21 @@ func (b *BarPay) listDecisions(ctx context.Context, staffID, cursor string) ([]D
 }
 
 func (b *BarPay) listAlerts(ctx context.Context, staffID, cursor string) ([]Alert, *string, error) {
+	return b.readAlerts(ctx, staffID, cursor, true)
+}
+
+// listAlertsOnce reads a page of the alerts without resending, for a page that would rather go
+// without them than wait.
+func (b *BarPay) listAlertsOnce(ctx context.Context, staffID, cursor string) ([]Alert, *string, error) {
+	return b.readAlerts(ctx, staffID, cursor, false)
+}
+
+func (b *BarPay) readAlerts(ctx context.Context, staffID, cursor string, resend bool) ([]Alert, *string, error) {
 	var r struct {
 		Alerts     []Alert `json:"alerts"`
 		NextCursor *string `json:"next_cursor"`
 	}
-	_, err := b.do(ctx, call{method: "GET", path: "/admin/alerts" + pageQuery(20, cursor, nil), admin: true, staffID: staffID, out: &r}, true)
+	_, err := b.do(ctx, call{method: "GET", path: "/admin/alerts" + pageQuery(20, cursor, nil), admin: true, staffID: staffID, out: &r}, resend)
 	return r.Alerts, r.NextCursor, err
 }
 

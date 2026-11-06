@@ -9,10 +9,6 @@
   {{end}}
   <button class="button small" type="submit">Filter</button>
 </form>
-<form class="row" method="post" action="/admin/gate">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
-  <button class="button small secondary" type="submit">Open the exit gate by hand</button>
-</form>
 <div class="card scroll">
 <table>
   <thead><tr><th>Checked in</th><th>Stay</th><th>Customer</th><th>Orders</th><th>Total</th><th>Payment</th><th>State</th><th>Actions</th></tr></thead>
@@ -39,9 +35,6 @@
         {{end}}
         {{if eq .State "at_register"}}
           <form method="post" action="/admin/sessions/{{.SessionID}}/mark-unpaid"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="button small secondary" type="submit">Mark unpaid</button></form>
-        {{end}}
-        {{if eq .State "closed"}}
-          <form method="post" action="/admin/sessions/{{.SessionID}}/unlock"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="button small secondary" type="submit">Open gate for this customer</button></form>
         {{end}}
       </td>
     </tr>

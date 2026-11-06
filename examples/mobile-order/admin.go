@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -43,9 +45,10 @@ func (a *App) staffOnly(h staffHandler) http.HandlerFunc {
 }
 
 // staffFrame is what layout.html draws around an admin page for a logged-in staff member: the
-// side menu.
+// side menu, and the dialog that unlocks the exit gate from any page.
 type staffFrame struct {
 	Menu []sideItem
+	Gate *gateDialog
 }
 
 type sideItem struct {
@@ -68,15 +71,117 @@ var staffMenu = []struct{ key, href, icon, label string }{
 // side menu item the page belongs to: the pricing tabs ("Current rate" and "Settings") both
 // belong to "pricing".
 func (a *App) adminView(r *http.Request, id string, b Browser, title, nav string) view {
+	return a.adminViewWithAlerts(r, id, b, title, nav, nil)
+}
+
+// adminViewWithAlerts is adminView for a page that has read the first page of the alerts
+// itself, which the gate dialog takes its customers from instead of reading it again.
+func (a *App) adminViewWithAlerts(r *http.Request, id string, b Browser, title, nav string, firstAlerts *[]Alert) view {
 	v := a.baseView(id, b, title)
 	v.Admin = true
 	v.Here = r.URL.RequestURI()
-	f := &staffFrame{}
+	f := &staffFrame{Gate: a.gateDialog(r, b.StaffID, firstAlerts)}
 	for _, m := range staffMenu {
 		f.Menu = append(f.Menu, sideItem{Href: m.href, Icon: m.icon, Label: m.label, Current: m.key == nav})
 	}
 	v.Frame = f
 	return v
+}
+
+// gateDialog is the choice of whom staff unlock the exit gate for.
+type gateDialog struct {
+	Customers []gateCustomer
+	// ReadFailed says the alerts could not be read, so no customer is offered.
+	ReadFailed bool
+}
+
+type gateCustomer struct {
+	SessionID, Label string
+}
+
+// gateLookupTimeout bounds what every admin page spends on the customers of the gate dialog, so
+// a BarPay that is down or slow holds the page up no longer than this. Within it, each read is
+// sent once.
+const gateLookupTimeout = 3 * time.Second
+
+// gateDialog offers the customers the gate failed to open for: the sessions of the unlock_failed
+// alerts on the first page of the alerts, newest first, each once. An unlock_failed without a
+// session is an unlock by hand that failed; staff open the gate again for no particular customer.
+// firstAlerts is that page when the caller has read it; otherwise it is read here. When it cannot
+// be read in time, the dialog offers no customer.
+func (a *App) gateDialog(r *http.Request, staffID string, firstAlerts *[]Alert) *gateDialog {
+	ctx, cancel := context.WithTimeout(r.Context(), gateLookupTimeout)
+	defer cancel()
+	var alerts []Alert
+	if firstAlerts != nil {
+		alerts = *firstAlerts
+	} else {
+		var err error
+		if alerts, _, err = a.barpay.listAlertsOnce(ctx, staffID, ""); err != nil {
+			return &gateDialog{ReadFailed: true}
+		}
+	}
+	g := &gateDialog{}
+	seen := map[string]bool{}
+	for _, al := range alerts {
+		if al.Kind != "unlock_failed" || al.SessionID == "" || seen[al.SessionID] {
+			continue
+		}
+		seen[al.SessionID] = true
+		g.Customers = append(g.Customers, gateCustomer{SessionID: al.SessionID, Label: a.gateLabel(ctx, al)})
+	}
+	return g
+}
+
+// gateLabel names a customer of the gate dialog by their name and how and when they paid, such
+// as "Yui Tanaka (paid with PayPal at 21:59)". The session is read from BarPay when the app has
+// not stored it ended; without it, the session ID tells customers of the same name apart.
+func (a *App) gateLabel(ctx context.Context, al Alert) string {
+	var s *Session
+	memberID := al.MemberID
+	a.store.view(func(d *Data) {
+		if v := d.Visits[al.SessionID]; v != nil {
+			if v.Session != nil && v.Session.Receipt != nil {
+				cp := *v.Session
+				s = &cp
+			}
+			if memberID == "" {
+				memberID = v.MemberID
+			}
+		}
+	})
+	if s == nil {
+		if read, err := a.barpay.getSessionOnce(ctx, al.SessionID); err == nil {
+			s = read
+		}
+	}
+	if memberID == "" && s != nil && s.MemberID != nil {
+		memberID = *s.MemberID
+	}
+	name := "Guest"
+	a.store.view(func(d *Data) {
+		if m := d.Members[memberID]; m != nil {
+			name = m.Name
+		}
+	})
+	if s == nil || s.Receipt == nil {
+		return name + " (" + al.SessionID + ")"
+	}
+	return name + " (" + paidHow(s.Receipt.Settlement) + " at " + s.Receipt.EndedAt.Local().Format("15:04") + ")"
+}
+
+func paidHow(settlement string) string {
+	switch settlement {
+	case "paypal":
+		return "paid with PayPal"
+	case "register":
+		return "paid at the register"
+	case "outside":
+		return "settled by staff"
+	case "unpaid":
+		return "closed unpaid"
+	}
+	return settlement
 }
 
 func (a *App) staffLoginForm(w http.ResponseWriter, r *http.Request) {
@@ -233,13 +338,6 @@ func (a *App) adminSessionAction(w http.ResponseWriter, r *http.Request, id stri
 		if err == nil {
 			msg = "Marked " + sessionID + " as unpaid."
 		}
-	case "unlock":
-		err = a.barpay.unlockGate(ctx, b.StaffID, sessionID)
-		if err == nil {
-			msg = "The gate is opening."
-		} else if errorCode(err) == "gate_unavailable" {
-			msg = "No exit gate is connected."
-		}
 	default:
 		http.NotFound(w, r)
 		return
@@ -294,19 +392,54 @@ func (a *App) charge(r *http.Request, action, sessionID, staffID string) (*Sessi
 	}
 }
 
+// adminUnlockGate sends the unlock chosen in the gate dialog, for a customer's session or for
+// none, and goes back to the page the dialog was opened on to tell the outcome. BarPay records
+// the staff member and the session. It is sent once: a resend could open the gate twice.
 func (a *App) adminUnlockGate(w http.ResponseWriter, r *http.Request, id string, b Browser) {
 	ctx, cancel := a.ctx(r)
 	defer cancel()
-	err := a.barpay.unlockGate(ctx, b.StaffID, "")
+	back := adminPath(r.PostFormValue("back"))
+	sessionID := r.PostFormValue("for")
+	switch sessionID {
+	case "":
+		a.alert(id, "Choose who the gate is unlocked for.")
+		redirect(w, r, back)
+		return
+	case "none":
+		sessionID = ""
+	}
+	err := a.barpay.unlockGate(ctx, b.StaffID, sessionID)
 	switch {
 	case err == nil:
-		a.flash(id, "The gate is opening.")
+		a.flash(id, "The exit gate was told to unlock once. Check at the gate that it opened.")
 	case errorCode(err) == "gate_unavailable":
-		a.flash(id, "No exit gate is connected.")
+		a.alert(id, "The exit gate device isn't connected, so the gate wasn't unlocked, and it won't unlock later. Check the device's power and connection.")
+	case errors.Is(err, ErrNoAnswer):
+		a.alert(id, "BarPay didn't answer, so it isn't known whether the gate was told to unlock. Check at the gate before you try again.")
 	default:
-		a.flash(id, "BarPay did not open the gate: "+err.Error())
+		a.alert(id, "BarPay didn't unlock the gate: "+err.Error())
 	}
-	redirect(w, r, "/admin")
+	redirect(w, r, back)
+}
+
+// adminPath returns s when it is the path of an admin page of this app, and /admin otherwise, so
+// a form cannot send the browser to another site or to a customer page. The path is judged as
+// the redirect would clean it ("/admin/../account" is /account), and a path with an escaped
+// character in it ("%2e", "%2f") is refused rather than judged.
+func adminPath(s string) string {
+	u, err := url.Parse(s)
+	if err != nil || u.Scheme != "" || u.Host != "" || u.User != nil || u.Opaque != "" || u.RawPath != "" ||
+		strings.HasPrefix(s, "//") || !strings.HasPrefix(u.Path, "/") {
+		return "/admin"
+	}
+	p := path.Clean(u.Path)
+	if p != "/admin" && !strings.HasPrefix(p, "/admin/") {
+		return "/admin"
+	}
+	if u.RawQuery != "" {
+		p += "?" + u.RawQuery
+	}
+	return p
 }
 
 // Pricing: the rate, evaluate now, settings and the decision log.
@@ -395,8 +528,13 @@ func (a *App) adminUpdateSettings(w http.ResponseWriter, r *http.Request, id str
 func (a *App) adminAlerts(w http.ResponseWriter, r *http.Request, id string, b Browser) {
 	ctx, cancel := a.ctx(r)
 	defer cancel()
-	alerts, next, err := a.barpay.listAlerts(ctx, b.StaffID, r.URL.Query().Get("cursor"))
-	v := a.adminView(r, id, b, "Alerts", "alerts")
+	cursor := r.URL.Query().Get("cursor")
+	alerts, next, err := a.barpay.listAlerts(ctx, b.StaffID, cursor)
+	var firstAlerts *[]Alert
+	if cursor == "" && err == nil {
+		firstAlerts = &alerts
+	}
+	v := a.adminViewWithAlerts(r, id, b, "Alerts", "alerts", firstAlerts)
 	data := struct {
 		Alerts []Alert
 		Next   string

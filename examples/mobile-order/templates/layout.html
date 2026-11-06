@@ -18,6 +18,7 @@
     {{end}}
   </nav>
   <div class="sub">
+    <button type="button" data-sheet="gate-manual"><i data-icon="lock"></i><span>Unlock gate</span></button>
     <form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit"><i data-icon="log-out"></i><span>Log out<small>{{$.StaffID}}</small></span></button></form>
   </div>
 </aside>
@@ -27,6 +28,23 @@
 <main class="{{block "main-class" .}}wide{{end}}">
   {{template "content" .}}
 </main>
+{{with .Frame}}{{with .Gate}}
+<dialog class="sheet" id="gate-manual">
+  <form method="post" action="/admin/gate">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <input type="hidden" name="back" value="{{$.Here}}">
+    <h2>Unlock the exit gate</h2>
+    <p class="muted">Who is it for?</p>
+    {{if .ReadFailed}}{{template "no-answer" $}}{{end}}
+    {{range .Customers}}
+    <label class="choice"><input type="radio" name="for" value="{{.SessionID}}" required> {{.Label}}</label>
+    {{end}}
+    <label class="choice"><input type="radio" name="for" value="none" required> Not for a particular customer</label>
+    <p class="warn">While the gate is open, anyone can walk through, paid or not. Your staff ID is recorded.</p>
+    <div class="dialog-actions"><button class="textbutton muted" type="button" data-close>Cancel</button><button class="button" type="submit">Unlock</button></div>
+  </form>
+</dialog>
+{{end}}{{end}}
 <script src="/static/admin.js"></script>
 </body>
 </html>
