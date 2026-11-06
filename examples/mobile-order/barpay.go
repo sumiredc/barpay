@@ -174,13 +174,18 @@ type Alert struct {
 	Message   string    `json:"message"`
 }
 
+// NotificationRecord has exactly one of SessionID and MemberID.
 type NotificationRecord struct {
 	EventID       string     `json:"event_id"`
 	Type          string     `json:"type"`
+	SessionID     string     `json:"session_id,omitempty"`
+	MemberID      string     `json:"member_id,omitempty"`
 	Status        string     `json:"status"`
 	Attempts      int        `json:"attempts"`
 	CreatedAt     time.Time  `json:"created_at"`
 	LastAttemptAt *time.Time `json:"last_attempt_at"`
+	// NextAttemptAt is nil once delivered or given up.
+	NextAttemptAt *time.Time `json:"next_attempt_at"`
 }
 
 // APIError is an error response from BarPay.
