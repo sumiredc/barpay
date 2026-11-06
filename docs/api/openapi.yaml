@@ -2223,14 +2223,25 @@ components:
           maxLength: 500
     NotificationRecord:
       type: object
+      description: |
+        Names its subject with the same fields as `Alert`: `session_id` for
+        `session.*` and `gate.*`, `member_id` for `member.*`; exactly one of
+        the two.
       additionalProperties: false
-      required: [event_id, type, status, attempts, created_at, last_attempt_at]
+      required: [event_id, type, status, attempts, created_at, last_attempt_at, next_attempt_at]
+      oneOf:
+        - required: [session_id]
+        - required: [member_id]
       properties:
         event_id:
           type: string
           pattern: '^evt_[A-Za-z0-9]{16,32}$'
         type:
           type: string
+        session_id:
+          $ref: '#/components/schemas/SessionId'
+        member_id:
+          $ref: '#/components/schemas/MemberId'
         status:
           description: |
             `retrying` from when the event is stored, before its first
@@ -2248,6 +2259,14 @@ components:
           format: date-time
         last_attempt_at:
           description: '`null` before the first attempt.'
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        next_attempt_at:
+          description: |
+            While `retrying`, when the next attempt is due; `created_at`
+            before the first attempt. `null` once `delivered` or `given_up`.
           oneOf:
             - type: string
               format: date-time
