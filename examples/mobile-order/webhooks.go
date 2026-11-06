@@ -112,7 +112,7 @@ func (a *App) handleNotification(w http.ResponseWriter, r *http.Request) {
 		d.SeenEvents[e.ID] = time.Now()
 		d.Received = append(d.Received, ReceivedEvent{
 			EventID: e.ID, Type: e.Type, Subject: subject, Sequence: e.Sequence,
-			CreatedAt: e.CreatedAt, ReceivedAt: time.Now(), Note: note,
+			CreatedAt: e.CreatedAt, ReceivedAt: time.Now(), Note: note, Reason: e.Data.Reason,
 		})
 		return nil
 	})

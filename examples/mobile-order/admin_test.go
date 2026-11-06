@@ -243,6 +243,10 @@ func TestAnAdminPageWhoseReadFailedSaysSoOnceInTheSameWords(t *testing.T) {
 	s.barpay.down = true
 	s.barpay.mu.Unlock()
 	for _, p := range adminPages {
+		if p.path == "/admin/notifications" {
+			// The log says what it shows instead (TestALogBarPayDoesNotGiveShowsWhatThisAppReceived).
+			continue
+		}
 		body, _, _ := strings.Cut(s.open(p.path), gateDialogStart)
 		want := `<span>BarPay didn't answer. Wait a moment, then <a href="` + p.path + `">reload</a>.</span>`
 		if strings.Count(body, want) != 1 {

@@ -91,6 +91,8 @@ type ReceivedEvent struct {
 	// Note says how it was applied: in order, older than one already applied, or after a gap
 	// that a lookup filled.
 	Note string `json:"note"`
+	// Reason is the event's data.reason, such as why a payment failed, if it has one.
+	Reason string `json:"reason,omitempty"`
 }
 
 const (

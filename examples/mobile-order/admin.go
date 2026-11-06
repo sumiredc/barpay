@@ -546,26 +546,3 @@ func (a *App) adminAlerts(w http.ResponseWriter, r *http.Request, id string, b B
 	v.Data = data
 	a.render(w, http.StatusOK, "admin_alerts", v)
 }
-
-func (a *App) adminNotifications(w http.ResponseWriter, r *http.Request, id string, b Browser) {
-	ctx, cancel := a.ctx(r)
-	defer cancel()
-	records, next, err := a.barpay.listNotifications(ctx, b.StaffID, r.URL.Query().Get("cursor"))
-	v := a.adminView(r, id, b, "Log", "log")
-	data := struct {
-		Records  []NotificationRecord
-		Next     string
-		Failed   bool
-		Received []ReceivedEvent
-	}{Records: records, Failed: err != nil}
-	if next != nil {
-		data.Next = "/admin/notifications?" + url.Values{"cursor": {*next}}.Encode()
-	}
-	a.store.view(func(d *Data) {
-		for i := len(d.Received) - 1; i >= 0 && len(data.Received) < 100; i-- {
-			data.Received = append(data.Received, d.Received[i])
-		}
-	})
-	v.Data = data
-	a.render(w, http.StatusOK, "admin_notifications", v)
-}
