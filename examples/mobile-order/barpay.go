@@ -426,6 +426,16 @@ func pageQuery(limit int, cursor string, extra url.Values) string {
 }
 
 func (b *BarPay) listSessions(ctx context.Context, staffID, states, cursor string) ([]Session, *string, error) {
+	return b.readSessions(ctx, staffID, states, cursor, true)
+}
+
+// listSessionsOnce reads a page of the sessions without resending, for a page that would rather
+// go without them than wait.
+func (b *BarPay) listSessionsOnce(ctx context.Context, staffID, states, cursor string) ([]Session, *string, error) {
+	return b.readSessions(ctx, staffID, states, cursor, false)
+}
+
+func (b *BarPay) readSessions(ctx context.Context, staffID, states, cursor string, resend bool) ([]Session, *string, error) {
 	var r struct {
 		Sessions   []Session `json:"sessions"`
 		NextCursor *string   `json:"next_cursor"`
@@ -434,7 +444,7 @@ func (b *BarPay) listSessions(ctx context.Context, staffID, states, cursor strin
 	if states != "" {
 		extra.Set("state", states)
 	}
-	_, err := b.do(ctx, call{method: "GET", path: "/admin/sessions" + pageQuery(20, cursor, extra), admin: true, staffID: staffID, out: &r}, true)
+	_, err := b.do(ctx, call{method: "GET", path: "/admin/sessions" + pageQuery(20, cursor, extra), admin: true, staffID: staffID, out: &r}, resend)
 	return r.Sessions, r.NextCursor, err
 }
 

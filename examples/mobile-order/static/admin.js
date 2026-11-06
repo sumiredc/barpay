@@ -6,6 +6,7 @@
 //   dialog, or none when it has none, and a dialog opened from another dialog closes that one
 //   first. A dialog closes by its [data-close] button, a press on the backdrop, Escape or a swipe
 //   in any direction
+// - a form in a dialog with radios named "how" shows only the [data-how] parts of the chosen one
 // - <body data-reload="s"> reloads the page every s seconds, but not while a dialog is open: the
 //   reload would throw away what is chosen in it. The page reloads once the dialog closes.
 // - <div class="hscroll" data-start="end"> is scrolled to its right end (now) when the page opens
@@ -280,6 +281,29 @@
     });
     render();
   }
+
+  // A form with ways to choose (radios named "how") shows only the parts of the chosen way
+  // ([data-how]). The inputs of the other parts are disabled, so they are neither required nor
+  // sent. Typing another amount chooses it.
+  document.querySelectorAll("dialog.sheet form").forEach((f) => {
+    const hows = f.querySelectorAll('input[name="how"]');
+    if (!hows.length) return;
+    const show = () => {
+      const v = (f.querySelector('input[name="how"]:checked') || {}).value;
+      f.querySelectorAll("[data-how]").forEach((el) => {
+        el.hidden = el.dataset.how !== v;
+        el.querySelectorAll("input").forEach((i) => { i.disabled = el.hidden; });
+      });
+    };
+    hows.forEach((h) => h.addEventListener("change", show));
+    show();
+    f.querySelectorAll("input[data-other]").forEach((t) => {
+      const radio = t.closest("label").querySelector('input[type="radio"]');
+      const sync = () => { t.required = radio.checked; };
+      t.addEventListener("input", () => { radio.checked = true; sync(); });
+      f.querySelectorAll('input[name="' + radio.name + '"]').forEach((r) => r.addEventListener("change", sync));
+    });
+  });
 
   let due = false;
   const reload = () => {

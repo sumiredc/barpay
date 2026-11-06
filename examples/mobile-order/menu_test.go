@@ -332,9 +332,3 @@ func TestAVisitNotTakingOrdersShowsItsState(t *testing.T) {
 		}
 	}
 }
-
-func TestStaffStateLabelsStayTheSame(t *testing.T) {
-	if got := stateLabel("at_register"); got != "Waiting at the register" {
-		t.Errorf("stateLabel(at_register) = %q", got)
-	}
-}

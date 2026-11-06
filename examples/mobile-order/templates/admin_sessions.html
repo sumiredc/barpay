@@ -3,46 +3,61 @@
 <div class="pagehead"><h1>Visits</h1></div>
 {{template "notices" .}}
 {{if .Data.ReadFailed}}{{template "no-answer" .}}{{end}}
-<form class="card row" method="get" action="/admin">
-  {{range .Data.States}}
-    <label style="font-weight: normal; margin: 0"><input type="checkbox" name="state" value="{{.}}" {{if has $.Data.Selected .}}checked{{end}}> {{stateLabel .}}</label>
-  {{end}}
-  <button class="button small" type="submit">Filter</button>
-</form>
+<nav class="tabs" aria-label="Visits">
+  {{range .Data.Tabs}}<a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}{{with .Waiting}}<span class="badge" aria-label="{{.Label}}">{{.N}}{{if .More}}+{{end}}</span>{{end}}</a>{{end}}
+</nav>
 <div class="card scroll">
-<table>
-  <thead><tr><th>Checked in</th><th>Stay</th><th>Customer</th><th>Orders</th><th>Total</th><th>Payment</th><th>State</th><th>Actions</th></tr></thead>
+<table class="clickable">
+  <thead><tr><th>Customer</th><th>Checked in</th><th class="num">Total</th><th>State</th><th></th></tr></thead>
   <tbody>
   {{range .Data.Rows}}
-    <tr>
-      <td>{{time .CheckedInAt}}<br><span class="muted">{{.SessionID}}</span></td>
-      <td>{{duration .Stay}}</td>
-      <td>{{with .MemberID}}{{.}}{{else}}Guest{{end}}</td>
-      <td>{{.OrderCount}}</td>
-      <td>{{money .Total}}<br><span class="muted">cover {{money .CoverCharge}}{{if ne .CoverChargeStatus "running"}}, {{.CoverChargeStatus}}{{end}}</span>{{with .UnpaidAmount}}<br><span class="up">unpaid {{money .}}</span>{{end}}</td>
-      <td>{{if eq .PaymentMethod "paypal"}}PayPal{{else}}Register{{end}}</td>
-      <td><span class="pill {{.State}}">{{stateLabel .State}}</span></td>
-      <td>
-        {{if and (eq .State "active") (eq .PaymentMethod "paypal")}}
-          <form method="post" action="/admin/sessions/{{.SessionID}}/close"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="button small" type="submit">{{if .PendingKey}}Send close again{{else}}Close (charge PayPal){{end}}</button></form>
-        {{end}}
-        {{if eq .State "payment_failed"}}
-          <form method="post" action="/admin/sessions/{{.SessionID}}/retry"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="button small" type="submit">{{if .PendingKey}}Send retry again{{else}}Retry charge{{end}}</button></form>
-          <form method="post" action="/admin/sessions/{{.SessionID}}/settle-outside"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="currency" value="{{.Total.Currency}}"><input type="text" name="amount" value="{{with .UnpaidAmount}}{{dollars .}}{{end}}" aria-label="Amount settled"> <button class="button small secondary" type="submit">Settled outside</button></form>
-        {{end}}
-        {{if or (eq .State "active") (eq .State "at_register")}}
-          <form method="post" action="/admin/sessions/{{.SessionID}}/register-payment"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="currency" value="{{.Total.Currency}}"><input type="text" name="amount" value="{{dollars .Total}}" aria-label="Amount taken"> <button class="button small secondary" type="submit">Record register payment</button></form>
-        {{end}}
-        {{if eq .State "at_register"}}
-          <form method="post" action="/admin/sessions/{{.SessionID}}/mark-unpaid"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="button small secondary" type="submit">Mark unpaid</button></form>
-        {{end}}
-      </td>
+    <tr{{if .Ended}} class="done"{{end}} data-sheet="d-{{.SessionID}}" tabindex="0">
+      <td><span class="who">{{.Name}}</span><span class="id">{{.ShortID}}</span></td>
+      <td class="nowrap">{{clock .CheckedInAt}}</td>
+      <td class="num">{{money .Total}}</td>
+      <td><span class="pill {{.State}}">{{.StateLabel}}</span></td>
+      <td><div class="actions-cell">{{if .Checkout}}<button class="button small" type="button" data-sheet="pay-{{.SessionID}}">Check out</button>{{end}}</div></td>
     </tr>
   {{else}}
-    <tr><td colspan="8">No sessions.</td></tr>
+    {{if .Data.ReadFailed}}
+    <tr><td colspan="5" class="muted" style="text-align: center">Can't be shown</td></tr>
+    {{else if eq .Data.Tab "needs"}}
+    <tr><td colspan="5"><p class="notice good" style="justify-content: center"><i data-icon="circle-check"></i><span>No one is waiting to check out</span></p></td></tr>
+    {{else}}
+    <tr><td colspan="5" class="muted" style="text-align: center">No visits</td></tr>
+    {{end}}
   {{end}}
   </tbody>
 </table>
 </div>
-{{with .Data.Next}}<p><a class="button small secondary" href="{{.}}">Older sessions</a></p>{{end}}
+{{with .Data.Next}}<div class="pager"><a class="textbutton" href="{{.}}">Older visits<i data-icon="chevron-right"></i></a></div>{{end}}
+
+{{range .Data.Rows}}{{$id := .SessionID}}
+<dialog class="sheet" id="d-{{$id}}">
+  <h2>{{.Name}}</h2>
+  <dl class="summary detail">{{range .Detail}}<dt>{{.Label}}</dt><dd>{{.Value}}</dd>{{end}}</dl>
+  <div class="dialog-actions"><button class="textbutton muted" type="button" data-close>Close</button>{{if .Checkout}}<button class="button" type="button" data-sheet="pay-{{$id}}">Check out</button>{{end}}</div>
+</dialog>
+{{with .Checkout}}{{$ph := .Placeholder}}
+<dialog class="sheet" id="pay-{{$id}}">
+  <form method="post" action="/admin/sessions/{{$id}}/checkout">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <input type="hidden" name="back" value="{{$.Here}}">
+    <input type="hidden" name="currency" value="{{.Currency}}">
+    <h2>{{.Title}}</h2>
+    <dl class="summary">{{range .Summary}}<dt>{{.Label}}</dt><dd>{{.Value}}</dd>{{end}}</dl>
+    {{with .Note}}<p class="muted">{{.}}</p>{{end}}
+    {{with .Warn}}<p class="warn">{{.}}</p>{{end}}
+    {{range .Ways}}{{$how := .How}}
+    <label class="choice option"><input type="radio" name="how" value="{{$how}}" required> {{.Label}}</label>
+    {{with .Amount}}<div data-how="{{$how}}"><div class="sub-choice"><label class="choice"><input type="radio" name="amount" value="{{.Value}}" required> {{.Label}}</label>
+      <label class="choice"><input type="radio" name="amount" value="other"> Another amount <input type="text" name="other_amount" inputmode="decimal" placeholder="{{$ph}}" aria-label="Amount taken" data-other></label></div></div>{{end}}
+    {{with .Note}}<p class="muted" data-how="{{$how}}">{{.}}</p>{{end}}
+    {{end}}
+    <p class="warn">This can't be undone.</p>
+    <div class="dialog-actions"><button class="textbutton muted" type="button" data-close>Cancel</button><button class="button" type="submit">Confirm</button></div>
+  </form>
+</dialog>
+{{end}}
+{{end}}
 {{end}}

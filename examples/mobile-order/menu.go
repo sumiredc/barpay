@@ -122,7 +122,7 @@ func menuSections() []menuSection {
 }
 
 // customerStateLabel names a session state for the customer, who is told what is happening to the
-// visit; the staff pages name the state itself with stateLabel.
+// visit; the staff pages name the state itself with visitStateLabel.
 func customerStateLabel(state string) string {
 	switch state {
 	case "checking_out":
