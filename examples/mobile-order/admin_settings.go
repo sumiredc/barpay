@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -99,6 +100,51 @@ type settingsPage struct {
 	// them.
 	Form    *settingsForm
 	Invalid bool
+	Preview settingsPreview
+}
+
+// settingsPreview is what the card "What a customer pays" is drawn from. admin.js works the
+// amounts out in the browser from these and the form, as staff type, without asking the server.
+type settingsPreview struct {
+	// Rate is the published rate, which "Now" starts from; nil when BarPay did not return it, and
+	// the card then offers the floor and the ceiling only.
+	Rate *Money
+	// Saved are the settings BarPay has. The card is drawn from them while the form cannot be
+	// saved; nil when they could not be read.
+	Saved *Settings
+	// Drink is the drink the customer orders on arrival, 30 and 60 minutes later.
+	Drink      string
+	DrinkPrice Money
+}
+
+// previewDrink is the first item of the menu's Drinks with its first choices, such as
+// "Draft beer (Glass)" at $7.00.
+func previewDrink() (string, Money) {
+	for _, item := range menuItems {
+		if item.Kind != "Drinks" {
+			continue
+		}
+		name, price := item.Name, item.Price
+		var labels []string
+		for _, o := range item.Options {
+			labels = append(labels, o.Choices[0].Label)
+			price += o.Choices[0].Extra
+		}
+		if len(labels) > 0 {
+			name += " (" + strings.Join(labels, ", ") + ")"
+		}
+		return name, Money{Value: price, Currency: menuCurrency}
+	}
+	return "", Money{Currency: menuCurrency}
+}
+
+func (a *App) settingsPreview(ctx context.Context, saved *Settings) settingsPreview {
+	p := settingsPreview{Saved: saved}
+	p.Drink, p.DrinkPrice = previewDrink()
+	if r, err := a.barpay.getRate(ctx); err == nil {
+		p.Rate = &r.RatePerHour
+	}
+	return p
 }
 
 // adminSettings is the "Settings" tab, with the settings BarPay has.
@@ -110,6 +156,7 @@ func (a *App) adminSettings(w http.ResponseWriter, r *http.Request, id string, b
 	if s, err := a.barpay.getSettings(ctx, b.StaffID); err == nil {
 		f := formOf(*s)
 		data.Form = &f
+		data.Preview = a.settingsPreview(ctx, s)
 	}
 	v.Data = data
 	a.render(w, http.StatusOK, "admin_settings", v)
@@ -123,7 +170,11 @@ func (a *App) adminUpdateSettings(w http.ResponseWriter, r *http.Request, id str
 	s, f, ok := readSettingsForm(r.PostForm)
 	if !ok {
 		v := a.adminView(r, id, b, "Pricing", "pricing")
-		v.Data = settingsPage{Form: &f, Invalid: true}
+		saved, err := a.barpay.getSettings(ctx, b.StaffID)
+		if err != nil {
+			saved = nil
+		}
+		v.Data = settingsPage{Form: &f, Invalid: true, Preview: a.settingsPreview(ctx, saved)}
 		a.render(w, http.StatusOK, "admin_settings", v)
 		return
 	}

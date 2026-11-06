@@ -9,6 +9,40 @@
 {{with .Toast}}<p class="notice good" role="status"><i data-icon="circle-check"></i><span>{{.}}</span></p>{{end}}
 {{if .Data.Invalid}}<p class="notice bad" role="alert"><i data-icon="alert"></i><span>Couldn't save. Fix the fields in red.</span></p>{{end}}
 {{with .Data.Form}}
+{{- /* The amounts are worked out by admin.js from the form and these data-* values: the published
+     rate (data-rate), the drink's price (data-drink), and the saved settings (data-floor and the
+     rest) that the card is drawn from while the form cannot be saved. */}}
+{{with $.Data.Preview}}
+<section class="card preview" id="preview" data-drink="{{.DrinkPrice.Value}}"{{with .Rate}} data-rate="{{.Value}}"{{end}}{{with .Saved}} data-floor="{{.Floor.Value}}" data-ceiling="{{.Ceiling.Value}}" data-cap="{{.CapPerVisit.Value}}" data-block="{{.BlockMinutes}}" data-pause="{{.PauseMinutes}}"{{end}} aria-label="What a customer pays" aria-live="polite">
+  <div class="preview-head">
+    <div>
+      <h2 style="margin: 0">What a customer pays</h2>
+      <p class="muted" style="margin: 4px 0 8px">Per customer (cover charge + drinks at <span data-p="drink">{{money .DrinkPrice}}</span> each)</p>
+      <div class="segmented" role="radiogroup" aria-label="What the chart shows" style="margin-right: 8px">
+        <label><input type="radio" name="view" value="total" checked><span>Total</span></label>
+        <label><input type="radio" name="view" value="charge"><span>Cover charge only</span></label>
+      </div>
+      <div class="segmented" role="radiogroup" aria-label="The rate it is worked out at">
+        <label><input type="radio" name="basis" value="floor"{{if not .Rate}} checked{{end}}><span>Floor <span data-p="floor"></span></span></label>
+        {{if .Rate}}<label><input type="radio" name="basis" value="now" checked><span>Now <span data-p="now"></span></span></label>{{end}}
+        <label><input type="radio" name="basis" value="ceiling"><span>Ceiling <span data-p="ceiling"></span></span></label>
+      </div>
+    </div>
+    <div class="stat" style="text-align: right">
+      <div class="label">2 h, 2 drinks</div>
+      <div class="big">About <span data-p="headline"></span></div>
+      <div class="muted" data-p="headsub">Cover charge <span data-p="headcharge"></span> + drinks <span data-p="headdrink"></span></div>
+    </div>
+  </div>
+  <svg class="preview-chart" viewBox="0 0 640 240" role="img" aria-label="What a customer pays by how long they stay, with 1, 2 and 3 drinks"></svg>
+  <div class="legend">
+    <span><i class="sw d1"></i>1 drink</span>
+    <span><i class="sw d2"></i>2 drinks</span>
+    <span><i class="sw d3"></i>3 drinks</span>
+    <span data-p="freelegend"><i class="sw free"></i>Free after an order</span>
+  </div>
+</section>
+{{end}}
 <form class="card" method="post" action="/admin/settings">
   <input type="hidden" name="csrf" value="{{$.CSRF}}">
   <input type="hidden" name="currency" value="{{.Currency}}">
@@ -72,6 +106,7 @@
     <dt>Free after an order</dt><dd>The first order doesn't count. After each later order, nothing is added for this long. An order during that time starts it again.</dd>
     <dt>Cap per visit</dt><dd>Once the cover charge reaches this amount, nothing more is added in that visit. 0 for no cap.</dd>
     <dt>Pricing goal</dt><dd>What the AI aims for when it sets the rate. Toward the left, it lowers the rate when the room is quiet, to bring people in. Toward the right, it raises the rate when the room is busy, to grow revenue. "When it's quiet" and "When it's busy" under the slider are a rough guide to the direction asked of the AI. The actual rate is set by the AI from how busy the room is at the time, and always stays within the range. With each decision, the AI writes how it served the goal in the log on the Now tab.</dd>
+    {{with .Data.Preview}}{{if .Drink}}<dt>What a customer pays</dt><dd>Worked out as if the chosen rate (floor, now or ceiling) stays the same; when the rate now is outside the range you are entering, it is taken at the nearer end, as saving moves it there. The drinks are the menu's {{.Drink}} at {{money .DrinkPrice}}: the first on arrival, the second 30 minutes later and the third 60 minutes later. After the second and the third, nothing is added for the time free after an order. Each charge is rounded down to the cent. The cap per visit applies to the cover charge only.</dd>{{end}}{{end}}
     <dt>When changes apply</dt><dd>The range: as soon as you save. The pricing goal: from the next update. Every, free after an order and the cap per visit: for each customer in the store, from the next set of minutes that starts.</dd>
   </dl>
   <div class="dialog-actions"><button class="button" type="button" data-close>Close</button></div>

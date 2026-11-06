@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -232,5 +233,94 @@ func TestTheGateCanBeUnlockedFromTheSettingsTab(t *testing.T) {
 	path, body := s.unlock("/admin/settings", "none")
 	if path != "/admin/settings" || !strings.Contains(body, "The exit gate was told to unlock once.") {
 		t.Errorf("an unlock from the settings tab went to %s", path)
+	}
+}
+
+// settingsBarPay is a pricingBarPay whose published rate can be refused on its own.
+type settingsBarPay struct {
+	*pricingBarPay
+	rateDown bool // under pricingBarPay.mu
+}
+
+func (f *settingsBarPay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	down := f.rateDown
+	f.mu.Unlock()
+	if down && r.URL.Path == "/v1/rate" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error":{"code":"unauthorized","message":"down for the test"}}`))
+		return
+	}
+	f.pricingBarPay.ServeHTTP(w, r)
+}
+
+// newSettingsStaff is newPricingStaff with the app talking to a settingsBarPay.
+func newSettingsStaff(t *testing.T) (*staff, *settingsBarPay) {
+	t.Helper()
+	s := newStaff(t)
+	f := &settingsBarPay{pricingBarPay: &pricingBarPay{adminBarPay: s.barpay}}
+	srv := httptest.NewServer(f)
+	t.Cleanup(srv.Close)
+	s.a.cfg.BarPayURL = srv.URL
+	s.a.barpay = newBarPay(s.a.cfg)
+	return s, f
+}
+
+// The amounts of the card are worked out in the browser (static/admin.js); the server gives it
+// the rate, the drink and the saved settings.
+func TestThePreviewIsGivenTheRateTheDrinkAndTheSavedSettings(t *testing.T) {
+	s, _ := newSettingsStaff(t)
+	s.logIn()
+	page := s.open("/admin/settings")
+	for _, want := range []string{
+		`<section class="card preview" id="preview" data-drink="700" data-rate="1200" data-floor="800" data-ceiling="2000" data-cap="2500" data-block="10" data-pause="0" aria-label="What a customer pays" aria-live="polite">`,
+		`<h2 style="margin: 0">What a customer pays</h2>`,
+		`Per customer (cover charge + drinks at <span data-p="drink">$7.00</span> each)`,
+		`<span>Total</span>`, `<span>Cover charge only</span>`,
+		`<span>Floor <span data-p="floor"></span></span>`,
+		`<input type="radio" name="basis" value="now" checked><span>Now <span data-p="now"></span></span>`,
+		`<span>Ceiling <span data-p="ceiling"></span></span>`,
+		`<div class="label">2 h, 2 drinks</div>`, `About <span data-p="headline"></span>`,
+		`Cover charge <span data-p="headcharge"></span> + drinks <span data-p="headdrink"></span>`,
+		`1 drink</span>`, `2 drinks</span>`, `3 drinks</span>`, `<i class="sw free"></i>Free after an order</span>`,
+		`The drinks are the menu's Draft beer (Glass) at $7.00: the first on arrival, the second 30 minutes later and the third 60 minutes later.`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the Settings tab has no %s", want)
+		}
+	}
+}
+
+func TestThePreviewDrinkIsTheFirstDrinkOfTheMenu(t *testing.T) {
+	name, price := previewDrink()
+	if name != "Draft beer (Glass)" || price != usd(700) {
+		t.Errorf("the drink is %s at %+v, want Draft beer (Glass) at $7.00", name, price)
+	}
+}
+
+func TestWithoutTheRateThePreviewOffersTheFloorAndTheCeiling(t *testing.T) {
+	s, f := newSettingsStaff(t)
+	s.logIn()
+	f.mu.Lock()
+	f.rateDown = true
+	f.mu.Unlock()
+	page := s.open("/admin/settings")
+	if strings.Contains(page, "data-rate=") || strings.Contains(page, `value="now"`) {
+		t.Error("the card offers Now without the published rate")
+	}
+	if !strings.Contains(page, `<input type="radio" name="basis" value="floor" checked>`) {
+		t.Error("the floor is not chosen in place of Now")
+	}
+}
+
+func TestAFormThatCannotBeSavedKeepsThePreviewOfTheSavedSettings(t *testing.T) {
+	s, _ := newSettingsStaff(t)
+	s.logIn()
+	form := settingsFormValues()
+	form.Set("ceiling", "9.00")
+	got := s.settingsPost(form)
+	if !strings.Contains(got.body, `data-rate="1200" data-floor="800" data-ceiling="2000" data-cap="2500" data-block="10" data-pause="0"`) {
+		t.Errorf("the card is not given the saved settings:\n%s", got.body)
 	}
 }
