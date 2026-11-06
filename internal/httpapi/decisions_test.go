@@ -65,10 +65,12 @@ func TestListDecisions(t *testing.T) {
 	want := []string{
 		`{"decided_at":"2026-10-31T19:00:00Z","trigger":"evaluation","inputs":{"occupancy":0.5,"liveliness":null,"goal":30},` +
 			`"proposal":null,"reasoning":null,"published":{"rate_per_hour":{"value":1300,"currency":"USD"},"change":{"value":100,"currency":"USD"},"published_at":"2026-10-31T18:01:00Z"},` +
-			`"explanation":"The AI's answer could not be read — rate kept at $13.00/h.","fallback":"ai_unreadable"}`,
+			`"explanation":"The AI's answer could not be read — rate kept at $13.00/h.","fallback":"ai_unreadable",` +
+			`"range":{"floor":{"value":600,"currency":"USD"},"ceiling":{"value":2400,"currency":"USD"}}}`,
 		`{"decided_at":"2026-10-31T18:01:00Z","trigger":"evaluation","inputs":{"occupancy":0.5,"liveliness":null,"goal":30},` +
 			`"proposal":{"value":1300,"currency":"USD"},"reasoning":"Because","published":{"rate_per_hour":{"value":1300,"currency":"USD"},"change":{"value":100,"currency":"USD"},"published_at":"2026-10-31T18:01:00Z"},` +
-			`"explanation":"Busy — rate up $1.00 to $13.00/h.","fallback":null}`,
+			`"explanation":"Busy — rate up $1.00 to $13.00/h.","fallback":null,` +
+			`"range":{"floor":{"value":600,"currency":"USD"},"ceiling":{"value":2400,"currency":"USD"}}}`,
 	}
 	for i, d := range page.Decisions {
 		if string(d) != want[i] {
@@ -117,7 +119,29 @@ func TestListDecisionsShowsARangeChange(t *testing.T) {
 		t.Fatalf("page = %+v", page)
 	}
 	spectest.Valid(t, "Decision", page.Decisions[0])
-	if s := string(page.Decisions[0]); !strings.Contains(s, `"trigger":"range_change","staff_id":"staff_1","inputs":null`) {
+	if s := string(page.Decisions[0]); !strings.Contains(s, `"trigger":"range_change","staff_id":"staff_1","inputs":null`) ||
+		!strings.HasSuffix(s, `"range":{"floor":{"value":1500,"currency":"USD"},"ceiling":{"value":2400,"currency":"USD"}},`+
+			`"previous_range":{"floor":{"value":600,"currency":"USD"},"ceiling":{"value":2400,"currency":"USD"}}}`) {
+		t.Errorf("decision = %s", s)
+	}
+}
+
+// A fallback decided before any settings change in effect (a clock set back) has range null.
+func TestListDecisionsGivesNoRangeWhenNoneWasInEffect(t *testing.T) {
+	st := started(t)
+	err := st.Tx(context.Background(), func(tx store.Querier) error {
+		_, err := pricing.KeepRate(context.Background(), tx, pricing.Inputs{Goal: 50}, pricing.FallbackTimeout, t0.Add(-time.Minute))
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := listDecisions(t, pricingRouter(st), "")
+	if len(page.Decisions) != 1 {
+		t.Fatalf("page = %+v", page)
+	}
+	spectest.Valid(t, "Decision", page.Decisions[0])
+	if s := string(page.Decisions[0]); !strings.HasSuffix(s, `"fallback":"ai_timeout","range":null}`) {
 		t.Errorf("decision = %s", s)
 	}
 }
