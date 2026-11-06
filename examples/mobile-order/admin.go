@@ -3,11 +3,9 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"path"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -211,68 +209,6 @@ func (a *App) staffLogout(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/admin/login")
 }
 
-var sessionStates = []string{"active", "checking_out", "at_register", "payment_failed", "closed", "closed_unpaid"}
-
-type sessionRow struct {
-	Session
-	Stay       time.Duration
-	PendingKey bool
-}
-
-func (a *App) adminSessions(w http.ResponseWriter, r *http.Request, id string, b Browser) {
-	ctx, cancel := a.ctx(r)
-	defer cancel()
-	q := r.URL.Query()
-	var states []string
-	for _, s := range q["state"] {
-		if slices.Contains(sessionStates, s) {
-			states = append(states, s)
-		}
-	}
-	v := a.adminView(r, id, b, "Visits", "visits")
-	sessions, next, err := a.barpay.listSessions(ctx, b.StaffID, strings.Join(states, ","), q.Get("cursor"))
-	data := struct {
-		Rows       []sessionRow
-		Next       string
-		States     []string
-		Selected   []string
-		ReadFailed bool
-	}{States: sessionStates, Selected: states, ReadFailed: err != nil}
-	now := time.Now()
-	a.store.view(func(d *Data) {
-		for _, s := range sessions {
-			end := now
-			if s.TotalFixedAt != nil {
-				end = *s.TotalFixedAt
-			}
-			_, pending := d.PendingKeys[chargeKeyName(chargeAction(s.State), s.SessionID, b.StaffID)]
-			data.Rows = append(data.Rows, sessionRow{Session: s, Stay: end.Sub(s.CheckedInAt), PendingKey: pending})
-		}
-	})
-	if next != nil {
-		nq := url.Values{"cursor": {*next}}
-		if len(states) > 0 {
-			nq["state"] = states
-		}
-		data.Next = "/admin?" + nq.Encode()
-	}
-	v.Data = data
-	a.render(w, http.StatusOK, "admin_sessions", v)
-}
-
-// chargeAction is the admin request that would charge a session in this state.
-func chargeAction(state string) string {
-	if state == "payment_failed" {
-		return "retry"
-	}
-	return "close"
-}
-
-// chargeKeyName names the stored Idempotency-Key of a staff member's close or retry of a session.
-func chargeKeyName(action, sessionID, staffID string) string {
-	return action + ":" + sessionID + ":" + staffID
-}
-
 // parseAmount reads an amount staff typed, such as "12.50", in cents.
 func parseAmount(s string) (int64, bool) {
 	s = strings.TrimPrefix(strings.TrimSpace(s), "$")
@@ -303,96 +239,6 @@ func onlyDigits(s string) bool {
 		}
 	}
 	return true
-}
-
-func (a *App) adminSessionAction(w http.ResponseWriter, r *http.Request, id string, b Browser) {
-	ctx, cancel := a.ctx(r)
-	defer cancel()
-	sessionID, action := r.PathValue("session_id"), r.PathValue("action")
-	amount := func() (Money, bool) {
-		cents, ok := parseAmount(r.PostFormValue("amount"))
-		return Money{Value: cents, Currency: r.PostFormValue("currency")}, ok
-	}
-	var s *Session
-	var err error
-	msg := ""
-	switch action {
-	case "close", "retry":
-		s, msg, err = a.charge(r, action, sessionID, b.StaffID)
-	case "register-payment", "settle-outside":
-		m, ok := amount()
-		if !ok {
-			a.flash(id, "Enter the amount taken, such as 12.50.")
-			redirect(w, r, "/admin")
-			return
-		}
-		if action == "register-payment" {
-			s, err = a.barpay.recordRegisterPayment(ctx, b.StaffID, sessionID, m)
-		} else {
-			s, err = a.barpay.settleOutside(ctx, b.StaffID, sessionID, m)
-		}
-		if err == nil {
-			msg = fmt.Sprintf("Recorded %s for %s. The session is closed.", formatMoney(m), sessionID)
-		} else if errors.Is(err, ErrNoAnswer) || errorCode(err) == "session_not_active" || errorCode(err) == "session_not_payment_failed" {
-			msg = "BarPay did not record it. If you sent it before, the session may already be closed: check its state below."
-		}
-	case "mark-unpaid":
-		s, err = a.barpay.markUnpaid(ctx, b.StaffID, sessionID)
-		if err == nil {
-			msg = "Marked " + sessionID + " as unpaid."
-		}
-	default:
-		http.NotFound(w, r)
-		return
-	}
-	if s != nil && err == nil {
-		a.store.update(func(d *Data) error { d.remember(s); return nil })
-	}
-	if msg == "" && err != nil {
-		msg = "BarPay refused: " + err.Error()
-	}
-	a.flash(id, msg)
-	redirect(w, r, "/admin")
-}
-
-// charge sends a close or retry, which can charge the customer's PayPal. Its Idempotency-Key is
-// stored before the call and kept until an answer arrives: pressing the button again after a lost
-// answer sends the same key, which BarPay answers with the first response and never charges again
-// for. Once an answer arrives the key is dropped, so a later retry is a new attempt.
-func (a *App) charge(r *http.Request, action, sessionID, staffID string) (*Session, string, error) {
-	ctx, cancel := a.ctx(r)
-	defer cancel()
-	name := chargeKeyName(action, sessionID, staffID)
-	var key string
-	a.store.update(func(d *Data) error {
-		if key = d.PendingKeys[name]; key == "" {
-			key = randomToken(24)
-			d.PendingKeys[name] = key
-		}
-		return nil
-	})
-	var s *Session
-	var err error
-	if action == "close" {
-		s, err = a.barpay.closeSession(ctx, staffID, key, sessionID)
-	} else {
-		s, err = a.barpay.retryCharge(ctx, staffID, key, sessionID)
-	}
-	if errors.Is(err, ErrNoAnswer) {
-		return nil, "BarPay did not answer. Press the button again: it sends the same request, which charges at most once.", err
-	}
-	a.store.update(func(d *Data) error { delete(d.PendingKeys, name); return nil })
-	if err != nil {
-		return nil, "", err
-	}
-	switch s.State {
-	case "closed":
-		return s, fmt.Sprintf("Charged %s to PayPal. %s is closed.", formatMoney(s.Total), sessionID), nil
-	case "checking_out":
-		return s, "The charge's outcome is not known yet. BarPay keeps trying, and the result arrives by notification.", nil
-	default:
-		return s, fmt.Sprintf("The charge did not go through: %s is %s.", sessionID, stateLabel(s.State)), nil
-	}
 }
 
 // adminUnlockGate sends the unlock chosen in the gate dialog, for a customer's session or for

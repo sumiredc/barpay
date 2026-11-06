@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 )
@@ -86,11 +85,9 @@ var funcs = template.FuncMap{
 		}
 		return *s
 	},
-	"stateLabel": stateLabel,
-	"percent":    func(f float64) string { return fmt.Sprintf("%.0f%%", f*100) },
-	"dollars":    func(m Money) string { return fmt.Sprintf("%d.%02d", m.Value/100, m.Value%100) },
-	"usd":        func(cents int64) Money { return Money{Value: cents, Currency: menuCurrency} },
-	"has":        slices.Contains[[]string],
+	"percent": func(f float64) string { return fmt.Sprintf("%.0f%%", f*100) },
+	"dollars": dollars,
+	"usd":     func(cents int64) Money { return Money{Value: cents, Currency: menuCurrency} },
 }
 
 func loadPages() *pages {
@@ -248,23 +245,8 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%d h %02d min", h, m)
 }
 
-func stateLabel(s string) string {
-	switch s {
-	case "active":
-		return "Active"
-	case "checking_out":
-		return "Checking out"
-	case "at_register":
-		return "Waiting at the register"
-	case "payment_failed":
-		return "Payment failed"
-	case "closed":
-		return "Closed"
-	case "closed_unpaid":
-		return "Closed unpaid"
-	}
-	return s
-}
+// dollars writes an amount in cents as a staff member types it, such as "18.00".
+func dollars(m Money) string { return fmt.Sprintf("%d.%02d", m.Value/100, m.Value%100) }
 
 // chart is the small stepped line of the rate over a visit on the bill, drawn as SVG coordinates.
 type chart struct {

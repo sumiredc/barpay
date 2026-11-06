@@ -91,8 +91,10 @@ type Visit struct {
 	// Served holds, by order ID, the orders staff marked served: the store's own record, which
 	// BarPay does not keep.
 	Served map[string]Served `json:"served,omitempty"`
-	// Events are the notifications of the session received, by sequence (visit_record.go).
-	Events []VisitEvent `json:"events,omitempty"`
+	// Events are the notifications of the session received, by sequence, and StaffActions the
+	// checkouts staff sent for it, oldest first (visit_record.go).
+	Events       []VisitEvent  `json:"events,omitempty"`
+	StaffActions []StaffAction `json:"staff_actions,omitempty"`
 }
 
 type ReceivedEvent struct {
