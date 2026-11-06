@@ -4,12 +4,16 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 	"time"
 )
 
 // The alerts page lists only the exit gate's failed unlocks (unlock_failed). A failed or unknown
 // charge and a call to the register are seen and dealt with on the visits page; a failed unlock
-// is not, as the visit has already ended paid.
+// is not, as the visit has already ended paid. Staff mark a failed unlock as done once they dealt
+// with it. BarPay's alerts have no such state, so the app keeps it, by alert ID; "Open" are the
+// failed unlocks not marked done.
 
 const (
 	// alertsPerScreen is how many failed unlocks fill one screen of the alerts page.
@@ -65,6 +69,33 @@ func (a *App) scanAlerts(ctx context.Context, staffID, cursor string, keep func(
 
 func everyAlert(Alert) bool { return true }
 
+// notDone keeps the alerts not marked done when it is made.
+func (a *App) notDone() func(Alert) bool {
+	done := a.doneAlerts()
+	return func(al Alert) bool { _, ok := done[al.ID]; return !ok }
+}
+
+func (a *App) doneAlerts() map[string]AlertDone {
+	done := map[string]AlertDone{}
+	a.store.view(func(d *Data) {
+		for id, dn := range d.AlertsDone {
+			done[id] = dn
+		}
+	})
+	return done
+}
+
+// count is the count of the open failed unlocks beside Alerts and on the Open tab, with a "+"
+// when the screen stopped short of the end of the list.
+func (sc *alertScan) count() (n int, more bool, label string) {
+	n, more = len(sc.Alerts), sc.Next != ""
+	label = strconv.Itoa(n)
+	if more {
+		label += "+"
+	}
+	return n, more, label + " open"
+}
+
 // customer names the customer of an alert's session and returns the session with its receipt,
 // or nil when it is not known to have ended. The session is read from BarPay when the app has not
 // stored it ended, once a page once it is read: a read that failed, such as one cut short by the
@@ -114,11 +145,21 @@ type alertRow struct {
 	Customer string
 	// Paid says how the customer paid, from the session's receipt, when it is known.
 	Paid string
+	// Done is who marked it done and when, if anyone did.
+	Done           bool
+	DoneBy, DoneAt string
+	// Markable says the ID has the form of an alert's, the only form that can be marked done; an
+	// ID BarPay sent in another form is not put into a form's path.
+	Markable bool
 }
 
-func (a *App) alertRow(ctx context.Context, sc *alertScan, al Alert, now time.Time) alertRow {
+func (a *App) alertRow(ctx context.Context, sc *alertScan, al Alert, done map[string]AlertDone, now time.Time) alertRow {
 	row := alertRow{ID: al.ID, Raised: when(al.RaisedAt, now), SessionID: al.SessionID, Customer: "—",
 		What: "Unlocked by hand, but the exit gate didn't open"}
+	row.Markable = alertIDPattern.MatchString(al.ID)
+	if dn, ok := done[al.ID]; ok {
+		row.Done, row.DoneBy, row.DoneAt = true, dn.StaffID, when(dn.At, now)
+	}
 	if al.SessionID == "" {
 		return row
 	}
@@ -161,30 +202,67 @@ func when(t, now time.Time) string {
 	return t.Format("Jan 2 15:04")
 }
 
+// adminAlerts draws the Open tab, or the All tab with ?tab=all, from ?cursor= on.
 func (a *App) adminAlerts(w http.ResponseWriter, r *http.Request, id string, b Browser) {
 	ctx, cancel := a.ctx(r)
 	defer cancel()
-	cursor := r.URL.Query().Get("cursor")
-	sc, err := a.scanAlerts(ctx, b.StaffID, cursor, everyAlert, true)
-	var first *alertsRead
-	if cursor == "" {
-		first = &alertsRead{sc, err}
+	q := r.URL.Query()
+	all, cursor := q.Get("tab") == "all", q.Get("cursor")
+	done := a.doneAlerts()
+	keep := everyAlert
+	if !all {
+		keep = func(al Alert) bool { _, ok := done[al.ID]; return !ok }
 	}
-	v := a.adminViewWithAlerts(r, id, b, "Alerts", "alerts", first)
+	sc, err := a.scanAlerts(ctx, b.StaffID, cursor, keep, true)
+	var open *alertsRead
+	if !all && cursor == "" {
+		open = &alertsRead{sc, err}
+	}
+	v := a.adminViewWithAlerts(r, id, b, "Alerts", "alerts", open)
 	data := struct {
+		All    bool
 		Rows   []alertRow
 		Next   string
 		Failed bool
-	}{Failed: err != nil}
+	}{All: all, Failed: err != nil}
 	if err == nil {
 		now := time.Now()
 		for _, al := range sc.Alerts {
-			data.Rows = append(data.Rows, a.alertRow(ctx, sc, al, now))
+			data.Rows = append(data.Rows, a.alertRow(ctx, sc, al, done, now))
 		}
 		if sc.Next != "" {
-			data.Next = "/admin/alerts?" + url.Values{"cursor": {sc.Next}}.Encode()
+			nq := url.Values{"cursor": {sc.Next}}
+			if all {
+				nq.Set("tab", "all")
+			}
+			data.Next = "/admin/alerts?" + nq.Encode()
 		}
 	}
 	v.Data = data
 	a.render(w, http.StatusOK, "admin_alerts", v)
+}
+
+// alertIDPattern is the spec's pattern of an alert ID. BarPay cannot be asked for one alert, so
+// an ID is taken on its form: one that is not an alert's is never listed, and only staff can
+// send it.
+var alertIDPattern = regexp.MustCompile(`^alt_[A-Za-z0-9]{16,32}$`)
+
+// adminAlertDone marks a failed unlock as done by the staff member, and goes back to the page it
+// was sent from. The first mark stands: marking it again keeps who did it first and when.
+func (a *App) adminAlertDone(w http.ResponseWriter, r *http.Request, id string, b Browser) {
+	alertID := r.PathValue("alert_id")
+	if !alertIDPattern.MatchString(alertID) {
+		http.NotFound(w, r)
+		return
+	}
+	err := a.store.update(func(d *Data) error {
+		if _, ok := d.AlertsDone[alertID]; !ok {
+			d.AlertsDone[alertID] = AlertDone{StaffID: b.StaffID, At: time.Now()}
+		}
+		return nil
+	})
+	if err != nil {
+		a.alert(id, "The alert wasn't marked as done: "+err.Error())
+	}
+	redirect(w, r, adminPath(r.PostFormValue("back")))
 }

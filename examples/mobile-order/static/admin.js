@@ -3,8 +3,9 @@
 // - <i data-icon="name"> becomes the SVG of that Lucide icon (ISC license)
 // - an element with data-sheet="id" opens <dialog class="sheet" id="id"> when pressed, a table
 //   row or a chart point also with Enter or Space. A button inside such a row opens only its own
-//   dialog, and a dialog opened from another dialog closes that one first. A dialog closes by its
-//   [data-close] button, a press on the backdrop, Escape or a swipe in any direction
+//   dialog, or none when it has none, and a dialog opened from another dialog closes that one
+//   first. A dialog closes by its [data-close] button, a press on the backdrop, Escape or a swipe
+//   in any direction
 // - <body data-reload="s"> reloads the page every s seconds, but not while a dialog is open: the
 //   reload would throw away what is chosen in it. The page reloads once the dialog closes.
 // - <div class="hscroll" data-start="end"> is scrolled to its right end (now) when the page opens
@@ -41,7 +42,9 @@
   };
   document.querySelectorAll("[data-sheet]").forEach((el) => {
     el.addEventListener("click", (e) => {
-      // A button in a row opens its own dialog, not the row's.
+      // A button in a row opens its own dialog, not the row's; one with no dialog of its own, such
+      // as a form's, opens none.
+      if (e.target.closest("button, a, input, label, form") !== el.closest("button, a, input, label, form")) return;
       e.stopPropagation();
       open(el);
     });

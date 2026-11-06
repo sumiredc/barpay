@@ -159,6 +159,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /admin/settings", a.staffOnly(a.adminSettings))
 	mux.HandleFunc("POST /admin/settings", a.staffOnly(a.adminUpdateSettings))
 	mux.HandleFunc("GET /admin/alerts", a.staffOnly(a.adminAlerts))
+	mux.HandleFunc("POST /admin/alerts/{alert_id}/done", a.staffOnly(a.adminAlertDone))
 	mux.HandleFunc("GET /admin/notifications", a.staffOnly(a.adminNotifications))
 
 	mux.HandleFunc("POST /barpay/notifications", a.handleNotification)

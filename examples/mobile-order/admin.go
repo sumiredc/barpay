@@ -55,7 +55,9 @@ type sideItem struct {
 	Href, Icon, Label string
 	Current           bool
 	// Badge is a count beside the label, left out at 0. What it counts is up to the page it opens.
+	// BadgeMore adds a "+" for a count that stopped short of the end.
 	Badge      int
+	BadgeMore  bool
 	BadgeLabel string
 }
 
@@ -75,16 +77,17 @@ func (a *App) adminView(r *http.Request, id string, b Browser, title, nav string
 	return a.adminViewWithAlerts(r, id, b, title, nav, nil)
 }
 
-// alertsRead is a page's own read of the first screen of the failed unlocks: what it read, or
-// the error that kept it from reading it.
+// alertsRead is a page's own read of the first screen of the open failed unlocks: what it read,
+// or the error that kept it from reading it.
 type alertsRead struct {
 	scan *alertScan
 	err  error
 }
 
-// adminViewWithAlerts is adminView for a page that has read the first screen of the failed
+// adminViewWithAlerts is adminView for a page that has read the first screen of the open failed
 // unlocks itself, which the frame takes instead of reading it again, even when that read failed.
-// With read nil, it is read here.
+// With read nil, they are read here, for the count beside Alerts and the customers of the gate
+// dialog.
 func (a *App) adminViewWithAlerts(r *http.Request, id string, b Browser, title, nav string, read *alertsRead) view {
 	v := a.baseView(id, b, title)
 	v.Admin = true
@@ -93,13 +96,16 @@ func (a *App) adminViewWithAlerts(r *http.Request, id string, b Browser, title, 
 	defer cancel()
 	if read == nil {
 		read = &alertsRead{}
-		read.scan, read.err = a.scanAlerts(ctx, b.StaffID, "", everyAlert, false)
+		read.scan, read.err = a.scanAlerts(ctx, b.StaffID, "", a.notDone(), false)
 	}
 	f := &staffFrame{Gate: a.gateDialog(ctx, read)}
 	for _, m := range staffMenu {
 		item := sideItem{Href: m.href, Icon: m.icon, Label: m.label, Current: m.key == nav}
 		if m.key == "orders" {
 			item.Badge, item.BadgeLabel = a.ordersBadge()
+		}
+		if m.key == "alerts" && read.err == nil {
+			item.Badge, item.BadgeMore, item.BadgeLabel = read.scan.count()
 		}
 		f.Menu = append(f.Menu, item)
 	}
@@ -118,15 +124,16 @@ type gateCustomer struct {
 	SessionID, Label string
 }
 
-// gateLookupTimeout bounds what every admin page spends on the customers of the gate dialog, so
-// a BarPay that is down or slow holds the page up no longer than this. Within it, each read is
-// sent once.
+// gateLookupTimeout bounds what every admin page spends on the open failed unlocks and the
+// customers of the gate dialog, so a BarPay that is down or slow holds the page up no longer than
+// this. Within it, each read is sent once.
 const gateLookupTimeout = 3 * time.Second
 
-// gateDialog offers the customers the gate failed to open for: the sessions of the failed
-// unlocks on the first screen of the alerts page, newest first, each once. A failed unlock
-// without a session is an unlock by hand; staff open the gate again for no particular customer.
-// When that screen could not be read in time, the dialog offers no customer.
+// gateDialog offers the customers the gate failed to open for: the sessions of the open failed
+// unlocks, as on the first screen of the alerts page, newest first, each once. A customer marked
+// done is not offered again. A failed unlock without a session is an unlock by hand; staff open
+// the gate again for no particular customer. When the open failed unlocks could not be read in
+// time, the dialog offers no customer.
 func (a *App) gateDialog(ctx context.Context, read *alertsRead) *gateDialog {
 	if read.err != nil {
 		return &gateDialog{ReadFailed: true}

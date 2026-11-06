@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -62,7 +64,7 @@ func TestTheAlertsPageStopsAfterTenPagesAndGoesOnWithOlderAlerts(t *testing.T) {
 	if got := s.alertReads() - before; got != 10 {
 		t.Errorf("read %d pages of alerts, want 10", got)
 	}
-	if got := alertRows(page); len(got) != 1 || !strings.Contains(got[0], "No alerts") {
+	if got := alertRows(page); len(got) != 1 || !strings.Contains(got[0], "No open alerts") {
 		t.Errorf("rows %q, want none", got)
 	}
 	if !strings.Contains(page, `<a class="textbutton" href="/admin/alerts?cursor=page-10">Older alerts`) {
@@ -181,5 +183,193 @@ func TestTheAlertsPageWhoseReadFailedDoesNotReadAgainForTheGateDialog(t *testing
 	}
 	if !strings.Contains(dialog, "BarPay didn't answer. Wait a moment, then") {
 		t.Errorf("the dialog does not say BarPay didn't answer:\n%s", dialog)
+	}
+}
+
+// markDone presses Done on the row of alertID on the page at from, and returns the page it goes
+// back to.
+func (s *staff) markDone(from, alertID string) string {
+	s.t.Helper()
+	return s.post(from, "/admin/alerts/"+alertID+"/done", url.Values{"back": {from}})
+}
+
+const yuisAlert = "alt_01hx36w1e3r5t7y9u1i3"
+
+var (
+	alertsBadgePattern  = regexp.MustCompile(`<span>Alerts</span><span class="badge" aria-label="[^"]*">([^<]*)</span>`)
+	openTabBadgePattern = regexp.MustCompile(`>Open<span class="badge" aria-label="[^"]*">([^<]*)</span>`)
+)
+
+// badge returns the count of the first badge that pattern finds on a page, or "" when there is
+// none.
+func badge(pattern *regexp.Regexp, page string) string {
+	m := pattern.FindStringSubmatch(page)
+	if m == nil {
+		return ""
+	}
+	return m[1]
+}
+
+func TestTwentyOpenAlertsWithMorePagesAreCountedAsTwentyPlus(t *testing.T) {
+	s := newStaff(t)
+	s.logIn()
+	var first []Alert
+	for i := range 20 {
+		first = append(first, failedUnlock(i, ""))
+	}
+	s.barpay.alertPages = [][]Alert{first, {failedUnlock(20, "")}}
+	for _, p := range adminPages {
+		if got := badge(alertsBadgePattern, s.open(p.path)); got != "20+" {
+			t.Errorf("%s: the badge beside Alerts is %q, want 20+", p.path, got)
+		}
+	}
+	if got := badge(openTabBadgePattern, s.open("/admin/alerts?tab=all")); got != "20+" {
+		t.Errorf("the Open tab's badge is %q, want 20+", got)
+	}
+}
+
+func TestAnAlertMarkedDoneLeavesOpenAndTheGateDialogAndShowsWhoInAll(t *testing.T) {
+	s := newStaff(t)
+	s.logIn()
+	s.paidWithPayPal("ses_01hx36w1e3r5t7y9u1i3", "Yui Tanaka")
+	s.barpay.alerts = append(s.barpay.alerts, failedUnlock(1, ""))
+	before := s.open("/admin/alerts")
+	if badge(alertsBadgePattern, before) != "2" || badge(openTabBadgePattern, before) != "2" || len(alertRows(before)) != 2 {
+		t.Fatalf("before: badge %q, tab %q, %d rows, want 2 open",
+			badge(alertsBadgePattern, before), badge(openTabBadgePattern, before), len(alertRows(before)))
+	}
+
+	page := s.markDone("/admin/alerts", yuisAlert)
+	at := time.Now().Format("15:04")
+	if got := alertRows(page); len(got) != 1 || strings.Contains(got[0], "Yui Tanaka") {
+		t.Errorf("Open still lists Yui Tanaka: %q", got)
+	}
+	if badge(alertsBadgePattern, page) != "1" || badge(openTabBadgePattern, page) != "1" {
+		t.Errorf("badge %q, tab %q, want 1", badge(alertsBadgePattern, page), badge(openTabBadgePattern, page))
+	}
+	if _, dialog, _ := strings.Cut(page, gateDialogStart); strings.Contains(dialog, "Yui Tanaka") {
+		t.Errorf("the gate dialog still offers Yui Tanaka:\n%s", dialog)
+	}
+	if _, dialog, _ := strings.Cut(s.open("/admin"), gateDialogStart); strings.Contains(dialog, "Yui Tanaka") {
+		t.Errorf("the gate dialog of the visits page still offers Yui Tanaka:\n%s", dialog)
+	}
+
+	all := s.open("/admin/alerts?tab=all")
+	var yui string
+	for _, r := range alertRows(all) {
+		if strings.Contains(r, "Yui Tanaka") {
+			yui = r
+		}
+	}
+	if !strings.Contains(yui, `<tr class="done"`) || !strings.Contains(yui, "Done<br>staff-01, "+at) {
+		t.Errorf("All lists Yui Tanaka as %q, want done by staff-01 at %s", yui, at)
+	}
+	if !strings.Contains(all, "· Done (staff-01, "+at+")</p>") {
+		t.Errorf("the detail does not say who marked it done:\n%s", all)
+	}
+}
+
+func TestMarkingAnAlertDoneAgainKeepsTheFirstMark(t *testing.T) {
+	s := newStaff(t)
+	s.logIn()
+	s.paidWithPayPal("ses_01hx36w1e3r5t7y9u1i3", "Yui Tanaka")
+	first := AlertDone{StaffID: "staff-02", At: time.Date(2026, 11, 5, 20, 16, 0, 0, time.Local)}
+	s.a.store.update(func(d *Data) error { d.AlertsDone[yuisAlert] = first; return nil })
+	s.markDone("/admin/alerts?tab=all", yuisAlert)
+	var got AlertDone
+	s.a.store.view(func(d *Data) { got = d.AlertsDone[yuisAlert] })
+	if got.StaffID != first.StaffID || !got.At.Equal(first.At) {
+		t.Errorf("the mark is %+v, want the first %+v", got, first)
+	}
+}
+
+func TestAnAlertMarkedDoneIsStillDoneAfterARestart(t *testing.T) {
+	s := newStaff(t)
+	s.logIn()
+	s.paidWithPayPal("ses_01hx36w1e3r5t7y9u1i3", "Yui Tanaka")
+	s.markDone("/admin/alerts", yuisAlert)
+	restarted, err := openStore(s.a.store.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.a.store = restarted
+	if got := alertRows(s.open("/admin/alerts")); len(got) != 1 || !strings.Contains(got[0], "No open alerts") {
+		t.Errorf("after a restart Open lists %q, want none", got)
+	}
+}
+
+func TestAnIDThatIsNotAnAlertsIsNotMarkedDone(t *testing.T) {
+	s := newStaff(t)
+	s.logIn()
+	if status, _ := s.send("/admin/alerts", "/admin/alerts/x/done", url.Values{"back": {"/admin/alerts"}}); status != 404 {
+		t.Errorf("status %d, want 404", status)
+	}
+	s.a.store.view(func(d *Data) {
+		if len(d.AlertsDone) != 0 {
+			t.Errorf("marked %v", d.AlertsDone)
+		}
+	})
+}
+
+func TestTheAlertsPageHasTheOpenAndAllTabsAndTheDoneButtons(t *testing.T) {
+	s := newStaff(t)
+	s.logIn()
+	s.paidWithPayPal("ses_01hx36w1e3r5t7y9u1i3", "Yui Tanaka")
+	page := s.open("/admin/alerts")
+	for _, want := range []string{
+		`<a href="/admin/alerts" aria-current="page">Open<span class="badge"`,
+		`<a href="/admin/alerts?tab=all">All</a>`,
+		"<th>Raised</th><th>Kind</th><th>What happened</th><th>Customer</th>",
+		`<button class="textbutton muted" type="submit">Done</button>`,
+		`<button class="button secondary" type="submit">Mark as done</button>`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the alerts page lacks %s", want)
+		}
+	}
+	s.markDone("/admin/alerts", yuisAlert)
+	if page := s.open("/admin/alerts"); !strings.Contains(page, "<span>No open alerts</span>") {
+		t.Errorf("no word that nothing is open:\n%s", page)
+	}
+}
+
+func TestAScreenCutShortByASlowBarPayIsCountedWithAPlus(t *testing.T) {
+	s := newStaff(t)
+	s.logIn()
+	s.barpay.mu.Lock()
+	s.barpay.alertPages = [][]Alert{{failedUnlock(1, "")}, otherAlerts(20)}
+	s.barpay.laterPagesHang = true
+	s.barpay.mu.Unlock()
+	if got := badge(alertsBadgePattern, s.open("/admin")); got != "1+" {
+		t.Errorf("the badge beside Alerts is %q, want 1+", got)
+	}
+}
+
+func TestNoCountIsShownWhenTheAlertsCannotBeRead(t *testing.T) {
+	s := newStaff(t)
+	s.logIn()
+	s.paidWithPayPal("ses_01hx36w1e3r5t7y9u1i3", "Yui Tanaka")
+	s.barpay.mu.Lock()
+	s.barpay.down = true
+	s.barpay.mu.Unlock()
+	for _, p := range []string{"/admin", "/admin/alerts"} {
+		if page := s.open(p); strings.Contains(page, `class="badge"`) {
+			t.Errorf("%s shows a count:\n%s", p, page)
+		}
+	}
+}
+
+// An ID BarPay sent in a form other than an alert's cannot be marked done, so no Done is offered
+// and it is not put into a form's path.
+func TestAnAlertWhoseIDIsNotOfTheAlertsFormHasNoDone(t *testing.T) {
+	s := newStaff(t)
+	s.logIn()
+	s.barpay.alerts = []Alert{{ID: "alt_x/../../gate", Kind: "unlock_failed", RaisedAt: time.Now(), Message: "The gate did not open."}}
+	page := s.open("/admin/alerts")
+	if got := alertRows(page); len(got) != 1 || strings.Contains(got[0], ">Done</button>") {
+		t.Errorf("rows %q, want one without Done", got)
+	}
+	if strings.Contains(page, "Mark as done") || strings.Contains(page, "/done") {
+		t.Errorf("the page offers to mark it done:\n%s", page)
 	}
 }

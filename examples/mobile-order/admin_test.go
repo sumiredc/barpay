@@ -290,7 +290,7 @@ func (s *staff) paidWithPayPal(sessionID, name string) {
 	defer s.barpay.mu.Unlock()
 	s.barpay.sessions[sessionID] = &Session{SessionID: sessionID, State: "closed", MemberID: &memberID, PaymentMethod: "paypal",
 		Receipt: &Receipt{Settlement: "paypal", EndedAt: ended}}
-	s.barpay.alerts = append(s.barpay.alerts, Alert{ID: "alt_" + sessionID, Kind: "unlock_failed", RaisedAt: ended, SessionID: sessionID, MemberID: memberID, Message: "The gate did not open."})
+	s.barpay.alerts = append(s.barpay.alerts, Alert{ID: "alt_" + strings.TrimPrefix(sessionID, "ses_"), Kind: "unlock_failed", RaisedAt: ended, SessionID: sessionID, MemberID: memberID, Message: "The gate did not open."})
 }
 
 func (s *staff) lastUnlock() map[string]any {

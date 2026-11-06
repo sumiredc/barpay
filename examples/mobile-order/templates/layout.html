@@ -14,7 +14,7 @@
   <a class="brand" href="/admin"><img src="/static/logo.svg" alt=""><span>{{$.StoreName}}</span></a>
   <nav aria-label="Staff screens">
     {{range .Menu}}
-    <a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}><i data-icon="{{.Icon}}"></i><span>{{.Label}}</span>{{if .Badge}}<span class="badge" aria-label="{{.BadgeLabel}}">{{.Badge}}</span>{{end}}</a>
+    <a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}><i data-icon="{{.Icon}}"></i><span>{{.Label}}</span>{{if .Badge}}<span class="badge" aria-label="{{.BadgeLabel}}">{{.Badge}}{{if .BadgeMore}}+{{end}}</span>{{end}}</a>
     {{end}}
   </nav>
   <div class="sub">

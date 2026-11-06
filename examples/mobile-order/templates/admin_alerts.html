@@ -1,22 +1,29 @@
 {{define "reload"}}30{{end}}
 {{define "content"}}
+{{- /* The Open tab shows the count beside Alerts in the side menu. */}}
 <div class="pagehead"><h1>Alerts</h1></div>
 {{template "notices" .}}
 {{if .Data.Failed}}{{template "no-answer" .}}{{end}}
+<nav class="tabs" aria-label="Filter">
+  <a href="/admin/alerts"{{if not .Data.All}} aria-current="page"{{end}}>Open{{range .Frame.Menu}}{{if and (eq .Href "/admin/alerts") .Badge}}<span class="badge" aria-label="{{.BadgeLabel}}">{{.Badge}}{{if .BadgeMore}}+{{end}}</span>{{end}}{{end}}</a>
+  <a href="/admin/alerts?tab=all"{{if .Data.All}} aria-current="page"{{end}}>All</a>
+</nav>
 <div class="card scroll">
 <table class="clickable">
-  <thead><tr><th>Raised</th><th>Kind</th><th>What happened</th><th>Customer</th></tr></thead>
+  <thead><tr><th>Raised</th><th>Kind</th><th>What happened</th><th>Customer</th><th></th></tr></thead>
   <tbody>
   {{range .Data.Rows}}
-    <tr data-sheet="alert-{{.ID}}" tabindex="0">
+    <tr{{if .Done}} class="done"{{end}} data-sheet="alert-{{.ID}}" tabindex="0">
       <td class="nowrap">{{.Raised}}</td>
       <td><span class="pill alert-gate">Gate didn't unlock</span></td>
       <td>{{.What}}</td>
       <td class="nowrap">{{.Customer}}</td>
+      <td><div class="actions-cell">{{if .Done}}<span class="muted nowrap">Done<br>{{.DoneBy}}, {{.DoneAt}}</span>{{else if .Markable}}<form method="post" action="/admin/alerts/{{.ID}}/done"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="back" value="{{$.Here}}"><button class="textbutton muted" type="submit">Done</button></form>{{end}}</div></td>
     </tr>
   {{else}}
-    {{if .Data.Failed}}<tr><td colspan="4" class="muted" style="text-align: center">Can't be shown</td></tr>
-    {{else}}<tr><td colspan="4" class="muted" style="text-align: center">No alerts</td></tr>{{end}}
+    {{if .Data.Failed}}<tr><td colspan="5" class="muted" style="text-align: center">Can't be shown</td></tr>
+    {{else if .Data.All}}<tr><td colspan="5" class="muted" style="text-align: center">No alerts</td></tr>
+    {{else}}<tr><td colspan="5"><p class="notice good" style="justify-content: center"><i data-icon="circle-check"></i><span>No open alerts</span></p></td></tr>{{end}}
   {{end}}
   </tbody>
 </table>
@@ -25,10 +32,14 @@
 {{range .Data.Rows}}
 <dialog class="sheet" id="alert-{{.ID}}">
   <h2>{{if .SessionID}}{{.Customer}}: {{end}}{{.What}}</h2>
-  <p class="muted" style="margin-top: 0">{{.Raised}} · <span class="pill alert-gate">Gate didn't unlock</span></p>
-  <p>{{with .Paid}}{{.}} {{end}}If they're waiting at the gate, open it with Unlock gate in the menu.</p>
+  <p class="muted" style="margin-top: 0">{{.Raised}} · <span class="pill alert-gate">Gate didn't unlock</span>{{if .Done}} · Done ({{.DoneBy}}, {{.DoneAt}}){{end}}</p>
+  {{if .Done}}{{with .Paid}}<p>{{.}}</p>{{end}}
+  {{else}}<p>{{with .Paid}}{{.}} {{end}}If they're waiting at the gate, open it with Unlock gate in the menu.</p>{{end}}
   {{with .SessionID}}<dl class="summary detail"><dt>Visit</dt><dd>{{.}}</dd></dl>{{end}}
-  <div class="dialog-actions"><button class="button" type="button" data-close>Close</button></div>
+  {{if or .Done (not .Markable)}}<div class="dialog-actions"><button class="button" type="button" data-close>Close</button></div>
+  {{else}}<form method="post" action="/admin/alerts/{{.ID}}/done"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="back" value="{{$.Here}}">
+    <div class="dialog-actions"><button class="textbutton muted" type="button" data-close>Close</button><button class="button secondary" type="submit">Mark as done</button></div>
+  </form>{{end}}
 </dialog>
 {{end}}
 {{end}}
