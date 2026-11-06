@@ -16,9 +16,13 @@ import (
 const (
 	cookieName      = "mobile_order_session"
 	browserLifetime = 14 * 24 * time.Hour
-	hashIterations  = 600_000
 	hashPrefix      = "pbkdf2-sha256"
 )
+
+// hashIterations is the PBKDF2 iteration count new hashes get. It is a variable only so the
+// tests can lower it: a check reads the count from the hash, so hashes made with fewer
+// iterations take the same path through login.
+var hashIterations = 600_000
 
 // randomToken returns n random bytes in base64url, which fits BarPay's patterns for keys and
 // state ([A-Za-z0-9_.:-]).
