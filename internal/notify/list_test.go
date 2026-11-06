@@ -14,6 +14,7 @@ import (
 
 	"github.com/sumiredc/barpay/internal/httpapi"
 	"github.com/sumiredc/barpay/internal/secret"
+	"github.com/sumiredc/barpay/internal/spectest"
 )
 
 var apiKeys = httpapi.Keys{Store: secret.New("k-store"), Admin: secret.New("k-admin"), Edge: secret.New("k-edge")}
@@ -40,10 +41,13 @@ func get(r http.Handler, query, auth, staffID string) *httptest.ResponseRecorder
 type listedRecord struct {
 	EventID       string  `json:"event_id"`
 	Type          string  `json:"type"`
+	SessionID     *string `json:"session_id"`
+	MemberID      *string `json:"member_id"`
 	Status        string  `json:"status"`
 	Attempts      int     `json:"attempts"`
 	CreatedAt     string  `json:"created_at"`
 	LastAttemptAt *string `json:"last_attempt_at"`
+	NextAttemptAt *string `json:"next_attempt_at"`
 }
 
 type listed struct {
@@ -51,11 +55,34 @@ type listed struct {
 	NextCursor    *string        `json:"next_cursor"`
 }
 
+// list reads a page of listNotifications, failing the test unless it is 200 and every record fits
+// the spec's NotificationRecord.
 func list(t *testing.T, r http.Handler, query string) listed {
+	t.Helper()
+	l, _ := listRows(t, r, query)
+	return l
+}
+
+// listRows is list that also returns each record's fields as sent, so a test can tell a field
+// that is absent from one that is null.
+func listRows(t *testing.T, r http.Handler, query string) (listed, []map[string]json.RawMessage) {
 	t.Helper()
 	w := get(r, query, "Bearer k-admin", "staff_1")
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET %s: status = %d, body %s", query, w.Code, w.Body)
+	}
+	var raw struct {
+		Notifications []json.RawMessage `json:"notifications"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("body %s: %v", w.Body, err)
+	}
+	rows := make([]map[string]json.RawMessage, len(raw.Notifications))
+	for i, n := range raw.Notifications {
+		spectest.Valid(t, "NotificationRecord", n)
+		if err := json.Unmarshal(n, &rows[i]); err != nil {
+			t.Fatal(err)
+		}
 	}
 	var l listed
 	dec := json.NewDecoder(bytes.NewReader(w.Body.Bytes()))
@@ -66,7 +93,16 @@ func list(t *testing.T, r http.Handler, query string) listed {
 	if l.Notifications == nil {
 		t.Fatalf("notifications is not an array: %s", w.Body)
 	}
-	return l
+	return l, rows
+}
+
+// field returns the field as sent, or "absent".
+func field(row map[string]json.RawMessage, name string) string {
+	v, ok := row[name]
+	if !ok {
+		return "absent"
+	}
+	return string(v)
 }
 
 // Newest first, with each record's status and number of attempts.
@@ -91,10 +127,10 @@ func TestListShowsStatusAndAttempts(t *testing.T) {
 	got := list(t, listRouter(f), "").Notifications
 	str := func(s string) *string { return &s }
 	want := []listedRecord{
-		{notYet.ID, "session.started", "retrying", 0, "2026-11-01T22:00:01Z", nil},
-		{retrying.ID, "member.paypal_linked", "retrying", 1, "2026-11-01T22:00:00Z", str("2026-11-01T22:00:00Z")},
-		{givenUp.ID, "session.closed", "given_up", len(retryAfter) + 1, "2026-10-31T21:00:00Z", str("2026-11-01T21:00:00Z")},
-		{delivered.ID, "session.started", "delivered", 1, "2026-10-31T21:00:00Z", str("2026-10-31T21:00:00Z")},
+		{EventID: notYet.ID, Type: "session.started", Status: "retrying", Attempts: 0, CreatedAt: "2026-11-01T22:00:01Z"},
+		{EventID: retrying.ID, Type: "member.paypal_linked", Status: "retrying", Attempts: 1, CreatedAt: "2026-11-01T22:00:00Z", LastAttemptAt: str("2026-11-01T22:00:00Z")},
+		{EventID: givenUp.ID, Type: "session.closed", Status: "given_up", Attempts: len(retryAfter) + 1, CreatedAt: "2026-10-31T21:00:00Z", LastAttemptAt: str("2026-11-01T21:00:00Z")},
+		{EventID: delivered.ID, Type: "session.started", Status: "delivered", Attempts: 1, CreatedAt: "2026-10-31T21:00:00Z", LastAttemptAt: str("2026-10-31T21:00:00Z")},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("%d records, want %d: %+v", len(got), len(want), got)
@@ -102,9 +138,83 @@ func TestListShowsStatusAndAttempts(t *testing.T) {
 	for i := range want {
 		g, w := got[i], want[i]
 		if g.EventID != w.EventID || g.Type != w.Type || g.Status != w.Status || g.Attempts != w.Attempts ||
-			g.CreatedAt != w.CreatedAt || (g.LastAttemptAt == nil) != (w.LastAttemptAt == nil) ||
-			(g.LastAttemptAt != nil && *g.LastAttemptAt != *w.LastAttemptAt) {
+			g.CreatedAt != w.CreatedAt || deref(g.LastAttemptAt) != deref(w.LastAttemptAt) {
 			t.Errorf("record %d = %+v (last %v), want %+v (last %v)", i, g, deref(g.LastAttemptAt), w, deref(w.LastAttemptAt))
+		}
+	}
+}
+
+// A record names its session for session.* and gate.*, its member for member.*, and never both.
+func TestListShowsSubject(t *testing.T) {
+	app := newStoreApp(t)
+	f := newFixture(t, app)
+	enqueue(t, f.st, t0, sessionEvent(SessionClosed, sesA))
+	enqueue(t, f.st, t0, sessionEvent(GateUnlockFailed, sesB))
+	enqueue(t, f.st, t0, Event{Type: MemberPaypalLinked, SubjectID: "m_1024", Data: map[string]any{}})
+
+	got, rows := listRows(t, listRouter(f), "")
+	want := []struct{ typ, session, member string }{
+		{"member.paypal_linked", "absent", `"m_1024"`},
+		{"gate.unlock_failed", `"` + sesB + `"`, "absent"},
+		{"session.closed", `"` + sesA + `"`, "absent"},
+	}
+	if len(rows) != len(want) {
+		t.Fatalf("%d records, want %d: %+v", len(rows), len(want), got)
+	}
+	for i, w := range want {
+		g := rows[i]
+		typ := got.Notifications[i].Type
+		if typ != w.typ || field(g, "session_id") != w.session || field(g, "member_id") != w.member {
+			t.Errorf("record %d: %s session_id %s member_id %s; want %s session_id %s member_id %s",
+				i, typ, field(g, "session_id"), field(g, "member_id"), w.typ, w.session, w.member)
+		}
+	}
+}
+
+// next_attempt_at is the stored time of the next attempt while retrying, before the first attempt
+// too, and null once delivered or given up.
+func TestListShowsNextAttempt(t *testing.T) {
+	app := newStoreApp(t)
+	f := newFixture(t, app)
+
+	delivered := enqueue(t, f.st, t0, sessionEvent(SessionStarted, sesA))
+	f.deliver(t)
+	app.setAnswer(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) })
+	givenUp := enqueue(t, f.st, t0, sessionEvent(SessionClosed, sesB))
+	for _, d := range append([]time.Duration{0}, retryAfter...) {
+		f.clk.Set(t0.Add(d))
+		f.deliver(t)
+	}
+	later := t0.Add(25 * time.Hour)
+	f.clk.Set(later)
+	retrying := enqueue(t, f.st, later, Event{Type: MemberPaypalLinked, SubjectID: "m_1024", Data: map[string]any{}})
+	f.deliver(t)
+	notYet := enqueue(t, f.st, later.Add(time.Second), sessionEvent(SessionStarted, sesB))
+
+	stored := func(id string) string {
+		var next int64
+		if err := f.st.Read().QueryRowContext(t.Context(), "SELECT next_attempt_at FROM notifications WHERE id = ?", id).Scan(&next); err != nil {
+			t.Fatal(err)
+		}
+		return `"` + formatTime(time.Unix(0, next)) + `"`
+	}
+	want := map[string]string{
+		notYet.ID:    stored(notYet.ID),
+		retrying.ID:  stored(retrying.ID),
+		givenUp.ID:   "null",
+		delivered.ID: "null",
+	}
+	// The stored times are the ones the schedule gives, not some other column read by mistake.
+	if want[notYet.ID] != `"2026-11-01T22:00:01Z"` || want[retrying.ID] != `"2026-11-01T22:01:00Z"` {
+		t.Fatalf("stored next attempts %s and %s, want 22:00:01 and 22:01:00", want[notYet.ID], want[retrying.ID])
+	}
+	l, rows := listRows(t, listRouter(f), "")
+	if len(rows) != len(want) {
+		t.Fatalf("%d records, want %d: %+v", len(rows), len(want), l.Notifications)
+	}
+	for i, g := range l.Notifications {
+		if got := field(rows[i], "next_attempt_at"); got != want[g.EventID] {
+			t.Errorf("%s (%s): next_attempt_at %s, want %s", g.Type, g.Status, got, want[g.EventID])
 		}
 	}
 }

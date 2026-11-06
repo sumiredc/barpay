@@ -27,6 +27,11 @@ type logRecord struct {
 	CreatedAt time.Time
 	// LastAttemptAt is zero before the first attempt.
 	LastAttemptAt time.Time
+	// NextAttemptAt is zero once delivered or given up.
+	NextAttemptAt time.Time
+	// SubjectKind tells whether SubjectID is a session ID or a member ID.
+	SubjectKind subjectKind
+	SubjectID   string
 
 	seq int64
 }
@@ -47,7 +52,8 @@ func listRecords(ctx context.Context, q store.Querier, after int64, limit int) (
 			return nil, false, fmt.Errorf("notify: list: %w", err)
 		}
 	}
-	query := `SELECT seq, id, type, status, attempts, created_at, last_attempt_at FROM notifications`
+	query := `SELECT seq, id, type, subject_kind, subject_id, status, attempts, created_at, last_attempt_at, next_attempt_at
+		FROM notifications`
 	args := []any{}
 	if after != 0 {
 		query += ` WHERE seq < ?`
@@ -63,15 +69,18 @@ func listRecords(ctx context.Context, q store.Querier, after int64, limit int) (
 	var out []logRecord
 	for rows.Next() {
 		var r logRecord
-		var typ, status string
+		var typ, kind, status string
 		var created int64
-		var last sql.NullInt64
-		if err := rows.Scan(&r.seq, &r.EventID, &typ, &status, &r.Attempts, &created, &last); err != nil {
+		var last, next sql.NullInt64
+		if err := rows.Scan(&r.seq, &r.EventID, &typ, &kind, &r.SubjectID, &status, &r.Attempts, &created, &last, &next); err != nil {
 			return nil, false, fmt.Errorf("notify: list: %w", err)
 		}
-		r.Type, r.Status, r.CreatedAt = Type(typ), Status(status), time.Unix(0, created).UTC()
+		r.Type, r.SubjectKind, r.Status, r.CreatedAt = Type(typ), subjectKind(kind), Status(status), time.Unix(0, created).UTC()
 		if last.Valid {
 			r.LastAttemptAt = time.Unix(0, last.Int64).UTC()
+		}
+		if next.Valid {
+			r.NextAttemptAt = time.Unix(0, next.Int64).UTC()
 		}
 		out = append(out, r)
 	}
@@ -87,10 +96,13 @@ func listRecords(ctx context.Context, q store.Querier, after int64, limit int) (
 type recordJSON struct {
 	EventID       string  `json:"event_id"`
 	Type          Type    `json:"type"`
+	SessionID     string  `json:"session_id,omitempty"`
+	MemberID      string  `json:"member_id,omitempty"`
 	Status        Status  `json:"status"`
 	Attempts      int     `json:"attempts"`
 	CreatedAt     string  `json:"created_at"`
 	LastAttemptAt *string `json:"last_attempt_at"`
+	NextAttemptAt *string `json:"next_attempt_at"`
 }
 
 type listJSON struct {
@@ -120,9 +132,18 @@ func ListHandler(st *store.Store, log *slog.Logger) http.Handler {
 		body := listJSON{Notifications: make([]recordJSON, len(recs))}
 		for i, r := range recs {
 			j := recordJSON{EventID: r.EventID, Type: r.Type, Status: r.Status, Attempts: r.Attempts, CreatedAt: formatTime(r.CreatedAt)}
+			if r.SubjectKind == memberSubject {
+				j.MemberID = r.SubjectID
+			} else {
+				j.SessionID = r.SubjectID
+			}
 			if !r.LastAttemptAt.IsZero() {
 				s := formatTime(r.LastAttemptAt)
 				j.LastAttemptAt = &s
+			}
+			if !r.NextAttemptAt.IsZero() {
+				s := formatTime(r.NextAttemptAt)
+				j.NextAttemptAt = &s
 			}
 			body.Notifications[i] = j
 		}
