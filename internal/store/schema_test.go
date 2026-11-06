@@ -139,3 +139,43 @@ func TestAlertsKeepTheirRowsWhenChargeUnconfirmedIsAdded(t *testing.T) {
 		t.Errorf("charge_unconfirmed: %v", err)
 	}
 }
+
+// A database stopped one step before staff events were removed loses the table, its rows and its
+// index, and moves one version on.
+func TestStaffEventsTableIsDropped(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "barpay.db")
+	all := migrations
+	i := slices.Index(all, "DROP TABLE staff_events")
+	if i < 0 {
+		t.Fatal("no step drops staff_events")
+	}
+	withMigrations(t, all[:i])
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.Read().ExecContext(ctx, `INSERT INTO staff_events (label, phase, recorded_at) VALUES ('Live show', 'starts', 42)`)
+	_ = s.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	withMigrations(t, all[:i+1])
+	s, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var n, version int
+	if err := s.Read().QueryRowContext(ctx,
+		`SELECT count(*) FROM sqlite_schema WHERE name IN ('staff_events', 'staff_events_label')`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("%d of staff_events and staff_events_label are left", n)
+	}
+	if err := s.Read().QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != i+1 {
+		t.Errorf("user_version = %d, %v; want %d", version, err, i+1)
+	}
+}

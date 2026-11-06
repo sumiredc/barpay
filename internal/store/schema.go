@@ -310,6 +310,9 @@ var migrations = []string{
 	DROP TABLE alerts;
 	ALTER TABLE alerts_new RENAME TO alerts;
 	CREATE UNIQUE INDEX alerts_max_stay_once ON alerts (session_id) WHERE kind = 'max_stay_reached'`,
+	// Staff events are no longer a signal, so their rows have no reader. Dropping the table also
+	// drops its index. The staff actions that recorded sendStaffEvent are kept as what happened.
+	`DROP TABLE staff_events`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
