@@ -246,7 +246,7 @@ func TestAnyModelOutputIsGuarded(t *testing.T) {
 }
 
 // The inputs are the signals at the start: occupancy from active sessions, liveliness while it
-// is fresh, the staff events going on, and the goal; they reach the model and the decision log.
+// is fresh, and the goal; they reach the model and the decision log.
 func TestInputs(t *testing.T) {
 	f := newFixture(t)
 	f.addSessions(t, "active", 2)
@@ -255,37 +255,50 @@ func TestInputs(t *testing.T) {
 	}
 	f.request(t)
 	in := f.lastDecision(t).Inputs
-	if in.Occupancy != 0.5 || in.Liveliness != nil || len(in.StaffEvents) != 0 || in.Goal != 50 {
-		t.Errorf("inputs = %+v; want occupancy 2/4, no liveliness, no events, goal 50", *in)
+	if in.Occupancy != 0.5 || in.Liveliness != nil || in.Goal != 50 {
+		t.Errorf("inputs = %+v; want occupancy 2/4, no liveliness, goal 50", *in)
 	}
 	if got := f.model.lastInput(t); got["occupancy"] != 0.5 || got["liveliness"] != nil || got["goal"] != float64(50) {
 		t.Errorf("prompt = %v", got)
 	}
 
-	if w := f.do(http.MethodPost, "/v1/admin/staff-events", adminAuth, `{"label":"Live show","phase":"starts"}`); w.Code != http.StatusCreated {
-		t.Fatal(w.Body)
-	}
 	f.clk.Advance(minInterval)
 	if w := f.do(http.MethodPost, "/v1/edge/signals", edgeAuth, `{"liveliness":0.8}`); w.Code != http.StatusNoContent {
 		t.Fatal(w.Body)
 	}
 	f.request(t)
 	in = f.lastDecision(t).Inputs
-	if in.Liveliness == nil || *in.Liveliness != 0.8 || !slices.Equal(in.StaffEvents, []string{"Live show"}) {
-		t.Errorf("inputs = %+v; want liveliness 0.8 and the live show", *in)
+	if in.Liveliness == nil || *in.Liveliness != 0.8 {
+		t.Errorf("inputs = %+v; want liveliness 0.8", *in)
 	}
-	if p := f.model.lastInput(t); p["liveliness"] != 0.8 || fmt.Sprint(p["staff_events"]) != "[Live show]" {
+	if p := f.model.lastInput(t); p["liveliness"] != 0.8 {
 		t.Errorf("prompt = %v", p)
 	}
 
-	if w := f.do(http.MethodPost, "/v1/admin/staff-events", adminAuth, `{"label":"Live show","phase":"ends"}`); w.Code != http.StatusCreated {
-		t.Fatal(w.Body)
-	}
 	f.clk.Advance(minInterval) // the liveliness is exactly a minute old: no longer used
 	f.request(t)
 	in = f.lastDecision(t).Inputs
-	if in.Liveliness != nil || len(in.StaffEvents) != 0 {
-		t.Errorf("inputs = %+v; want no liveliness and no events", *in)
+	if in.Liveliness != nil {
+		t.Errorf("inputs = %+v; want no liveliness", *in)
+	}
+}
+
+// The signals the model is given are occupancy, liveliness and the goal only: staff events are
+// no longer an input, so the prompt neither describes nor carries them.
+func TestInputsAreOccupancyLivelinessAndGoalOnly(t *testing.T) {
+	f := newFixture(t)
+	f.request(t)
+	var keys []string
+	for k := range f.model.lastInput(t) {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	want := []string{"ceiling", "currency", "current_rate_per_hour", "floor", "goal", "liveliness", "max_step", "occupancy", "rate_step", "unit"}
+	if !slices.Equal(keys, want) {
+		t.Errorf("user message fields = %v, want %v", keys, want)
+	}
+	if strings.Contains(systemPrompt, "staff") {
+		t.Error("the system prompt still describes staff events")
 	}
 }
 

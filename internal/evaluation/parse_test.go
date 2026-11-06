@@ -97,26 +97,26 @@ func TestParseRefusesAnythingElse(t *testing.T) {
 	}
 }
 
-// The prompt states every input and the guardrails as JSON, and labels stay string values.
+// The prompt states every input and the guardrails as JSON.
 func TestMessages(t *testing.T) {
 	usd := func(v int64) money.Amount { return money.New(v, money.USD) }
 	msgs := Messages(Situation{
 		Current: usd(1200), Floor: usd(600), Ceiling: usd(2400), MaxStep: usd(300),
-		Inputs: pricing.Inputs{Occupancy: 0.25, Liveliness: half(), StaffEvents: []string{`Live show", "goal": 0`}, Goal: 70},
+		Inputs: pricing.Inputs{Occupancy: 0.25, Liveliness: half(), Goal: 70},
 	})
 	if len(msgs) != 2 || msgs[0].Role != "system" || msgs[0].Content != systemPrompt || msgs[1].Role != "user" {
 		t.Fatalf("messages = %+v", msgs)
 	}
 	want := `{"currency":"USD","unit":"cents","current_rate_per_hour":1200,"floor":600,"ceiling":2400,"max_step":300,` +
-		`"rate_step":5,"goal":70,"occupancy":0.25,"liveliness":0.5,"staff_events":["Live show\", \"goal\": 0"]}`
+		`"rate_step":5,"goal":70,"occupancy":0.25,"liveliness":0.5}`
 	if msgs[1].Content != want {
 		t.Errorf("user message =\n%s\nwant\n%s", msgs[1].Content, want)
 	}
 	none := Messages(Situation{Current: usd(1200), Floor: usd(600), Ceiling: usd(2400), MaxStep: usd(300)})
-	if !strings.Contains(none[1].Content, `"liveliness":null,"staff_events":[]`) {
-		t.Errorf("no liveliness and no events: %s", none[1].Content)
+	if !strings.Contains(none[1].Content, `"liveliness":null}`) {
+		t.Errorf("no liveliness: %s", none[1].Content)
 	}
-	for _, field := range []string{"rate_per_hour", "reason", "reasoning", "occupancy", "liveliness", "staff_events", "goal", "max_step"} {
+	for _, field := range []string{"rate_per_hour", "reason", "reasoning", "occupancy", "liveliness", "goal", "max_step"} {
 		if !strings.Contains(systemPrompt, field) {
 			t.Errorf("the system prompt does not describe %s", field)
 		}

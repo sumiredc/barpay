@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: BarPay API
-  version: 0.2.0
+  version: 0.3.0
   summary: The contract between a store's mobile order app and BarPay.
   description: |
     The calls a store app makes to BarPay from its server, the notifications
@@ -1040,41 +1040,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  /admin/staff-events:
-    post:
-      tags: [Admin]
-      operationId: sendStaffEvent
-      summary: Send a staff event
-      description: |
-        PRD: Pricing model → Signals; UC7.
-
-        A signal for the next evaluations, such as a live show starting or
-        ending. A label stays an input to evaluations from its `starts`
-        until an `ends` with the same label (compared exactly).
-        `recorded_at` is set by BarPay; a request that sends it is rejected
-        with `400`.
-      security:
-        - adminApiKey: []
-      parameters:
-        - $ref: '#/components/parameters/StaffId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/StaffEvent'
-      responses:
-        '201':
-          description: The event was recorded.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StaffEvent'
-        '400':
-          $ref: '#/components/responses/InvalidRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
   /admin/decisions:
     get:
       tags: [Admin]
@@ -2094,24 +2059,6 @@ components:
           type: integer
           minimum: 0
           maximum: 100
-    StaffEvent:
-      type: object
-      additionalProperties: false
-      required: [label, phase]
-      properties:
-        label:
-          description: What happens, in plain English (e.g. "Live show").
-          type: string
-          minLength: 1
-          maxLength: 100
-        phase:
-          type: string
-          enum: [starts, ends]
-        recorded_at:
-          description: Set by BarPay in the response.
-          type: string
-          format: date-time
-          readOnly: true
     Decision:
       type: object
       description: |
@@ -2135,7 +2082,7 @@ components:
           oneOf:
             - type: object
               additionalProperties: false
-              required: [occupancy, liveliness, staff_events, goal]
+              required: [occupancy, liveliness, goal]
               properties:
                 occupancy:
                   description: Active sessions divided by capacity, at most 1.
@@ -2149,11 +2096,6 @@ components:
                       minimum: 0
                       maximum: 1
                     - type: 'null'
-                staff_events:
-                  type: array
-                  items:
-                    type: string
-                    maxLength: 100
                 goal:
                   type: integer
                   minimum: 0

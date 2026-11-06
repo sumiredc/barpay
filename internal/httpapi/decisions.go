@@ -11,10 +11,9 @@ import (
 const decisionsList = "decisions"
 
 type inputsJSON struct {
-	Occupancy   float64  `json:"occupancy"`
-	Liveliness  *float64 `json:"liveliness"`
-	StaffEvents []string `json:"staff_events"`
-	Goal        int      `json:"goal"`
+	Occupancy  float64  `json:"occupancy"`
+	Liveliness *float64 `json:"liveliness"`
+	Goal       int      `json:"goal"`
 }
 
 type decisionJSON struct {
@@ -35,11 +34,7 @@ func toDecision(d pricing.Decision) decisionJSON {
 		Published: ToRatePoint(d.Published), Explanation: d.Explanation,
 	}
 	if in := d.Inputs; in != nil {
-		events := in.StaffEvents
-		if events == nil {
-			events = []string{}
-		}
-		j.Inputs = &inputsJSON{Occupancy: in.Occupancy, Liveliness: in.Liveliness, StaffEvents: events, Goal: in.Goal}
+		j.Inputs = &inputsJSON{Occupancy: in.Occupancy, Liveliness: in.Liveliness, Goal: in.Goal}
 	}
 	if d.Proposal != nil {
 		m := ToMoney(*d.Proposal)

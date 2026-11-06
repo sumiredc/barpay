@@ -18,7 +18,7 @@ const sendTimeout = 5 * time.Second
 
 // runSignals sends liveliness now and every sendInterval, until ctx ends. A number read from in
 // replaces it and is sent at once. Only the liveliness is simulated: occupancy comes from the
-// sessions, and staff events come through the admin API, which the tools do not hold.
+// sessions.
 func runSignals(ctx context.Context, c *edge.Client, liveliness float64, in io.Reader, out io.Writer) error {
 	if !validLiveliness(liveliness) {
 		return fmt.Errorf("-liveliness %v is not a number from 0 to 1", liveliness)

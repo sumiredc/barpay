@@ -19,7 +19,7 @@ import (
 func decided(t *testing.T, st *store.Store, proposals ...int64) {
 	t.Helper()
 	ctx := context.Background()
-	in := pricing.Inputs{Occupancy: 0.5, StaffEvents: []string{"Live show"}, Goal: 30}
+	in := pricing.Inputs{Occupancy: 0.5, Goal: 30}
 	err := st.Tx(ctx, func(tx store.Querier) error {
 		for i, p := range proposals {
 			_, err := pricing.PublishEvaluation(ctx, tx, in, pricing.Proposal{RatePerHour: p, Reason: "Busy", Reasoning: "Because"},
@@ -63,16 +63,44 @@ func TestListDecisions(t *testing.T) {
 		spectest.Valid(t, "Decision", d)
 	}
 	want := []string{
-		`{"decided_at":"2026-10-31T19:00:00Z","trigger":"evaluation","inputs":{"occupancy":0.5,"liveliness":null,"staff_events":["Live show"],"goal":30},` +
+		`{"decided_at":"2026-10-31T19:00:00Z","trigger":"evaluation","inputs":{"occupancy":0.5,"liveliness":null,"goal":30},` +
 			`"proposal":null,"reasoning":null,"published":{"rate_per_hour":{"value":1300,"currency":"USD"},"change":{"value":100,"currency":"USD"},"published_at":"2026-10-31T18:01:00Z"},` +
 			`"explanation":"The AI's answer could not be read — rate kept at $13.00/h.","fallback":"ai_unreadable"}`,
-		`{"decided_at":"2026-10-31T18:01:00Z","trigger":"evaluation","inputs":{"occupancy":0.5,"liveliness":null,"staff_events":["Live show"],"goal":30},` +
+		`{"decided_at":"2026-10-31T18:01:00Z","trigger":"evaluation","inputs":{"occupancy":0.5,"liveliness":null,"goal":30},` +
 			`"proposal":{"value":1300,"currency":"USD"},"reasoning":"Because","published":{"rate_per_hour":{"value":1300,"currency":"USD"},"change":{"value":100,"currency":"USD"},"published_at":"2026-10-31T18:01:00Z"},` +
 			`"explanation":"Busy — rate up $1.00 to $13.00/h.","fallback":null}`,
 	}
 	for i, d := range page.Decisions {
 		if string(d) != want[i] {
 			t.Errorf("decision %d =\n%s\nwant\n%s", i, d, want[i])
+		}
+	}
+}
+
+// A decision recorded while staff events were an input keeps its stored JSON, and is listed
+// with only the inputs the spec's Decision has.
+func TestListDecisionsLeavesOutStaffEventsStoredBefore(t *testing.T) {
+	st := started(t)
+	decided(t, st, 1300)
+	_, err := st.Read().ExecContext(context.Background(),
+		`UPDATE decisions SET inputs = '{"occupancy":0.5,"liveliness":null,"staff_events":["Live show"],"goal":30}'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := listDecisions(t, pricingRouter(st), "")
+	if len(page.Decisions) != 2 {
+		t.Fatalf("page = %+v", page)
+	}
+	for _, d := range page.Decisions {
+		spectest.Valid(t, "Decision", d)
+		var got struct {
+			Inputs json.RawMessage `json:"inputs"`
+		}
+		if err := json.Unmarshal(d, &got); err != nil {
+			t.Fatal(err)
+		}
+		if want := `{"occupancy":0.5,"liveliness":null,"goal":30}`; string(got.Inputs) != want {
+			t.Errorf("inputs = %s, want %s", got.Inputs, want)
 		}
 	}
 }

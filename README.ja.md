@@ -56,7 +56,6 @@ go run ./cmd/barpay
 | `POST` | `/admin/gate/unlock` | 管理 | `unlockGate` | スタッフが手で出口ゲートを開ける |
 | `GET` | `/admin/settings` | 管理 | `getSettings` | 設定を読む |
 | `PUT` | `/admin/settings` | 管理 | `updateSettings` | 設定を変える |
-| `POST` | `/admin/staff-events` | 管理 | `sendStaffEvent` | スタッフのイベントを送る |
 | `GET` | `/admin/decisions` | 管理 | `listDecisions` | 判断ログを読む |
 | `GET` | `/admin/alerts` | 管理 | `listAlerts` | 警告を読む |
 | `GET` | `/admin/notifications` | 管理 | `listNotifications` | 通知の記録を読む |

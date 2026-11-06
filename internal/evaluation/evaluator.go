@@ -234,13 +234,9 @@ func (e *Evaluator) situation(ctx context.Context, at time.Time) (Situation, err
 		} else if ok {
 			liveliness = &v
 		}
-		events, err := signals.OngoingStaffEvents(ctx, q)
-		if err != nil {
-			return err
-		}
 		sit = Situation{
 			Current: cur.Rate, Floor: s.Floor, Ceiling: s.Ceiling, MaxStep: e.opts.MaxStep,
-			Inputs: pricing.Inputs{Occupancy: occupancy, Liveliness: liveliness, StaffEvents: events, Goal: s.Goal},
+			Inputs: pricing.Inputs{Occupancy: occupancy, Liveliness: liveliness, Goal: s.Goal},
 		}
 		return nil
 	})
