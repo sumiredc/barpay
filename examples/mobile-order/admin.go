@@ -277,7 +277,7 @@ func (a *App) adminUnlockGate(w http.ResponseWriter, r *http.Request, id string,
 	redirect(w, r, "/admin")
 }
 
-// Pricing: the rate, evaluate now, settings, staff events and the decision log.
+// Pricing: the rate, evaluate now, settings and the decision log.
 
 func (a *App) adminPricing(w http.ResponseWriter, r *http.Request, id string, b Browser) {
 	ctx, cancel := a.ctx(r)
@@ -356,24 +356,6 @@ func (a *App) adminUpdateSettings(w http.ResponseWriter, r *http.Request, id str
 		a.flash(id, "The settings were not changed: "+err.Error())
 	} else {
 		a.flash(id, "The settings were saved.")
-	}
-	redirect(w, r, "/admin/pricing")
-}
-
-func (a *App) adminStaffEvent(w http.ResponseWriter, r *http.Request, id string, b Browser) {
-	ctx, cancel := a.ctx(r)
-	defer cancel()
-	label := strings.TrimSpace(r.PostFormValue("label"))
-	phase := r.PostFormValue("phase")
-	if label == "" || (phase != "starts" && phase != "ends") {
-		a.flash(id, "Give the event a label and say whether it starts or ends.")
-		redirect(w, r, "/admin/pricing")
-		return
-	}
-	if err := a.barpay.sendStaffEvent(ctx, b.StaffID, StaffEvent{Label: label, Phase: phase}); err != nil {
-		a.flash(id, "BarPay did not record the event: "+err.Error())
-	} else {
-		a.flash(id, fmt.Sprintf("Recorded: %s %s. It is used from the next evaluation.", label, phase))
 	}
 	redirect(w, r, "/admin/pricing")
 }

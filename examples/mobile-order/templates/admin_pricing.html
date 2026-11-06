@@ -20,7 +20,7 @@
       <td>{{time .DecidedAt}}<br><span class="muted">{{if eq .Trigger "range_change"}}range change by {{.StaffID}}{{else}}evaluation{{end}}</span></td>
       <td>{{.Explanation}}{{with .Fallback}}<br><span class="up">fallback: {{.}}</span>{{end}}</td>
       <td>{{money .Published.RatePerHour}}/h<br><span class="muted">{{signedMoney .Published.Change}}</span></td>
-      <td>{{with .Inputs}}occupancy {{percent .Occupancy}}<br>liveliness {{with .Liveliness}}{{percent .}}{{else}}none{{end}}<br>goal {{.Goal}}{{range .StaffEvents}}<br>event: {{.}}{{end}}{{else}}—{{end}}</td>
+      <td>{{with .Inputs}}occupancy {{percent .Occupancy}}<br>liveliness {{with .Liveliness}}{{percent .}}{{else}}none{{end}}<br>goal {{.Goal}}{{else}}—{{end}}</td>
       <td>{{with .Proposal}}{{money .}}/h proposed<br>{{end}}<span class="muted">{{deref .Reasoning}}</span></td>
     </tr>
   {{else}}
@@ -30,15 +30,6 @@
 </table>
 </div>
 {{with .Data.Next}}<p><a class="button small secondary" href="{{.}}">Older decisions</a></p>{{end}}
-
-<h2>Staff event</h2>
-<form class="card" method="post" action="/admin/staff-events">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
-  <label for="label">Label</label><input id="label" name="label" type="text" maxlength="100" placeholder="Live show" required>
-  <label for="phase">Phase</label>
-  <select id="phase" name="phase"><option value="starts">Starts</option><option value="ends">Ends</option></select>
-  <p><button class="button" type="submit">Send</button></p>
-</form>
 
 {{with .Data.Settings}}
 <h2>Settings</h2>
