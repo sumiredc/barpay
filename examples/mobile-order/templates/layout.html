@@ -4,63 +4,36 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-{{if .Refresh}}<meta http-equiv="refresh" content="{{.Refresh}}">{{end}}
 <title>{{.Title}} · {{.StoreName}}</title>
-<style>
-:root { --ink: #1d1b19; --muted: #6b645c; --line: #e4ddd3; --bg: #faf7f2; --card: #fff; --accent: #8a4b16; --good: #2f6b3a; --bad: #a3271f; }
-* { box-sizing: border-box; }
-body { margin: 0; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); }
-header { background: var(--ink); color: #fff; padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
-header .brand { font-weight: 700; margin-right: auto; color: #fff; text-decoration: none; }
-header a, header button { color: #f3e6d6; background: none; border: 0; font: inherit; padding: 0; cursor: pointer; text-decoration: none; }
-header form { margin: 0; }
-main { max-width: 760px; margin: 0 auto; padding: 16px; }
-main.wide { max-width: 1180px; }
-h1 { font-size: 1.5rem; margin: 8px 0 16px; }
-h2 { font-size: 1.15rem; margin: 24px 0 8px; }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin: 12px 0; }
-.flash { background: #fff4df; border: 1px solid #ecd2a2; border-radius: 8px; padding: 10px 14px; margin: 12px 0; }
-.muted { color: var(--muted); font-size: 0.9rem; }
-.big { font-size: 2rem; font-weight: 700; }
-.up { color: var(--bad); } .down { color: var(--good); }
-.button, button.button { display: inline-block; background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 10px 16px; font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; }
-.button.secondary { background: #fff; color: var(--accent); border: 1px solid var(--accent); }
-.button.small { padding: 4px 10px; font-size: 0.85rem; }
-.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-.stat .label { color: var(--muted); font-size: 0.85rem; } .stat .value { font-size: 1.25rem; font-weight: 600; }
-label { display: block; margin: 8px 0 4px; font-weight: 600; }
-input[type=text], input[type=email], input[type=password], input[type=number], select { width: 100%; max-width: 360px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
-input.qty { width: 72px; }
-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-td form { display: inline-block; margin: 2px 0; }
-td input[type=text] { width: 90px; padding: 4px; }
-.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; background: #efe7dc; font-size: 0.8rem; }
-.pill.payment_failed, .pill.closed_unpaid { background: #f6d5d2; } .pill.at_register, .pill.checking_out { background: #fbe8c4; } .pill.closed { background: #d8ead9; }
-svg.ticker { width: 100%; height: auto; background: #fffdf9; border: 1px solid var(--line); border-radius: 8px; }
-.qr { display: block; margin: 12px auto; width: min(80vw, 320px); image-rendering: pixelated; }
-.scroll { overflow-x: auto; }
-</style>
+<link rel="stylesheet" href="/static/admin.css">
 </head>
-<body>
-<header>
-  {{if .Admin}}
-    <a class="brand" href="/admin">{{.StoreName}} · Staff</a>
-    {{if .StaffID}}
-      <a href="/admin">Sessions</a>
-      <a href="/admin/pricing">Pricing</a>
-      <a href="/admin/alerts">Alerts</a>
-      <a href="/admin/notifications">Notifications</a>
-      <form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Log out {{.StaffID}}</button></form>
+{{- /* A page that defines "reload" as a number of seconds is reloaded that often by admin.js. */}}
+<body data-app="admin"{{with .Frame}} class="has-sidenav"{{end}} data-reload="{{block "reload" .}}{{end}}">
+{{with .Frame}}
+<aside class="sidenav">
+  <a class="brand" href="/admin"><img src="/static/logo.svg" alt=""><span>{{$.StoreName}}</span></a>
+  <nav aria-label="Staff screens">
+    {{range .Menu}}
+    <a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}><i data-icon="{{.Icon}}"></i><span>{{.Label}}</span>{{if .Badge}}<span class="badge" aria-label="{{.BadgeLabel}}">{{.Badge}}</span>{{end}}</a>
     {{end}}
-  {{else}}
-    <a class="brand" href="/">{{.StoreName}}</a>
-  {{end}}
-</header>
-<main{{if .Admin}} class="wide"{{end}}>
-  {{if .Flash}}<div class="flash" role="status">{{.Flash}}</div>{{end}}
+  </nav>
+  <div class="sub">
+    <form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit"><i data-icon="log-out"></i><span>Log out<small>{{$.StaffID}}</small></span></button></form>
+  </div>
+</aside>
+{{else}}
+<header><span class="brand">{{.StoreName}} · Staff</span></header>
+{{end}}
+<main class="{{block "main-class" .}}wide{{end}}">
   {{template "content" .}}
 </main>
+<script src="/static/admin.js"></script>
 </body>
 </html>
+{{- /* Each admin page puts these under its heading. */ -}}
+{{define "notices"}}
+{{with .Alert}}<p class="notice bad" role="alert"><i data-icon="alert"></i><span>{{.}}</span></p>{{end}}
+{{with .Flash}}<p class="notice info" role="status"><i data-icon="info"></i><span>{{.}}</span></p>{{end}}
+{{end}}
+{{- /* The one notice of every admin page whose read of BarPay failed. */ -}}
+{{define "no-answer"}}<p class="notice bad"><i data-icon="alert"></i><span>BarPay didn't answer. Wait a moment, then <a href="{{.Here}}">reload</a>.</span></p>{{end}}

@@ -59,7 +59,7 @@ func (a *App) flash(id, msg string) {
 	a.updateBrowser(id, func(b *Browser) { b.Flash = msg })
 }
 
-// alert keeps an error for the next customer page, which shows it in red at the top.
+// alert keeps an error for the next page, customer or admin, which shows it in red at the top.
 func (a *App) alert(id, msg string) {
 	a.updateBrowser(id, func(b *Browser) { b.Alert = msg })
 }

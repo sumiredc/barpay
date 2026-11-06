@@ -1,6 +1,8 @@
+{{define "reload"}}30{{end}}
 {{define "content"}}
-<h1>Alerts</h1>
-{{if .Data.Failed}}<div class="flash">BarPay did not answer; the alerts are not available right now.</div>{{end}}
+<div class="pagehead"><h1>Alerts</h1></div>
+{{template "notices" .}}
+{{if .Data.Failed}}{{template "no-answer" .}}{{end}}
 <div class="card scroll">
 <table>
   <thead><tr><th>Raised</th><th>Kind</th><th>Message</th><th>Session or member</th></tr></thead>

@@ -1,7 +1,8 @@
 {{define "content"}}
-<h1>Notifications</h1>
+<div class="pagehead"><h1>Log</h1></div>
+{{template "notices" .}}
+{{if .Data.Failed}}{{template "no-answer" .}}{{end}}
 <h2>BarPay's notification log</h2>
-{{if .Data.Failed}}<div class="flash">BarPay did not answer; its log is not available right now.</div>{{end}}
 <div class="card scroll">
 <table>
   <thead><tr><th>Created</th><th>Event</th><th>Type</th><th>Status</th><th>Attempts</th><th>Last attempt</th></tr></thead>

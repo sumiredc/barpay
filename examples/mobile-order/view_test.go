@@ -39,8 +39,8 @@ func TestStaffPagesKeepTheStaffLayout(t *testing.T) {
 	if strings.Contains(body, `data-app="customer"`) || strings.Contains(body, "/static/customer.css") {
 		t.Error("staff login page uses the customer layout")
 	}
-	if !strings.Contains(body, "<style>") {
-		t.Error("staff login page lacks the style of layout.html")
+	if !strings.Contains(body, "/static/admin.css") {
+		t.Error("staff login page lacks the style of the admin pages")
 	}
 }
 

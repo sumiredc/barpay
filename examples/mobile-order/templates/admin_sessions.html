@@ -1,5 +1,8 @@
+{{define "reload"}}30{{end}}
 {{define "content"}}
-<h1>Sessions</h1>
+<div class="pagehead"><h1>Visits</h1></div>
+{{template "notices" .}}
+{{if .Data.ReadFailed}}{{template "no-answer" .}}{{end}}
 <form class="card row" method="get" action="/admin">
   {{range .Data.States}}
     <label style="font-weight: normal; margin: 0"><input type="checkbox" name="state" value="{{.}}" {{if has $.Data.Selected .}}checked{{end}}> {{stateLabel .}}</label>
@@ -10,7 +13,6 @@
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <button class="button small secondary" type="submit">Open the exit gate by hand</button>
 </form>
-{{if .Data.ReadFailed}}<div class="flash">BarPay did not answer; the list is not available right now.</div>{{end}}
 <div class="card scroll">
 <table>
   <thead><tr><th>Checked in</th><th>Stay</th><th>Customer</th><th>Orders</th><th>Total</th><th>Payment</th><th>State</th><th>Actions</th></tr></thead>

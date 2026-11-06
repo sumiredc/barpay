@@ -42,9 +42,40 @@ func (a *App) staffOnly(h staffHandler) http.HandlerFunc {
 	}
 }
 
-func (a *App) adminView(id string, b Browser, title string) view {
+// staffFrame is what layout.html draws around an admin page for a logged-in staff member: the
+// side menu.
+type staffFrame struct {
+	Menu []sideItem
+}
+
+type sideItem struct {
+	Href, Icon, Label string
+	Current           bool
+	// Badge is a count beside the label, left out at 0. What it counts is up to the page it opens.
+	Badge      int
+	BadgeLabel string
+}
+
+// staffMenu lists the side menu from the top. key is what an admin page names as its own item.
+var staffMenu = []struct{ key, href, icon, label string }{
+	{"visits", "/admin", "users", "Visits"},
+	{"alerts", "/admin/alerts", "bell", "Alerts"},
+	{"pricing", "/admin/pricing", "trending-up", "Pricing"},
+	{"log", "/admin/notifications", "history", "Log"},
+}
+
+// adminView is the view of an admin page for a logged-in staff member. nav is the key of the
+// side menu item the page belongs to: the pricing tabs ("Current rate" and "Settings") both
+// belong to "pricing".
+func (a *App) adminView(r *http.Request, id string, b Browser, title, nav string) view {
 	v := a.baseView(id, b, title)
 	v.Admin = true
+	v.Here = r.URL.RequestURI()
+	f := &staffFrame{}
+	for _, m := range staffMenu {
+		f.Menu = append(f.Menu, sideItem{Href: m.href, Icon: m.icon, Label: m.label, Current: m.key == nav})
+	}
+	v.Frame = f
 	return v
 }
 
@@ -54,7 +85,9 @@ func (a *App) staffLoginForm(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/admin")
 		return
 	}
-	a.render(w, http.StatusOK, "staff_login", a.adminView(id, b, "Staff login"))
+	v := a.baseView(id, b, "Staff login")
+	v.Admin = true
+	a.render(w, http.StatusOK, "staff_login", v)
 }
 
 func (a *App) staffLoginSubmit(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +97,7 @@ func (a *App) staffLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	staffID := strings.TrimSpace(r.PostFormValue("staff_id"))
 	if !a.staffLogin(staffID, r.PostFormValue("password")) {
-		a.flash(id, "The staff ID or password is wrong.")
+		a.alert(id, "The staff ID or password is wrong.")
 		redirect(w, r, "/admin/login")
 		return
 	}
@@ -99,7 +132,7 @@ func (a *App) adminSessions(w http.ResponseWriter, r *http.Request, id string, b
 			states = append(states, s)
 		}
 	}
-	v := a.adminView(id, b, "Sessions")
+	v := a.adminView(r, id, b, "Visits", "visits")
 	sessions, next, err := a.barpay.listSessions(ctx, b.StaffID, strings.Join(states, ","), q.Get("cursor"))
 	data := struct {
 		Rows       []sessionRow
@@ -127,7 +160,6 @@ func (a *App) adminSessions(w http.ResponseWriter, r *http.Request, id string, b
 		data.Next = "/admin?" + nq.Encode()
 	}
 	v.Data = data
-	v.Refresh = 30
 	a.render(w, http.StatusOK, "admin_sessions", v)
 }
 
@@ -282,7 +314,7 @@ func (a *App) adminUnlockGate(w http.ResponseWriter, r *http.Request, id string,
 func (a *App) adminPricing(w http.ResponseWriter, r *http.Request, id string, b Browser) {
 	ctx, cancel := a.ctx(r)
 	defer cancel()
-	v := a.adminView(id, b, "Pricing")
+	v := a.adminView(r, id, b, "Pricing", "pricing")
 	data := struct {
 		Rate      *CurrentRate
 		Settings  *Settings
@@ -364,7 +396,7 @@ func (a *App) adminAlerts(w http.ResponseWriter, r *http.Request, id string, b B
 	ctx, cancel := a.ctx(r)
 	defer cancel()
 	alerts, next, err := a.barpay.listAlerts(ctx, b.StaffID, r.URL.Query().Get("cursor"))
-	v := a.adminView(id, b, "Alerts")
+	v := a.adminView(r, id, b, "Alerts", "alerts")
 	data := struct {
 		Alerts []Alert
 		Next   string
@@ -374,7 +406,6 @@ func (a *App) adminAlerts(w http.ResponseWriter, r *http.Request, id string, b B
 		data.Next = "/admin/alerts?" + url.Values{"cursor": {*next}}.Encode()
 	}
 	v.Data = data
-	v.Refresh = 30
 	a.render(w, http.StatusOK, "admin_alerts", v)
 }
 
@@ -382,7 +413,7 @@ func (a *App) adminNotifications(w http.ResponseWriter, r *http.Request, id stri
 	ctx, cancel := a.ctx(r)
 	defer cancel()
 	records, next, err := a.barpay.listNotifications(ctx, b.StaffID, r.URL.Query().Get("cursor"))
-	v := a.adminView(id, b, "Notifications")
+	v := a.adminView(r, id, b, "Log", "log")
 	data := struct {
 		Records  []NotificationRecord
 		Next     string
