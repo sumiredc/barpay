@@ -29,6 +29,7 @@ type App struct {
 	store     *Store
 	pages     *pages
 	dummyHash string
+	autoEval  autoEvaluation
 }
 
 func main() {
@@ -89,9 +90,7 @@ func (a *App) evaluateRate(ctx context.Context) {
 	ticker := time.NewTicker(evaluationInterval)
 	defer ticker.Stop()
 	for {
-		req, cancel := context.WithTimeout(ctx, time.Minute)
-		r, err := a.barpay.requestRateEvaluation(req)
-		cancel()
+		r, err := a.evaluateAutomatically(ctx, time.Now())
 		switch {
 		case err != nil:
 			log.Printf("rate evaluation: %v", err)
@@ -108,6 +107,16 @@ func (a *App) evaluateRate(ctx context.Context) {
 		case <-ticker.C:
 		}
 	}
+}
+
+// evaluateAutomatically asks BarPay for an evaluation as the app does every evaluationInterval,
+// and records when it asked, which the next automatic evaluation the pricing page shows is
+// counted from.
+func (a *App) evaluateAutomatically(ctx context.Context, now time.Time) (*RateEvaluation, error) {
+	a.autoEval.asked(now)
+	req, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	return a.barpay.requestRateEvaluation(req)
 }
 
 func (a *App) routes() http.Handler {

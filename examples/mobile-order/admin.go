@@ -447,50 +447,6 @@ func adminPath(s string) string {
 	return p
 }
 
-// Pricing: the rate, evaluate now and the decision log.
-
-func (a *App) adminPricing(w http.ResponseWriter, r *http.Request, id string, b Browser) {
-	ctx, cancel := a.ctx(r)
-	defer cancel()
-	v := a.adminView(r, id, b, "Pricing", "pricing")
-	data := struct {
-		Rate      *CurrentRate
-		Decisions []Decision
-		Next      string
-		Failed    bool
-	}{}
-	var err1, err2 error
-	data.Rate, err1 = a.barpay.getRate(ctx)
-	var next *string
-	data.Decisions, next, err2 = a.barpay.listDecisions(ctx, b.StaffID, r.URL.Query().Get("cursor"))
-	data.Failed = err1 != nil || err2 != nil
-	if err1 != nil {
-		data.Rate = nil
-	}
-	if next != nil {
-		data.Next = "/admin/pricing?" + url.Values{"cursor": {*next}}.Encode()
-	}
-	v.Data = data
-	a.render(w, http.StatusOK, "admin_pricing", v)
-}
-
-func (a *App) adminEvaluate(w http.ResponseWriter, r *http.Request, id string, b Browser) {
-	ctx, cancel := a.ctx(r)
-	defer cancel()
-	e, err := a.barpay.requestRateEvaluation(ctx)
-	switch {
-	case err != nil:
-		a.flash(id, "BarPay did not evaluate the rate: "+err.Error())
-	case e.Fallback != nil:
-		a.flash(id, "The AI gave no usable answer ("+*e.Fallback+"); the rate stays at "+formatMoney(e.Rate.RatePerHour)+"/h.")
-	case !e.Evaluated:
-		a.flash(id, "Too soon after the last evaluation; the rate stays at "+formatMoney(e.Rate.RatePerHour)+"/h.")
-	default:
-		a.flash(id, "Evaluated: "+formatMoney(e.Rate.RatePerHour)+"/h ("+formatSignedMoney(e.Rate.Change)+").")
-	}
-	redirect(w, r, "/admin/pricing")
-}
-
 // adminUpdateSettings saves the form of the "Settings" tab and goes back to it.
 func (a *App) adminUpdateSettings(w http.ResponseWriter, r *http.Request, id string, b Browser) {
 	ctx, cancel := a.ctx(r)
