@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ログ · The Copper Fox</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<!-- BarPay が送った通知と、このアプリがそれをどう受け取ったかを、通知ごとに 1 行にまとめる。行を押すと詳細 -->
+<body data-app="admin" data-variants='[{"k":"list","l":"一覧","nav":"staff"},{"k":"search","l":"「Yui」で検索","nav":"staff"},{"k":"none","l":"検索に当たらない","nav":"staff"},{"k":"failed","l":"BarPay が答えない","nav":"staff"}]'>
+<main class="wide">
+<div class="pagehead"><h1>ログ</h1></div>
+<p class="muted" style="margin-top: 0">BarPay からの知らせの記録です。ふだん見る必要はありません。</p>
+
+<form class="search" role="search">
+  <input type="search" name="q" placeholder="お客様の名前・来店 ID・イベント ID で探す" aria-label="検索" data-v="list failed">
+  <input type="search" name="q" value="Yui" aria-label="検索" data-v="search">
+  <input type="search" name="q" value="Hanako" aria-label="検索" data-v="none">
+  <button class="button icon-only" type="submit" aria-label="探す"><i data-icon="search"></i></button>
+</form>
+
+<p class="notice bad" data-v="failed"><i data-icon="alert"></i><span>BarPay が答えませんでした。このアプリが受け取ったものだけを出しています。少し待ってから <a href="admin-notifications.html">読み直して</a> ください。</span></p>
+<div class="card scroll">
+<table class="clickable">
+  <thead><tr><th>日時</th><th>できごと</th><th>お客様</th><th>状態</th></tr></thead>
+  <tbody data-v="list">
+    <tr data-sheet="l1" tabindex="0"><td class="nowrap">21:59</td><td>ゲートが開かなかった</td><td class="nowrap">Yui Tanaka</td><td><span class="pill closed">届いた</span></td></tr>
+    <tr data-sheet="l2" tabindex="0"><td class="nowrap">21:59</td><td>精算した</td><td class="nowrap">Yui Tanaka</td><td><span class="pill closed">届いた</span></td></tr>
+    <tr data-sheet="l3" tabindex="0"><td class="nowrap">21:47</td><td>支払いが失敗した</td><td class="nowrap">Sora Kato</td><td><span class="pill at_register">再送中</span></td></tr>
+    <tr data-sheet="l4" tabindex="0"><td class="nowrap">21:40</td><td>支払いが失敗した</td><td class="nowrap">Ken Sato</td><td><span class="pill closed">届いた</span></td></tr>
+    <tr data-sheet="l5" tabindex="0"><td class="nowrap">11/4 19:00</td><td>PayPal を連携した</td><td class="nowrap">Yui Tanaka</td><td><span class="pill payment_failed">届かなかった</span></td></tr>
+  </tbody>
+  <tbody data-v="search">
+    <tr data-sheet="l1" tabindex="0"><td class="nowrap">21:59</td><td>ゲートが開かなかった</td><td class="nowrap">Yui Tanaka</td><td><span class="pill closed">届いた</span></td></tr>
+    <tr data-sheet="l2" tabindex="0"><td class="nowrap">21:59</td><td>精算した</td><td class="nowrap">Yui Tanaka</td><td><span class="pill closed">届いた</span></td></tr>
+    <tr data-sheet="l5" tabindex="0"><td class="nowrap">11/4 19:00</td><td>PayPal を連携した</td><td class="nowrap">Yui Tanaka</td><td><span class="pill payment_failed">届かなかった</span></td></tr>
+  </tbody>
+  <tbody data-v="failed">
+    <tr data-sheet="l1" tabindex="0"><td class="nowrap">21:59</td><td>ゲートが開かなかった</td><td class="nowrap">Yui Tanaka</td><td><span class="pill closed">届いた</span></td></tr>
+    <tr data-sheet="l2" tabindex="0"><td class="nowrap">21:59</td><td>精算した</td><td class="nowrap">Yui Tanaka</td><td><span class="pill closed">届いた</span></td></tr>
+    <tr data-sheet="l4" tabindex="0"><td class="nowrap">21:40</td><td>支払いが失敗した</td><td class="nowrap">Ken Sato</td><td><span class="pill closed">届いた</span></td></tr>
+  </tbody>
+  <tbody data-v="none">
+    <tr><td colspan="4" class="muted" style="text-align: center">「Hanako」に当たるものはありません</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="pager" data-v="list search"><a class="textbutton" href="admin-notifications.html">さらに古いログ<i data-icon="chevron-right"></i></a></div>
+
+<dialog class="sheet" id="l1">
+  <h2>ゲートが開かなかった</h2>
+  <p class="muted" style="margin-top: 0">21:59・<span class="pill closed">届いた</span></p>
+  <dl class="summary detail"><dt>種類</dt><dd>gate.unlock_failed</dd><dt>お客様</dt><dd>Yui Tanaka（ses_01hx36w1e3r5t7y9u1i3）</dd><dt>BarPay が送った</dt><dd>21:59・1 回で届いた</dd><dt>このアプリ</dt><dd>21:59 に受け取り、順番 4。間が抜けていたので、状態を BarPay から読み直した</dd><dt>イベント ID</dt><dd>evt_01hx3s2d3f4g5h6j7k8l</dd></dl>
+  <div class="dialog-actions"><button class="button" type="button" data-close>閉じる</button></div>
+</dialog>
+<dialog class="sheet" id="l2">
+  <h2>精算した</h2>
+  <p class="muted" style="margin-top: 0">21:59・<span class="pill closed">届いた</span></p>
+  <dl class="summary detail"><dt>種類</dt><dd>session.closed</dd><dt>お客様</dt><dd>Yui Tanaka（ses_01hx36w1e3r5t7y9u1i3）</dd><dt>BarPay が送った</dt><dd>21:59・2 回目の 22:00 に届いた</dd><dt>このアプリ</dt><dd>22:00 に受け取り、順番 3。読み直した状態より古いので、何もしなかった</dd><dt>イベント ID</dt><dd>evt_01hx3n8b7v6c5x4z3a2s</dd></dl>
+  <div class="dialog-actions"><button class="button" type="button" data-close>閉じる</button></div>
+</dialog>
+<dialog class="sheet" id="l3">
+  <h2>支払いが失敗した</h2>
+  <p class="muted" style="margin-top: 0">21:47・<span class="pill at_register">再送中</span></p>
+  <dl class="summary detail"><dt>種類</dt><dd>session.payment_failed</dd><dt>お客様</dt><dd>Sora Kato（ses_01hx3b2n7k4m9p8w）</dd><dt>BarPay が送った</dt><dd>21:47・2 回送った（最後 21:48）。次は 21:52</dd><dt>このアプリ</dt><dd>まだ受け取っていない</dd><dt>イベント ID</dt><dd>evt_01hx3r5t6y7u8i9o0p1a</dd></dl>
+  <div class="dialog-actions"><button class="button" type="button" data-close>閉じる</button></div>
+</dialog>
+<dialog class="sheet" id="l4">
+  <h2>支払いが失敗した</h2>
+  <p class="muted" style="margin-top: 0">21:40・<span class="pill closed">届いた</span></p>
+  <dl class="summary detail"><dt>種類</dt><dd>session.payment_failed（断られた）</dd><dt>お客様</dt><dd>Ken Sato（ses_01hx39p4s6d8f0g2h4j6）</dd><dt>BarPay が送った</dt><dd>21:40・1 回で届いた</dd><dt>このアプリ</dt><dd>21:40 に受け取り、順番 3。順番どおりに反映した</dd><dt>イベント ID</dt><dd>evt_01hx3q1w2e3r4t5y6u7i</dd></dl>
+  <div class="dialog-actions"><button class="button" type="button" data-close>閉じる</button></div>
+</dialog>
+<dialog class="sheet" id="l5">
+  <h2>PayPal を連携した</h2>
+  <p class="muted" style="margin-top: 0">11/4 19:00・<span class="pill payment_failed">届かなかった</span></p>
+  <dl class="summary detail"><dt>種類</dt><dd>member.paypal_linked</dd><dt>お客様</dt><dd>Yui Tanaka（会員）</dd><dt>BarPay が送った</dt><dd>11/4 19:00 から 8 回送り、11/5 19:00 にあきらめた</dd><dt>このアプリ</dt><dd>受け取っていない。会員の PayPal の状態は BarPay から読み直している</dd><dt>イベント ID</dt><dd>evt_01hx3g5h4j3k2l1q0w9e</dd></dl>
+  <div class="dialog-actions"><button class="button" type="button" data-close>閉じる</button></div>
+</dialog>
+</main>
+<script src="mock.js"></script>
+</body>
+</html>

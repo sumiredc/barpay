@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>アラート · The Copper Fox</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<!-- アラートには、ほかの画面では気づけない・対応できないものだけを出す（今は解錠の失敗だけ）。
+     支払い失敗・請求の結果が不明・レジでの支払いは、来店の「精算待ち」で扱うので出さない -->
+<body data-app="admin" data-variants='[{"k":"open","l":"未対応がある","nav":"staff"},{"k":"all","l":"すべて","nav":"staff"},{"k":"empty","l":"未対応が無い","nav":"staff"},{"k":"failed","l":"BarPay が答えない","nav":"staff"}]'>
+<main class="wide">
+<div class="pagehead"><h1>アラート</h1></div>
+
+<p class="notice bad" data-v="failed"><i data-icon="alert"></i><span>BarPay が答えませんでした。少し待ってから <a href="admin-alerts.html">読み直して</a> ください。</span></p>
+
+<nav class="tabs" aria-label="絞り込み">
+  <a href="admin-alerts.html?v=open" data-v="open empty failed" aria-current="page">未対応<span class="badge" data-v="open">1</span></a>
+  <a href="admin-alerts.html?v=open" data-v="all">未対応<span class="badge">1</span></a>
+  <a href="admin-alerts.html?v=all" data-v="all" aria-current="page">すべて</a>
+  <a href="admin-alerts.html?v=all" data-v="open empty failed">すべて</a>
+</nav>
+<div class="card scroll">
+<table class="clickable">
+  <thead><tr><th>発生</th><th>種類</th><th>できごと</th><th>お客様</th><th></th></tr></thead>
+  <tbody data-v="open all">
+    <tr data-sheet="a-gate" tabindex="0">
+      <td class="nowrap">21:59</td>
+      <td><span class="pill alert-gate">解錠の失敗</span></td>
+      <td>支払い済みですが、退店ゲートが開きませんでした</td>
+      <td class="nowrap">Yui Tanaka</td>
+      <td><div class="actions-cell"><button class="textbutton muted" type="button">対応済み</button></div></td>
+    </tr>
+  </tbody>
+  <tbody data-v="all">
+    <tr class="done" data-sheet="a-gate2" tabindex="0">
+      <td class="nowrap">20:15</td>
+      <td><span class="pill alert-gate">解錠の失敗</span></td>
+      <td>支払い済みですが、退店ゲートが開きませんでした</td>
+      <td class="nowrap">Rin Ono</td>
+      <td><div class="actions-cell"><span class="muted nowrap">対応済み<br>staff-01・20:16</span></div></td>
+    </tr>
+  </tbody>
+  <tbody data-v="empty">
+    <tr><td colspan="5"><p class="notice good" style="justify-content: center"><i data-icon="circle-check"></i><span>未対応のアラートはありません</span></p></td></tr>
+  </tbody>
+  <tbody data-v="failed">
+    <tr><td colspan="5" class="muted" style="text-align: center">表示できません</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="pager" data-v="all"><a class="textbutton" href="admin-alerts.html?v=all">さらに古いアラート<i data-icon="chevron-right"></i></a></div>
+
+<dialog class="sheet" id="a-gate">
+  <h2>Yui Tanaka：支払い済みですが、退店ゲートが開きませんでした</h2>
+  <p class="muted" style="margin-top: 0">21:59・<span class="pill alert-gate">解錠の失敗</span></p>
+  <p>お客様は 21:59 に PayPal で $33.00 を支払いました。ゲートの前で待っていれば、サイドメニューの「解錠」から開けてください。</p>
+  <dl class="summary detail"><dt>来店</dt><dd>ses_01hx36w1e3r5t7y9u1i3</dd></dl>
+  <div class="dialog-actions"><button class="textbutton muted" type="button" data-close>閉じる</button><button class="button secondary" type="button" data-close>対応済みにする</button></div>
+</dialog>
+<dialog class="sheet" id="a-gate2">
+  <h2>Rin Ono：支払い済みですが、退店ゲートが開きませんでした</h2>
+  <p class="muted" style="margin-top: 0">20:15・<span class="pill alert-gate">解錠の失敗</span>・対応済み（staff-01・20:16）</p>
+  <p>お客様は 20:15 にレジで $18.00 を支払いました。</p>
+  <dl class="summary detail"><dt>来店</dt><dd>ses_01hx2x4c6v8b0n2m4k1q</dd></dl>
+  <div class="dialog-actions"><button class="button" type="button" data-close>閉じる</button></div>
+</dialog>
+</main>
+<script src="mock.js"></script>
+</body>
+</html>
