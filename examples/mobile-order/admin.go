@@ -90,6 +90,8 @@ func (a *App) adminViewWithAlerts(r *http.Request, id string, b Browser, title, 
 	v := a.baseView(id, b, title)
 	v.Admin = true
 	v.Here = r.URL.RequestURI()
+	// The visits page counts the visits waiting to check out itself (admin_visits.go).
+	waiting := a.startWaitingCount(r, b.StaffID, nav == "visits")
 	ctx, cancel := context.WithTimeout(r.Context(), gateLookupTimeout)
 	defer cancel()
 	if read == nil {
@@ -107,6 +109,7 @@ func (a *App) adminViewWithAlerts(r *http.Request, id string, b Browser, title, 
 		}
 		f.Menu = append(f.Menu, item)
 	}
+	markWaiting(f, waiting())
 	v.Frame = f
 	return v
 }

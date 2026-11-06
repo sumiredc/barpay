@@ -33,6 +33,9 @@ type visitsBarPay struct {
 	sent    []sentRequest
 	// beforeAnswer, when set, runs before a checkout request is answered.
 	beforeAnswer func()
+	// listHang keeps every read of the list waiting until the app gives up on it, and listDown
+	// answers it with a 503.
+	listHang, listDown bool
 }
 
 type sentRequest struct {
@@ -53,6 +56,16 @@ func (f *visitsBarPay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "GET" && p == "/v1/admin/sessions":
 		states := r.URL.Query().Get("state")
 		f.reads = append(f.reads, states)
+		if f.listHang {
+			f.vmu.Unlock()
+			<-r.Context().Done()
+			f.vmu.Lock()
+			return
+		}
+		if f.listDown {
+			write(http.StatusServiceUnavailable, map[string]any{"error": map[string]string{"code": "unavailable", "message": "down for the test"}})
+			return
+		}
 		page := []Session{}
 		for _, s := range f.list {
 			if states == "" || strings.Contains(","+states+",", ","+s.State+",") {
@@ -582,5 +595,43 @@ func TestAVisitHereShowsWhetherItCanBeChargedWithPayPal(t *testing.T) {
 		}
 		mustContain(t, b.String(), c.wants...)
 		mustContain(t, b.String(), "(55 min)")
+	}
+}
+
+func TestEveryAdminPageCountsTheVisitsWaitingOnTheSideMenu(t *testing.T) {
+	s, f := newVisitsStaff(t, visitIn("ses_1", "payment_failed", ""), visitIn("ses_2", "at_register", ""), visitIn("ses_3", "active", ""))
+	for _, p := range adminPages {
+		mustContain(t, s.open(p.path), `<span>Visits</span><span class="badge" aria-label="2 waiting to check out">2</span>`)
+	}
+	f.vmu.Lock()
+	f.full = true
+	f.vmu.Unlock()
+	mustContain(t, s.open("/admin/alerts"), `<span>Visits</span><span class="badge" aria-label="More than 2 waiting to check out">2+</span>`)
+}
+
+func TestAPageWhoseCountOfVisitsWaitingHangsIsDrawnWithoutIt(t *testing.T) {
+	s, f := newVisitsStaff(t, visitIn("ses_1", "at_register", ""))
+	f.vmu.Lock()
+	f.listHang = true
+	f.vmu.Unlock()
+	start := time.Now()
+	page := s.open("/admin/pricing")
+	if took := time.Since(start); took > gateLookupTimeout+2*time.Second {
+		t.Errorf("the page took %s", took)
+	}
+	mustLack(t, page, `<span>Visits</span><span class="badge"`)
+}
+
+func TestAFailedCountOfVisitsWaitingIsNotReadAgain(t *testing.T) {
+	s, f := newVisitsStaff(t, visitIn("ses_1", "at_register", ""))
+	f.vmu.Lock()
+	f.listDown = true
+	f.vmu.Unlock()
+	page := s.open("/admin/alerts")
+	mustLack(t, page, `<span>Visits</span><span class="badge"`)
+	f.vmu.Lock()
+	defer f.vmu.Unlock()
+	if len(f.reads) != 1 {
+		t.Errorf("the alerts page read the visits %d times, want once", len(f.reads))
 	}
 }
