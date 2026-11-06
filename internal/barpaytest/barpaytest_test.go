@@ -53,3 +53,26 @@ func TestLogsAreDiscarded(t *testing.T) {
 		t.Errorf("logged %d bytes, want nothing", len(out))
 	}
 }
+
+// Staff events are no longer a signal: BarPay as assembled has no operation that takes them,
+// even from the admin API key with a staff ID.
+func TestStaffEventsAreNotServed(t *testing.T) {
+	b, err := New(context.Background(), Options{
+		Dir:       t.TempDir(),
+		Keys:      httpapi.Keys{Store: secret.New("k-store"), Admin: secret.New("k-admin"), Edge: secret.New("k-edge")},
+		PublicURL: "http://127.0.0.1:1", StoreAppOrigin: "http://store.test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = b.Close() })
+	req := httptest.NewRequest(http.MethodPost, "/v1/admin/staff-events", strings.NewReader(`{"label":"Live show","phase":"starts"}`))
+	req.Header.Set("Authorization", "Bearer k-admin")
+	req.Header.Set("BarPay-Staff-Id", "staff_1")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	b.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status %d, want 404", rec.Code)
+	}
+}

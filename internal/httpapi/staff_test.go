@@ -134,7 +134,7 @@ func TestSpecAdminOperationsHave400(t *testing.T) {
 	if err := sc.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if ops < 13 {
+	if ops < 12 {
 		t.Errorf("found %d admin operations; the scan of openapi.yaml is broken", ops)
 	}
 }

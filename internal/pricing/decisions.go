@@ -34,10 +34,9 @@ const (
 
 // Inputs are the signals and goal an evaluation used: the spec's Decision.inputs.
 type Inputs struct {
-	Occupancy   float64  `json:"occupancy"`
-	Liveliness  *float64 `json:"liveliness"` // nil: no liveliness signal
-	StaffEvents []string `json:"staff_events"`
-	Goal        int      `json:"goal"`
+	Occupancy  float64  `json:"occupancy"`
+	Liveliness *float64 `json:"liveliness"` // nil: no liveliness signal
+	Goal       int      `json:"goal"`
 }
 
 // Proposal is the AI's answer, read strictly.
@@ -151,9 +150,6 @@ func KeepRate(ctx context.Context, tx store.Querier, in Inputs, fb Fallback, at 
 }
 
 func record(ctx context.Context, tx store.Querier, d *Decision, rateSeq int64) error {
-	if d.Inputs.StaffEvents == nil {
-		d.Inputs.StaffEvents = []string{}
-	}
 	inputs, err := json.Marshal(d.Inputs)
 	if err != nil {
 		return fmt.Errorf("pricing: record decision: %w", err)

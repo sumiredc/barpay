@@ -56,7 +56,6 @@ The store app calls these operations from its server, under `/v1` of BarPay's UR
 | `POST` | `/admin/gate/unlock` | Admin | `unlockGate` | Staff open the exit gate by hand |
 | `GET` | `/admin/settings` | Admin | `getSettings` | Read the settings |
 | `PUT` | `/admin/settings` | Admin | `updateSettings` | Change the settings |
-| `POST` | `/admin/staff-events` | Admin | `sendStaffEvent` | Send a staff event |
 | `GET` | `/admin/decisions` | Admin | `listDecisions` | Read the decision log |
 | `GET` | `/admin/alerts` | Admin | `listAlerts` | Read the alerts |
 | `GET` | `/admin/notifications` | Admin | `listNotifications` | Read the notification log |

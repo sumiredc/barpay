@@ -142,21 +142,14 @@ type Settings struct {
 	Goal         int   `json:"goal"`
 }
 
-type StaffEvent struct {
-	Label      string     `json:"label"`
-	Phase      string     `json:"phase"`
-	RecordedAt *time.Time `json:"recorded_at,omitempty"`
-}
-
 type Decision struct {
 	DecidedAt time.Time `json:"decided_at"`
 	Trigger   string    `json:"trigger"`
 	StaffID   string    `json:"staff_id,omitempty"`
 	Inputs    *struct {
-		Occupancy   float64  `json:"occupancy"`
-		Liveliness  *float64 `json:"liveliness"`
-		StaffEvents []string `json:"staff_events"`
-		Goal        int      `json:"goal"`
+		Occupancy  float64  `json:"occupancy"`
+		Liveliness *float64 `json:"liveliness"`
+		Goal       int      `json:"goal"`
 	} `json:"inputs"`
 	Proposal    *Money    `json:"proposal"`
 	Reasoning   *string   `json:"reasoning"`
@@ -481,12 +474,6 @@ func (b *BarPay) updateSettings(ctx context.Context, staffID string, s Settings)
 	var out Settings
 	_, err := b.do(ctx, call{method: "PUT", path: "/admin/settings", admin: true, staffID: staffID, body: s, out: &out}, true)
 	return &out, err
-}
-
-// sendStaffEvent is sent once: a resend would record the event twice.
-func (b *BarPay) sendStaffEvent(ctx context.Context, staffID string, e StaffEvent) error {
-	_, err := b.do(ctx, call{method: "POST", path: "/admin/staff-events", admin: true, staffID: staffID, body: e, out: &StaffEvent{}}, false)
-	return err
 }
 
 func (b *BarPay) listDecisions(ctx context.Context, staffID, cursor string) ([]Decision, *string, error) {

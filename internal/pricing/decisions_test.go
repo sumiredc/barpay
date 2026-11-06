@@ -17,7 +17,7 @@ import (
 
 func half() *float64 { v := 0.5; return &v }
 
-var someInputs = Inputs{Occupancy: 0.25, Liveliness: half(), StaffEvents: []string{"Live show"}, Goal: 50}
+var someInputs = Inputs{Occupancy: 0.25, Liveliness: half(), Goal: 50}
 
 func evaluate(t *testing.T, st *store.Store, p Proposal, at time.Time) Decision {
 	t.Helper()
@@ -196,7 +196,7 @@ func TestListDecisions(t *testing.T) {
 	}
 	d := all[3]
 	if d.Trigger != TriggerEvaluation || *d.Proposal != usd(1400) || *d.Reasoning != "Fill less, earn more" ||
-		d.Inputs.Occupancy != 0.25 || *d.Inputs.Liveliness != 0.5 || !slices.Equal(d.Inputs.StaffEvents, []string{"Live show"}) ||
+		d.Inputs.Occupancy != 0.25 || *d.Inputs.Liveliness != 0.5 ||
 		d.Inputs.Goal != 50 || d.Explanation != "Busy — rate up $2.00 to $14.00/h." || !d.DecidedAt.Equal(t0.Add(time.Minute)) {
 		t.Errorf("evaluation = %+v %+v", d, *d.Inputs)
 	}
