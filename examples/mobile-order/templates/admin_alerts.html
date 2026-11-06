@@ -4,16 +4,31 @@
 {{template "notices" .}}
 {{if .Data.Failed}}{{template "no-answer" .}}{{end}}
 <div class="card scroll">
-<table>
-  <thead><tr><th>Raised</th><th>Kind</th><th>Message</th><th>Session or member</th></tr></thead>
+<table class="clickable">
+  <thead><tr><th>Raised</th><th>Kind</th><th>What happened</th><th>Customer</th></tr></thead>
   <tbody>
-  {{range .Data.Alerts}}
-    <tr><td>{{time .RaisedAt}}</td><td><span class="pill">{{.Kind}}</span></td><td>{{.Message}}</td><td>{{.SessionID}}{{.MemberID}}</td></tr>
+  {{range .Data.Rows}}
+    <tr data-sheet="alert-{{.ID}}" tabindex="0">
+      <td class="nowrap">{{.Raised}}</td>
+      <td><span class="pill alert-gate">Gate didn't unlock</span></td>
+      <td>{{.What}}</td>
+      <td class="nowrap">{{.Customer}}</td>
+    </tr>
   {{else}}
-    <tr><td colspan="4">No alerts.</td></tr>
+    {{if .Data.Failed}}<tr><td colspan="4" class="muted" style="text-align: center">Can't be shown</td></tr>
+    {{else}}<tr><td colspan="4" class="muted" style="text-align: center">No alerts</td></tr>{{end}}
   {{end}}
   </tbody>
 </table>
 </div>
-{{with .Data.Next}}<p><a class="button small secondary" href="{{.}}">Older alerts</a></p>{{end}}
+{{with .Data.Next}}<div class="pager"><a class="textbutton" href="{{.}}">Older alerts<i data-icon="chevron-right"></i></a></div>{{end}}
+{{range .Data.Rows}}
+<dialog class="sheet" id="alert-{{.ID}}">
+  <h2>{{if .SessionID}}{{.Customer}}: {{end}}{{.What}}</h2>
+  <p class="muted" style="margin-top: 0">{{.Raised}} · <span class="pill alert-gate">Gate didn't unlock</span></p>
+  <p>{{with .Paid}}{{.}} {{end}}If they're waiting at the gate, open it with Unlock gate in the menu.</p>
+  {{with .SessionID}}<dl class="summary detail"><dt>Visit</dt><dd>{{.}}</dd></dl>{{end}}
+  <div class="dialog-actions"><button class="button" type="button" data-close>Close</button></div>
+</dialog>
+{{end}}
 {{end}}

@@ -504,16 +504,8 @@ func (b *BarPay) listDecisions(ctx context.Context, staffID, cursor string) ([]D
 	return r.Decisions, r.NextCursor, err
 }
 
-func (b *BarPay) listAlerts(ctx context.Context, staffID, cursor string) ([]Alert, *string, error) {
-	return b.readAlerts(ctx, staffID, cursor, true)
-}
-
-// listAlertsOnce reads a page of the alerts without resending, for a page that would rather go
-// without them than wait.
-func (b *BarPay) listAlertsOnce(ctx context.Context, staffID, cursor string) ([]Alert, *string, error) {
-	return b.readAlerts(ctx, staffID, cursor, false)
-}
-
+// readAlerts reads a page of the alerts. resend says whether a read that got no answer is sent
+// again; a page that would rather go without them than wait reads them once.
 func (b *BarPay) readAlerts(ctx context.Context, staffID, cursor string, resend bool) ([]Alert, *string, error) {
 	var r struct {
 		Alerts     []Alert `json:"alerts"`
