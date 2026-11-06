@@ -1,6 +1,7 @@
 {{define "content"}}
-<h1>Pricing</h1>
-{{if .Data.Failed}}<div class="flash">BarPay did not answer every request; some parts are missing.</div>{{end}}
+<div class="pagehead"><h1>Pricing</h1></div>
+{{template "notices" .}}
+{{if .Data.Failed}}{{template "no-answer" .}}{{end}}
 <div class="card row" style="justify-content: space-between">
   {{with .Data.Rate}}<div class="stat"><div class="label">Published rate</div><div class="big">{{money .RatePerHour}}/h</div><div class="muted">{{signedMoney .Change}} at {{time .PublishedAt}}</div></div>{{end}}
   <form method="post" action="/admin/evaluate">

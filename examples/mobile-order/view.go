@@ -129,11 +129,17 @@ type view struct {
 	Refresh   int
 	Data      any
 
-	// The rest is drawn on the customer pages only.
+	// Frame and Here are drawn on the admin pages only. Frame is nil on the staff login. Here is
+	// the page's own path and query, where a form sent from its frame comes back to.
+	Frame *staffFrame
+	Here  string
 
 	// Alert is an error, shown in red at the top of the page and left there; Flash is shown there
-	// in yellow, as guidance.
+	// in yellow, as guidance. The customer pages and the admin pages both draw them.
 	Alert string
+
+	// The rest is drawn on the customer pages only.
+
 	// Toast says that an operation went through. It covers the top of the page for 4 seconds.
 	Toast string
 	// Tabbar is set by the entrance's handler during a visit, and by render on the other pages.

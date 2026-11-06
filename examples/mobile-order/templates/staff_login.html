@@ -1,5 +1,7 @@
+{{define "main-class"}}login{{end}}
 {{define "content"}}
 <h1>Staff login</h1>
+{{template "notices" .}}
 <form class="card" method="post" action="/admin/login">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <label for="staff_id">Staff ID</label><input id="staff_id" name="staff_id" type="text" required autocomplete="username">
