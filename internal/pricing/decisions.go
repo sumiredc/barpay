@@ -91,6 +91,18 @@ type Decision struct {
 	// Explanation states the change actually published, after the guardrails.
 	Explanation string
 	Fallback    Fallback // "" unless the rate was kept
+	// Range and PreviousRange are set by ListDecisions only. Range is the floor and ceiling the
+	// rate was guarded with (after the change, for TriggerRangeChange); on fallback, which
+	// guards nothing, the one in effect at DecidedAt, nil if none was. PreviousRange is the one
+	// before the change, for TriggerRangeChange only.
+	Range         *Range
+	PreviousRange *Range
+}
+
+// Range is a floor and ceiling saved in the settings: the spec's Range.
+type Range struct {
+	Floor   money.Amount
+	Ceiling money.Amount
 }
 
 // PublishEvaluation guards p against the settings saved and the rate published now, publishes
@@ -213,9 +225,19 @@ func ListDecisions(ctx context.Context, q store.Querier, after int64, limit int)
 			return nil, false, fmt.Errorf("pricing: list decisions: %w", err)
 		}
 	}
+	// The range comes from the settings change the rate was guarded with, not from the time: a
+	// settings change saved while an evaluation runs, or under a clock set back, can be timed
+	// before the decision it did not take part in. A fallback's rate was guarded at an earlier
+	// evaluation, so its range is the one in effect when it was decided, in its rate's currency:
+	// under a clock set back, a currency change can be timed before a fallback in the old one.
 	rows, err := q.QueryContext(ctx, `SELECT d.seq, d.decided_at, d.trigger, d.staff_id, d.inputs, d.proposal,
-		d.reasoning, d.explanation, d.fallback, r.currency, r.rate, r.change, r.published_at
+		d.reasoning, d.explanation, d.fallback, r.currency, r.rate, r.change, r.published_at,
+		s.currency, s.floor, s.ceiling, p.currency, p.floor, p.ceiling
 		FROM decisions d JOIN rates r ON r.seq = d.rate_seq
+		LEFT JOIN settings_changes s ON s.seq = CASE WHEN d.fallback IS NULL THEN r.settings_seq
+			ELSE (SELECT max(seq) FROM settings_changes WHERE at <= d.decided_at AND currency = r.currency) END
+		LEFT JOIN settings_changes p ON d.trigger = 'range_change'
+			AND p.seq = (SELECT max(seq) FROM settings_changes WHERE seq < r.settings_seq)
 		WHERE ?1 = 0 OR d.seq < ?1 ORDER BY d.seq DESC LIMIT ?2`, after, limit+1)
 	if err != nil {
 		return nil, false, fmt.Errorf("pricing: list decisions: %w", err)
@@ -228,8 +250,10 @@ func ListDecisions(ctx context.Context, q store.Querier, after int64, limit int)
 		var trigger, staffID, cur string
 		var inputs, reasoning, fallback sql.NullString
 		var proposal sql.NullInt64
+		var rng, prev nullRange
 		if err := rows.Scan(&d.Seq, &decided, &trigger, &staffID, &inputs, &proposal, &reasoning,
-			&d.Explanation, &fallback, &cur, &rate, &change, &published); err != nil {
+			&d.Explanation, &fallback, &cur, &rate, &change, &published,
+			&rng.currency, &rng.floor, &rng.ceiling, &prev.currency, &prev.floor, &prev.ceiling); err != nil {
 			return nil, false, fmt.Errorf("pricing: list decisions: %w", err)
 		}
 		c := money.Currency(cur)
@@ -248,6 +272,7 @@ func ListDecisions(ctx context.Context, q store.Querier, after int64, limit int)
 		if reasoning.Valid {
 			d.Reasoning = &reasoning.String
 		}
+		d.Range, d.PreviousRange = rng.get(), prev.get()
 		out = append(out, d)
 	}
 	if err := rows.Err(); err != nil {
@@ -257,4 +282,18 @@ func ListDecisions(ctx context.Context, q store.Querier, after int64, limit int)
 		return out[:limit], true, nil
 	}
 	return out, false, nil
+}
+
+// nullRange scans a settings_changes row that a LEFT JOIN may not have found.
+type nullRange struct {
+	currency       sql.NullString
+	floor, ceiling sql.NullInt64
+}
+
+func (n nullRange) get() *Range {
+	if !n.currency.Valid {
+		return nil
+	}
+	c := money.Currency(n.currency.String)
+	return &Range{Floor: money.New(n.floor.Int64, c), Ceiling: money.New(n.ceiling.Int64, c)}
 }

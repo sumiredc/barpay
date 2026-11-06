@@ -1567,6 +1567,16 @@ components:
           maximum: 100000000
         currency:
           $ref: '#/components/schemas/Currency'
+    Range:
+      type: object
+      description: 'PRD: Pricing model → Guardrails. A floor and ceiling of the rate per hour.'
+      additionalProperties: false
+      required: [floor, ceiling]
+      properties:
+        floor:
+          $ref: '#/components/schemas/Money'
+        ceiling:
+          $ref: '#/components/schemas/Money'
     Total:
       type: object
       description: |
@@ -2064,7 +2074,7 @@ components:
       description: |
         PRD: Pricing model → Explanation, Decision log, Fallback.
       additionalProperties: false
-      required: [decided_at, trigger, inputs, proposal, reasoning, published, explanation, fallback]
+      required: [decided_at, trigger, inputs, proposal, reasoning, published, explanation, fallback, range]
       properties:
         decided_at:
           type: string
@@ -2131,6 +2141,23 @@ components:
             - type: string
               enum: [ai_timeout, ai_unreadable]
             - type: 'null'
+        range:
+          description: |
+            The floor and ceiling the published rate was guarded with: for
+            `range_change`, the range after the change. On fallback, which
+            guards nothing, the range in effect at `decided_at`, or `null` if
+            no range was in effect then (after a clock set back). A change that
+            leaves the rate inside the range records no decision, so it shows
+            in the `range` of the next evaluation.
+          oneOf:
+            - $ref: '#/components/schemas/Range'
+            - type: 'null'
+        previous_range:
+          description: |
+            For `range_change` only: the floor and ceiling before the change.
+            This is not always the `range` of the decision before it, since a
+            change that leaves the rate inside the range records no decision.
+          $ref: '#/components/schemas/Range'
     Alert:
       type: object
       description: 'PRD: Guarantees → Observability.'

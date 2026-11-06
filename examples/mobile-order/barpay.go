@@ -156,6 +156,15 @@ type Decision struct {
 	Published   RatePoint `json:"published"`
 	Explanation string    `json:"explanation"`
 	Fallback    *string   `json:"fallback"`
+	// Range is the floor and ceiling the decision was made with; nil only for a fallback with
+	// no range in effect. PreviousRange is set for a range_change only.
+	Range         *Range `json:"range"`
+	PreviousRange *Range `json:"previous_range"`
+}
+
+type Range struct {
+	Floor   Money `json:"floor"`
+	Ceiling Money `json:"ceiling"`
 }
 
 type Alert struct {

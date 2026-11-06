@@ -26,12 +26,28 @@ type decisionJSON struct {
 	Published   RatePoint         `json:"published"`
 	Explanation string            `json:"explanation"`
 	Fallback    *pricing.Fallback `json:"fallback"`
+	Range       *rangeJSON        `json:"range"`
+	// PreviousRange is left out except for range_change.
+	PreviousRange *rangeJSON `json:"previous_range,omitempty"`
+}
+
+type rangeJSON struct {
+	Floor   Money `json:"floor"`
+	Ceiling Money `json:"ceiling"`
+}
+
+func toRange(r *pricing.Range) *rangeJSON {
+	if r == nil {
+		return nil
+	}
+	return &rangeJSON{Floor: ToMoney(r.Floor), Ceiling: ToMoney(r.Ceiling)}
 }
 
 func toDecision(d pricing.Decision) decisionJSON {
 	j := decisionJSON{
 		DecidedAt: FormatTime(d.DecidedAt), Trigger: d.Trigger, StaffID: d.Staff, Reasoning: d.Reasoning,
 		Published: ToRatePoint(d.Published), Explanation: d.Explanation,
+		Range: toRange(d.Range), PreviousRange: toRange(d.PreviousRange),
 	}
 	if in := d.Inputs; in != nil {
 		j.Inputs = &inputsJSON{Occupancy: in.Occupancy, Liveliness: in.Liveliness, Goal: in.Goal}

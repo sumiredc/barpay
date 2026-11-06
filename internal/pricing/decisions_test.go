@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/sumiredc/barpay/internal/money"
+	"github.com/sumiredc/barpay/internal/settings"
 	"github.com/sumiredc/barpay/internal/store"
 	"github.com/sumiredc/barpay/internal/store/storetest"
 )
@@ -208,5 +209,120 @@ func TestListDecisions(t *testing.T) {
 	}
 	if _, _, err := ListDecisions(context.Background(), st.Read(), 99, 3); !errors.Is(err, ErrUnknownCursor) {
 		t.Errorf("unknown cursor: %v", err)
+	}
+}
+
+func rangeOf(floor, ceiling int64) *Range { return &Range{Floor: usd(floor), Ceiling: usd(ceiling)} }
+
+func sameRange(a, b *Range) bool { return (a == nil && b == nil) || (a != nil && b != nil && *a == *b) }
+
+// newest lists the decision log and returns the newest decision.
+func newest(t *testing.T, st *store.Store) Decision {
+	t.Helper()
+	ds, _ := list(t, st.Read(), 0, 1)
+	if len(ds) != 1 {
+		t.Fatal("no decision")
+	}
+	return ds[0]
+}
+
+// An evaluation keeps the range it was guarded with, though the range changes before it is read.
+func TestListDecisionsGivesTheRangeAnEvaluationWasGuardedWith(t *testing.T) {
+	st := started(t, 1500)
+	if err := update(t, st, withRange(1000, 2000), t0.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	evaluate(t, st, Proposal{RatePerHour: 1500, Reason: "Steady", Reasoning: "r"}, t0.Add(2*time.Minute))
+	if d := newest(t, st); !sameRange(d.Range, rangeOf(1000, 2000)) || d.PreviousRange != nil {
+		t.Fatalf("range %+v, previous %+v; want 1000-2000 and none", d.Range, d.PreviousRange)
+	}
+	if err := update(t, st, withRange(1200, 2200), t0.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if ds := decisions(t, st.Read()); len(ds) != 1 {
+		t.Fatalf("%d decisions; the change inside the range records none", len(ds))
+	}
+	st = storetest.Reopen(t, st)
+	if d := newest(t, st); !sameRange(d.Range, rangeOf(1000, 2000)) {
+		t.Errorf("range %+v after the change; want 1000-2000 still", d.Range)
+	}
+}
+
+// A settings change timed before an evaluation it did not take part in (a clock set back) does
+// not become that evaluation's range.
+func TestListDecisionsRangeIgnoresAChangeTimedBefore(t *testing.T) {
+	st := started(t, 1500)
+	evaluate(t, st, Proposal{RatePerHour: 1500, Reason: "Steady", Reasoning: "r"}, t0.Add(10*time.Minute))
+	if err := update(t, st, withRange(1000, 2000), t0.Add(5*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	h, err := settings.History(context.Background(), st.Read(), t0.Add(10*time.Minute))
+	if err != nil || len(h) != 1 || !h[0].At.Equal(t0.Add(5*time.Minute)) || h[0].Floor != usd(1000) {
+		t.Fatalf("history %+v %v; want the change in effect at the evaluation, timed at t0+5m", h, err)
+	}
+	if d := newest(t, st); !sameRange(d.Range, rangeOf(600, 2400)) {
+		t.Errorf("range %+v; want the 600-2400 the evaluation was guarded with", d.Range)
+	}
+}
+
+// A range change gives the range after it, and the one before it, which an earlier change inside
+// the range may have set without a decision.
+func TestListDecisionsGivesTheRangesAroundARangeChange(t *testing.T) {
+	st := started(t, 1000)
+	if err := update(t, st, withRange(950, 2400), t0.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := update(t, st, withRange(900, 2400), t0.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := update(t, st, withRange(1200, 2400), t0.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if ds := decisions(t, st.Read()); len(ds) != 1 {
+		t.Fatalf("%d decisions; want the range change that moved the rate only", len(ds))
+	}
+	d := newest(t, st)
+	if d.Trigger != TriggerRangeChange || d.Published.Rate != usd(1200) {
+		t.Fatalf("decision %+v; want the range change to 1200", d)
+	}
+	if !sameRange(d.Range, rangeOf(1200, 2400)) || !sameRange(d.PreviousRange, rangeOf(900, 2400)) {
+		t.Errorf("range %+v, previous %+v; want 1200-2400 after 900-2400", d.Range, d.PreviousRange)
+	}
+}
+
+// A fallback guards nothing: its range is the one in effect when it was decided, or none.
+func TestListDecisionsGivesAFallbackTheRangeInEffect(t *testing.T) {
+	st := started(t, 1500)
+	if err := update(t, st, withRange(1200, 2200), t0.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	keep(t, st, FallbackTimeout, t0.Add(2*time.Minute))
+	if d := newest(t, st); !sameRange(d.Range, rangeOf(1200, 2200)) || d.PreviousRange != nil {
+		t.Errorf("range %+v, previous %+v; want 1200-2200 and none", d.Range, d.PreviousRange)
+	}
+	keep(t, st, FallbackUnreadable, t0.Add(-time.Minute)) // a clock set back, before every settings change
+	if d := newest(t, st); d.Range != nil {
+		t.Errorf("range %+v; want none before the first settings change", d.Range)
+	}
+}
+
+// A currency change timed before a fallback in the old currency (a clock set back) does not
+// become that fallback's range.
+func TestListDecisionsGivesAFallbackARangeInItsCurrency(t *testing.T) {
+	st := started(t, 1500)
+	keep(t, st, FallbackTimeout, t0.Add(2*time.Minute))
+	jpy := settings.Settings{
+		Currency: money.JPY, Floor: money.New(600, money.JPY), Ceiling: money.New(2400, money.JPY),
+		BlockMinutes: 10, PauseMinutes: 30, CapPerVisit: money.New(3000, money.JPY), Goal: 50,
+	}
+	tx(t, st, func(q store.Querier) error {
+		if err := settings.Save(context.Background(), q, jpy, t0.Add(time.Minute)); err != nil {
+			return err
+		}
+		_, _, err := PublishFirst(context.Background(), q, money.New(1000, money.JPY), jpy, t0.Add(time.Minute))
+		return err
+	})
+	if d := newest(t, st); d.Published.Rate != usd(1500) || !sameRange(d.Range, rangeOf(600, 2400)) {
+		t.Errorf("fallback %+v, range %+v; want the USD 600-2400 in effect", d.Published, d.Range)
 	}
 }
