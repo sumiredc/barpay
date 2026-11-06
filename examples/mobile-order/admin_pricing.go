@@ -10,7 +10,7 @@ import (
 )
 
 // Pricing: the "Now" tab (the published rate, Update, and the history of the decisions as a
-// chart) and the "Settings" tab.
+// chart). The "Settings" tab is in admin_settings.go.
 
 // autoEvaluation is when the app last asked BarPay for an automatic evaluation. The next one is
 // due evaluationInterval after it; a staff member's Update does not move it. It is kept in
@@ -393,23 +393,6 @@ func (a *App) adminPricing(w http.ResponseWriter, r *http.Request, id string, b 
 	}
 	v.Data = data
 	a.render(w, http.StatusOK, "admin_pricing", v)
-}
-
-// adminSettings is the "Settings" tab: the settings form, which is sent to adminUpdateSettings.
-func (a *App) adminSettings(w http.ResponseWriter, r *http.Request, id string, b Browser) {
-	ctx, cancel := a.ctx(r)
-	defer cancel()
-	v := a.adminView(r, id, b, "Pricing", "pricing")
-	s, err := a.barpay.getSettings(ctx, b.StaffID)
-	data := struct {
-		Settings *Settings
-		Failed   bool
-	}{Failed: err != nil}
-	if err == nil {
-		data.Settings = s
-	}
-	v.Data = data
-	a.render(w, http.StatusOK, "admin_settings", v)
 }
 
 func (a *App) adminEvaluate(w http.ResponseWriter, r *http.Request, id string, b Browser) {

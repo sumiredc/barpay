@@ -9,6 +9,13 @@
 // - <body data-reload="s"> reloads the page every s seconds, but not while a dialog is open: the
 //   reload would throw away what is chosen in it. The page reloads once the dialog closes.
 // - <div class="hscroll" data-start="end"> is scrolled to its right end (now) when the page opens
+// - #goal-effect says, under the pricing goal's slider (#goal), which way the goal asks the AI to
+//   move the rate when the room is quiet and when it is busy. It is a rough guide in five steps:
+//   what the AI is given is the goal's number and what its two ends mean
+// - <section id="preview"> works out what one customer pays with the settings in the form, and
+//   draws it again on every change, without saving and without asking the server. It follows the
+//   cover charge rules of docs/PRD.md (4. Pricing model); see the comment above coverCharge.
+//   While the form cannot be saved, the card is faded and keeps what it drew last
 (function () {
   const ICONS = {
     "chevron-right": '<path d="m9 18 6-6-6-6"/>',
@@ -106,6 +113,173 @@
   });
 
   document.querySelectorAll('.hscroll[data-start="end"]').forEach((el) => { el.scrollLeft = el.scrollWidth; });
+
+  const goal = document.getElementById("goal");
+  const effect = document.getElementById("goal-effect");
+  if (goal && effect) {
+    const words = (v) => v <= 20 ? ["Down to near the floor", "Keep"]
+      : v <= 40 ? ["Lower", "A little higher"]
+      : v <= 60 ? ["A little lower", "Higher"]
+      : v <= 80 ? ["Keep", "Higher"]
+      : ["Keep", "Up to near the ceiling"];
+    const show = () => {
+      const [quiet, busy] = words(Number(goal.value));
+      effect.querySelector('[data-g="low"]').textContent = quiet;
+      effect.querySelector('[data-g="high"]').textContent = busy;
+    };
+    goal.addEventListener("input", show);
+    show();
+  }
+
+  const preview = document.getElementById("preview");
+  if (preview) drawPreview(preview);
+
+  // drawPreview keeps the card "What a customer pays" up to date with the form. Amounts are in
+  // cents, as the app's amounts are in USD.
+  function drawPreview(preview) {
+    // The drink is ordered on arrival, 30 and 60 minutes later; the line of n drinks orders the
+    // first n. The headline is a stay of 2 hours with 2 drinks.
+    const ORDER_AT = [0, 30, 60], MAX_MINUTES = 240, HEAD_MINUTES = 120, HEAD_DRINKS = 2;
+    // BarPay's rate step and largest amount, in cents (docs/api/openapi.yaml: Settings, Money).
+    const RATE_STEP = 5, MAX_AMOUNT = 100000000;
+    const drink = Number(preview.dataset.drink);
+    const published = preview.dataset.rate === undefined ? null : Number(preview.dataset.rate);
+    const usd = (cents) => {
+      const s = String(Math.floor(cents / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+      return `$${s}.${String(cents % 100).padStart(2, "0")}`;
+    };
+    // An amount as staff type it, such as 12.50, in cents (the server reads it the same way).
+    const cents = (s) => {
+      const m = /^\s*\$?(\d+)(?:\.(\d{0,2}))?\s*$/.exec(s);
+      return m ? Number(m[1]) * 100 + Number((m[2] || "").padEnd(2, "0")) : NaN;
+    };
+    const whole = (s) => (/^\s*\d+\s*$/.test(s) ? Number(s) : NaN);
+    const field = (id) => (document.getElementById(id) || {}).value || "";
+    // s when BarPay would take it, otherwise null. It also keeps the loops over the blocks finite:
+    // the block is a whole number of minutes from 1.
+    const valid = (s) => {
+      const ok = Number.isInteger(s.floor) && Number.isInteger(s.ceiling) && Number.isInteger(s.cap) &&
+        Number.isInteger(s.block) && Number.isInteger(s.pause) &&
+        s.floor > 0 && s.floor % RATE_STEP === 0 && s.ceiling % RATE_STEP === 0 && s.ceiling > s.floor &&
+        s.ceiling <= MAX_AMOUNT && s.cap >= 0 && s.cap <= MAX_AMOUNT && s.block >= 1 && s.block <= 240 && s.pause >= 0 && s.pause <= 240;
+      return ok ? s : null;
+    };
+    // The settings the form holds, or null while BarPay would refuse them.
+    const fromForm = () => valid({ floor: cents(field("floor")), ceiling: cents(field("ceiling")), cap: cents(field("cap")),
+      block: whole(field("block")), pause: whole(field("pause")) });
+    // The saved settings from the server, or null when there are none or they are not usable, and
+    // then the card is not drawn from them.
+    const d = preview.dataset;
+    const saved = d.floor === undefined ? null
+      : valid({ floor: Number(d.floor), ceiling: Number(d.ceiling), cap: Number(d.cap), block: Number(d.block), pause: Number(d.pause) });
+
+    // coverCharge is the cover charge of a stay of `minutes` at `rate` cents per hour, for a
+    // customer who ordered at each of `orders` (minutes after check-in):
+    // - every block of s.block minutes is charged when it ends, at rate × block length rounded
+    //   down to the cent; a block that has not ended is not charged
+    // - the first order does not count. Each later order pauses the charge for s.pause minutes
+    //   (0 for none) from that order: a block ending in a pause costs 0. A pause includes the
+    //   instant of its order, so a block ending exactly at the order costs 0, and ends just
+    //   before s.pause minutes have passed, so a block ending exactly then is charged
+    // - the charge stops at s.cap (0 for none): the block that reaches it is charged only up to it
+    const coverCharge = (minutes, orders, rate, s) => {
+      const perBlock = Math.floor((rate * s.block) / 60);
+      const paused = (end) => s.pause > 0 && orders.slice(1).some((t) => t <= end && end < t + s.pause);
+      let charge = 0;
+      for (let end = s.block; end <= minutes; end += s.block) {
+        if (paused(end)) continue;
+        charge += perBlock;
+        if (s.cap > 0 && charge >= s.cap) return s.cap;
+      }
+      return charge;
+    };
+    const pay = (minutes, drinks, rate, s) => {
+      const orders = ORDER_AT.slice(0, drinks);
+      const charge = coverCharge(minutes, orders, rate, s);
+      const drinksTotal = orders.filter((t) => t <= minutes).length * drink;
+      return { charge, drinks: drinksTotal, total: charge + drinksTotal };
+    };
+    // The y axis goes up in steps of 1, 2 or 5 × 10^n dollars, about five of them.
+    const niceStep = (x) => {
+      const p = Math.pow(10, Math.floor(Math.log10(Math.max(x, 100))));
+      return [1, 2, 5, 10].map((k) => k * p).find((v) => v >= x);
+    };
+
+    let last = null;
+    const render = () => {
+      const s = fromForm() || (last ? null : saved);
+      preview.classList.toggle("stale", !fromForm());
+      if (s) last = s;
+      if (!last) return;
+      draw(last);
+    };
+    const draw = (s) => {
+      // "Now" is the published rate moved into the range being entered, as saving moves it there.
+      const now = published === null ? null : Math.min(Math.max(published, s.floor), s.ceiling);
+      const basis = (preview.querySelector('input[name="basis"]:checked') || {}).value;
+      const rate = basis === "now" && now !== null ? now : basis === "ceiling" ? s.ceiling : s.floor;
+      const set = (key, text) => preview.querySelectorAll(`[data-p="${key}"]`).forEach((el) => { el.textContent = text; });
+      set("floor", usd(s.floor));
+      set("ceiling", usd(s.ceiling));
+      if (now !== null) set("now", usd(now));
+      const view = (preview.querySelector('input[name="view"]:checked') || {}).value;
+      const val = (r) => (view === "charge" ? r.charge : r.total);
+      const head = pay(HEAD_MINUTES, HEAD_DRINKS, rate, s);
+      set("headline", usd(val(head)));
+      set("headcharge", usd(head.charge));
+      set("headdrink", usd(head.drinks));
+      preview.querySelector('[data-p="headsub"]').hidden = view === "charge";
+      preview.querySelector('[data-p="freelegend"]').hidden = !(s.pause > 0);
+
+      // The chart: the stay from 0 to 4 hours across, the amount up. Blocks and drinks make steps.
+      const svg = preview.querySelector("svg.preview-chart");
+      const W = Math.max(320, Math.round(svg.getBoundingClientRect().width) || 640), H = 240, L = 52, R = 104, T = 20, B = 32;
+      svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+      const ends = [1, 2, 3].map((n) => val(pay(MAX_MINUTES, n, rate, s)));
+      const top = Math.max(...ends, 100);
+      const step = niceStep(top / 5);
+      const yMax = Math.ceil(top / step) * step + step / 2;
+      const x = (m) => L + (m / MAX_MINUTES) * (W - L - R);
+      const y = (v) => T + (1 - v / yMax) * (H - T - B);
+      let g = "";
+      for (let v = 0; v <= yMax; v += step) {
+        g += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/>`;
+        g += `<text class="tick" x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${usd(v).replace(/\.00$/, "")}</text>`;
+      }
+      for (let h = 0; h <= MAX_MINUTES / 60; h++) {
+        g += `<text class="tick" x="${x(h * 60)}" y="${H - 10}" text-anchor="${h === 0 ? "start" : "middle"}">${h} h</text>`;
+      }
+      // The pause after the second and the third drink, which only the lines with that drink have.
+      if (s.pause > 0) ORDER_AT.slice(1).forEach((t, i) => {
+        const x1 = x(t), x2 = x(Math.min(t + s.pause, MAX_MINUTES));
+        g += `<rect class="free" x="${x1}" y="${T}" width="${Math.max(1, x2 - x1)}" height="${H - T - B}"/>`;
+        g += `<text class="tick free-label" x="${x1 + 3}" y="${T + 12}">Drink ${i + 2}</text>`;
+      });
+      g += `<line class="mark" x1="${x(HEAD_MINUTES)}" x2="${x(HEAD_MINUTES)}" y1="${T}" y2="${H - B}"/>`;
+      // The amount at 4 hours beside the end of each line, 14px apart where they would overlap.
+      const labelY = {};
+      [1, 2, 3].map((n) => [n, y(ends[n - 1])]).sort((p, q) => p[1] - q[1])
+        .forEach(([n, yy], i, arr) => { labelY[n] = i === 0 ? yy : Math.max(yy, labelY[arr[i - 1][0]] + 14); });
+      [1, 2, 3].forEach((n) => {
+        const at = new Set([0, MAX_MINUTES, ...ORDER_AT.slice(0, n)]);
+        for (let e = s.block; e <= MAX_MINUTES; e += s.block) at.add(e);
+        const ms = [...at].sort((p, q) => p - q);
+        let path = `M${x(0)},${y(val(pay(0, n, rate, s)))}`;
+        ms.slice(1).forEach((m) => { path += `H${x(m)}V${y(val(pay(m, n, rate, s)))}`; });
+        g += `<path class="line d${n}" d="${path}"/>`;
+        g += `<text class="tick end d${n}" x="${W - R + 6}" y="${labelY[n] + 4}">${n} drink${n > 1 ? "s" : ""} ${usd(ends[n - 1])}</text>`;
+        g += `<circle class="dot d${n}" cx="${x(HEAD_MINUTES)}" cy="${y(val(pay(HEAD_MINUTES, n, rate, s)))}" r="4"/>`;
+      });
+      svg.innerHTML = g;
+    };
+    window.addEventListener("resize", () => { if (last) draw(last); });
+    preview.querySelectorAll('input[name="basis"], input[name="view"]').forEach((el) => el.addEventListener("change", () => { if (last) draw(last); }));
+    ["floor", "ceiling", "cap", "block", "pause"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener("input", render);
+    });
+    render();
+  }
 
   let due = false;
   const reload = () => {

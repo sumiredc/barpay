@@ -1,25 +1,114 @@
 {{define "content"}}
-<div class="pagehead"><h1>Pricing</h1></div>
+<div class="pagehead"><h1>Pricing</h1><button class="textbutton" type="button" data-sheet="spec"><i data-icon="info"></i>&nbsp;How the cover charge works</button></div>
 <nav class="tabs" aria-label="Pricing">
   <a href="/admin/pricing">Now</a>
   <a href="/admin/settings" aria-current="page">Settings</a>
 </nav>
 <div class="tab-body"></div>
 {{template "notices" .}}
-{{if .Data.Failed}}{{template "no-answer" .}}{{end}}
-{{with .Data.Settings}}
+{{with .Toast}}<p class="notice good" role="status"><i data-icon="circle-check"></i><span>{{.}}</span></p>{{end}}
+{{if .Data.Invalid}}<p class="notice bad" role="alert"><i data-icon="alert"></i><span>Couldn't save. Fix the fields in red.</span></p>{{end}}
+{{with .Data.Form}}
+{{- /* The amounts are worked out by admin.js from the form and these data-* values: the published
+     rate (data-rate), the drink's price (data-drink), and the saved settings (data-floor and the
+     rest) that the card is drawn from while the form cannot be saved. */}}
+{{with $.Data.Preview}}
+<section class="card preview" id="preview" data-drink="{{.DrinkPrice.Value}}"{{with .Rate}} data-rate="{{.Value}}"{{end}}{{with .Saved}} data-floor="{{.Floor.Value}}" data-ceiling="{{.Ceiling.Value}}" data-cap="{{.CapPerVisit.Value}}" data-block="{{.BlockMinutes}}" data-pause="{{.PauseMinutes}}"{{end}} aria-label="What a customer pays" aria-live="polite">
+  <div class="preview-head">
+    <div>
+      <h2 style="margin: 0">What a customer pays</h2>
+      <p class="muted" style="margin: 4px 0 8px">Per customer (cover charge + drinks at <span data-p="drink">{{money .DrinkPrice}}</span> each)</p>
+      <div class="segmented" role="radiogroup" aria-label="What the chart shows" style="margin-right: 8px">
+        <label><input type="radio" name="view" value="total" checked><span>Total</span></label>
+        <label><input type="radio" name="view" value="charge"><span>Cover charge only</span></label>
+      </div>
+      <div class="segmented" role="radiogroup" aria-label="The rate it is worked out at">
+        <label><input type="radio" name="basis" value="floor"{{if not .Rate}} checked{{end}}><span>Floor <span data-p="floor"></span></span></label>
+        {{if .Rate}}<label><input type="radio" name="basis" value="now" checked><span>Now <span data-p="now"></span></span></label>{{end}}
+        <label><input type="radio" name="basis" value="ceiling"><span>Ceiling <span data-p="ceiling"></span></span></label>
+      </div>
+    </div>
+    <div class="stat" style="text-align: right">
+      <div class="label">2 h, 2 drinks</div>
+      <div class="big">About <span data-p="headline"></span></div>
+      <div class="muted" data-p="headsub">Cover charge <span data-p="headcharge"></span> + drinks <span data-p="headdrink"></span></div>
+    </div>
+  </div>
+  <svg class="preview-chart" viewBox="0 0 640 240" role="img" aria-label="What a customer pays by how long they stay, with 1, 2 and 3 drinks"></svg>
+  <div class="legend">
+    <span><i class="sw d1"></i>1 drink</span>
+    <span><i class="sw d2"></i>2 drinks</span>
+    <span><i class="sw d3"></i>3 drinks</span>
+    <span data-p="freelegend"><i class="sw free"></i>Free after an order</span>
+  </div>
+</section>
+{{end}}
 <form class="card" method="post" action="/admin/settings">
   <input type="hidden" name="csrf" value="{{$.CSRF}}">
-  <input type="hidden" name="currency" value="{{.Floor.Currency}}">
-  <div class="grid">
-    <div><label for="floor">Floor ({{.Floor.Currency}}/h)</label><input id="floor" name="floor" type="text" value="{{dollars .Floor}}"></div>
-    <div><label for="ceiling">Ceiling ({{.Ceiling.Currency}}/h)</label><input id="ceiling" name="ceiling" type="text" value="{{dollars .Ceiling}}"></div>
-    <div><label for="cap">Cap per visit ({{.CapPerVisit.Currency}}, 0 for none)</label><input id="cap" name="cap_per_visit" type="text" value="{{dollars .CapPerVisit}}"></div>
-    <div><label for="block">Block (minutes)</label><input id="block" name="block_minutes" type="number" min="1" max="240" value="{{.BlockMinutes}}"></div>
-    <div><label for="pause">Pause after an order (minutes, 0 for off)</label><input id="pause" name="pause_minutes" type="number" min="0" max="240" value="{{.PauseMinutes}}"></div>
-    <div><label for="goal">Goal (0 fill the room – 100 maximize revenue)</label><input id="goal" name="goal" type="number" min="0" max="100" value="{{.Goal}}"></div>
+  <input type="hidden" name="currency" value="{{.Currency}}">
+  <div class="columns">
+    <div>
+      <h2 style="margin-top: 0">Cover charge</h2>
+      <div class="field">
+        <label for="floor">Rate per hour</label>
+        <div class="range-pair">
+          <span class="money{{if index .Bad "floor"}} invalid{{end}}"><span>$</span><input id="floor" name="floor" type="text" inputmode="decimal" value="{{.Floor}}" aria-label="Floor"{{if index .Bad "floor"}} aria-invalid="true"{{end}}></span>
+          <span class="tilde">–</span>
+          <span class="money{{if index .Bad "ceiling"}} invalid{{end}}"><span>$</span><input id="ceiling" name="ceiling" type="text" inputmode="decimal" value="{{.Ceiling}}" aria-label="Ceiling"{{if index .Bad "ceiling"}} aria-invalid="true"{{end}}></span>
+          <span class="muted">/ h</span>
+        </div>
+        {{with index .Hint "range"}}<p class="hint up">{{.}}</p>{{end}}
+      </div>
+      <div class="field">
+        <label for="cap">Cap per visit</label>
+        <div class="range-pair"><span class="money{{if index .Bad "cap"}} invalid{{end}}"><span>$</span><input id="cap" name="cap_per_visit" type="text" inputmode="decimal" value="{{.Cap}}"{{if index .Bad "cap"}} aria-invalid="true"{{end}}></span><span class="muted">0 for no cap</span></div>
+        {{with index .Hint "cap"}}<p class="hint up">{{.}}</p>{{end}}
+      </div>
+    </div>
+    <div>
+      <h2 style="margin-top: 0">Charging</h2>
+      <div class="field">
+        <label for="block">Every</label>
+        <div class="unit"><input id="block" name="block_minutes" type="number" min="1" max="240" value="{{.Block}}"{{if index .Bad "block"}} aria-invalid="true"{{end}}><span class="muted">min</span></div>
+        {{with index .Hint "block"}}<p class="hint up">{{.}}</p>{{end}}
+      </div>
+      <div class="field">
+        <label for="pause">Free after an order</label>
+        <div class="unit"><input id="pause" name="pause_minutes" type="number" min="0" max="240" value="{{.Pause}}"{{if index .Bad "pause"}} aria-invalid="true"{{end}}><span class="muted">min</span><span class="muted">0 for none</span></div>
+        {{with index .Hint "pause"}}<p class="hint up">{{.}}</p>{{end}}
+      </div>
+      <h2>AI</h2>
+      <div class="field">
+        <label for="goal">Pricing goal</label>
+        <div class="range"><span class="muted">Bring people in</span><input id="goal" name="goal" type="range" min="0" max="100" value="{{.Goal}}"{{if index .Bad "goal"}} aria-invalid="true"{{end}}><span class="muted">Grow revenue</span></div>
+        {{with index .Hint "goal"}}<p class="hint up">{{.}}</p>{{end}}
+        <div class="goal-effect" id="goal-effect" aria-live="polite">
+          <div class="goal-rows">
+            <div><span class="muted">When it's quiet</span><strong data-g="low"></strong></div>
+            <div><span class="muted">When it's busy</span><strong data-g="high"></strong></div>
+          </div>
+          <a class="textbutton" href="/admin/pricing" style="padding-left: 0">See the AI's decisions<i data-icon="chevron-right"></i></a>
+        </div>
+      </div>
+    </div>
   </div>
-  <p><button class="button" type="submit">Save settings</button></p>
+  <div class="row" style="justify-content: flex-end"><button class="button" type="submit">Save</button></div>
 </form>
+{{else}}
+<p class="notice bad"><i data-icon="alert"></i><span>BarPay didn't return the current settings, so they can't be changed yet. Wait a moment, then <a href="{{.Here}}">reload</a>.</span></p>
 {{end}}
+
+<dialog class="sheet spec" id="spec">
+  <h2>How the cover charge works</h2>
+  <dl class="spec-list">
+    <dt>Rate per hour</dt><dd>The AI sets it within the range you set, in steps of $0.05. When you change the range, a rate outside it moves into it at once.</dd>
+    <dt>Charging</dt><dd>During a visit, each time the set minutes pass, the rate for those minutes is added. Minutes the customer leaves partway through are not added.</dd>
+    <dt>Free after an order</dt><dd>The first order doesn't count. After each later order, nothing is added for this long. An order during that time starts it again.</dd>
+    <dt>Cap per visit</dt><dd>Once the cover charge reaches this amount, nothing more is added in that visit. 0 for no cap.</dd>
+    <dt>Pricing goal</dt><dd>What the AI aims for when it sets the rate. Toward the left, it lowers the rate when the room is quiet, to bring people in. Toward the right, it raises the rate when the room is busy, to grow revenue. "When it's quiet" and "When it's busy" under the slider are a rough guide to the direction asked of the AI. The actual rate is set by the AI from how busy the room is at the time, and always stays within the range. With each decision, the AI writes how it served the goal in the log on the Now tab.</dd>
+    {{with .Data.Preview}}{{if .Drink}}<dt>What a customer pays</dt><dd>Worked out as if the chosen rate (floor, now or ceiling) stays the same; when the rate now is outside the range you are entering, it is taken at the nearer end, as saving moves it there. The drinks are the menu's {{.Drink}} at {{money .DrinkPrice}}: the first on arrival, the second 30 minutes later and the third 60 minutes later. After the second and the third, nothing is added for the time free after an order. Each charge is rounded down to the cent. The cap per visit applies to the cover charge only.</dd>{{end}}{{end}}
+    <dt>When changes apply</dt><dd>The range: as soon as you save. The pricing goal: from the next update. Every, free after an order and the cap per visit: for each customer in the store, from the next set of minutes that starts.</dd>
+  </dl>
+  <div class="dialog-actions"><button class="button" type="button" data-close>Close</button></div>
+</dialog>
 {{end}}

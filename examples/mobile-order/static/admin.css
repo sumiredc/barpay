@@ -192,6 +192,8 @@ body[data-app="admin"] dialog.sheet.spec { max-width: 560px; }
 .goal-rows > div { background: #f6f0e8; border-radius: 8px; padding: 8px 12px; display: flex; flex-direction: column; }
 .goal-rows strong { font-size: 1rem; }
 .goal-rows .muted { font-size: 0.8rem; }
+/* A minutes field that cannot be saved; an amount is marked on its .money box */
+.field .unit input[aria-invalid=true] { border-color: var(--bad); }
 
 /* That chart: a line per number of drinks, and the switch of the rate it uses */
 .preview-chart .line.d1 { stroke: #b9aea2; }
