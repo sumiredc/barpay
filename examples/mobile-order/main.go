@@ -147,6 +147,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("POST /admin/sessions/{session_id}/orders/{order_id}/served", a.staffOnly(a.adminMarkServed))
 	mux.HandleFunc("GET /admin/pricing", a.staffOnly(a.adminPricing))
 	mux.HandleFunc("POST /admin/evaluate", a.staffOnly(a.adminEvaluate))
+	mux.HandleFunc("GET /admin/settings", a.staffOnly(a.adminSettings))
 	mux.HandleFunc("POST /admin/settings", a.staffOnly(a.adminUpdateSettings))
 	mux.HandleFunc("GET /admin/alerts", a.staffOnly(a.adminAlerts))
 	mux.HandleFunc("GET /admin/notifications", a.staffOnly(a.adminNotifications))

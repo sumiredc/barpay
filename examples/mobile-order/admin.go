@@ -447,7 +447,7 @@ func adminPath(s string) string {
 	return p
 }
 
-// Pricing: the rate, evaluate now, settings and the decision log.
+// Pricing: the rate, evaluate now and the decision log.
 
 func (a *App) adminPricing(w http.ResponseWriter, r *http.Request, id string, b Browser) {
 	ctx, cancel := a.ctx(r)
@@ -455,22 +455,17 @@ func (a *App) adminPricing(w http.ResponseWriter, r *http.Request, id string, b 
 	v := a.adminView(r, id, b, "Pricing", "pricing")
 	data := struct {
 		Rate      *CurrentRate
-		Settings  *Settings
 		Decisions []Decision
 		Next      string
 		Failed    bool
 	}{}
-	var err1, err2, err3 error
+	var err1, err2 error
 	data.Rate, err1 = a.barpay.getRate(ctx)
-	data.Settings, err2 = a.barpay.getSettings(ctx, b.StaffID)
 	var next *string
-	data.Decisions, next, err3 = a.barpay.listDecisions(ctx, b.StaffID, r.URL.Query().Get("cursor"))
-	data.Failed = err1 != nil || err2 != nil || err3 != nil
+	data.Decisions, next, err2 = a.barpay.listDecisions(ctx, b.StaffID, r.URL.Query().Get("cursor"))
+	data.Failed = err1 != nil || err2 != nil
 	if err1 != nil {
 		data.Rate = nil
-	}
-	if err2 != nil {
-		data.Settings = nil
 	}
 	if next != nil {
 		data.Next = "/admin/pricing?" + url.Values{"cursor": {*next}}.Encode()
@@ -496,6 +491,7 @@ func (a *App) adminEvaluate(w http.ResponseWriter, r *http.Request, id string, b
 	redirect(w, r, "/admin/pricing")
 }
 
+// adminUpdateSettings saves the form of the "Settings" tab and goes back to it.
 func (a *App) adminUpdateSettings(w http.ResponseWriter, r *http.Request, id string, b Browser) {
 	ctx, cancel := a.ctx(r)
 	defer cancel()
@@ -516,7 +512,7 @@ func (a *App) adminUpdateSettings(w http.ResponseWriter, r *http.Request, id str
 	goal, ok6 := integer("goal")
 	if !(ok1 && ok2 && ok3 && ok4 && ok5 && ok6) {
 		a.flash(id, "Every field needs a value: amounts such as 12.50, minutes and the goal as whole numbers.")
-		redirect(w, r, "/admin/pricing")
+		redirect(w, r, "/admin/settings")
 		return
 	}
 	_, err := a.barpay.updateSettings(ctx, b.StaffID, Settings{
@@ -527,7 +523,7 @@ func (a *App) adminUpdateSettings(w http.ResponseWriter, r *http.Request, id str
 	} else {
 		a.flash(id, "The settings were saved.")
 	}
-	redirect(w, r, "/admin/pricing")
+	redirect(w, r, "/admin/settings")
 }
 
 func (a *App) adminAlerts(w http.ResponseWriter, r *http.Request, id string, b Browser) {
