@@ -1,34 +1,36 @@
 {{define "content"}}
 <div class="pagehead"><h1>Log</h1></div>
+<p class="muted" style="margin-top: 0">Notifications from BarPay. You don't need to check this day to day.</p>
 {{template "notices" .}}
-{{if .Data.Failed}}{{template "no-answer" .}}{{end}}
-<h2>BarPay's notification log</h2>
+<form class="search" role="search" method="get" action="/admin/notifications">
+  <input type="search" name="q" value="{{.Data.Query}}" placeholder="Customer name, session ID or event ID" aria-label="Search">
+  <button class="button icon-only" type="submit" aria-label="Search"><i data-icon="search"></i></button>
+</form>
+{{if .Data.Newest}}{{template "no-answer" .}}
+<div class="pager"><a class="textbutton" href="{{.Data.Newest}}">Newest entries<i data-icon="chevron-right"></i></a></div>
+{{else}}
+{{if .Data.Failed}}<p class="notice bad"><i data-icon="alert"></i><span>BarPay didn't answer, so this shows only what this app received. Wait a moment, then <a href="{{.Here}}">reload</a>.</span></p>{{end}}
 <div class="card scroll">
-<table>
-  <thead><tr><th>Created</th><th>Event</th><th>Type</th><th>Status</th><th>Attempts</th><th>Last attempt</th></tr></thead>
+<table class="clickable">
+  <thead><tr><th>Time</th><th>What happened</th><th>Customer</th><th>Status</th></tr></thead>
   <tbody>
-  {{range .Data.Records}}
-    <tr><td>{{time .CreatedAt}}</td><td>{{.EventID}}</td><td>{{.Type}}</td><td><span class="pill">{{.Status}}</span></td><td>{{.Attempts}}</td><td>{{with .LastAttemptAt}}{{time .}}{{else}}—{{end}}</td></tr>
+  {{range .Data.Rows}}
+    <tr data-sheet="{{.ID}}" tabindex="0"><td class="nowrap">{{.Time}}</td><td>{{.What}}</td><td class="nowrap">{{.Customer}}</td><td><span class="pill {{.StatusClass}}">{{.Status}}</span></td></tr>
   {{else}}
-    <tr><td colspan="6">No notifications.</td></tr>
+    <tr><td colspan="4" class="muted" style="text-align: center">{{with .Data.Query}}Nothing matches "{{.}}"{{else}}No notifications yet{{end}}</td></tr>
   {{end}}
   </tbody>
 </table>
 </div>
-{{with .Data.Next}}<p><a class="button small secondary" href="{{.}}">Older notifications</a></p>{{end}}
+{{with .Data.Next}}<div class="pager"><a class="textbutton" href="{{.}}">Older entries<i data-icon="chevron-right"></i></a></div>{{end}}
+{{end}}
 
-<h2>Received by this app</h2>
-<p class="muted">Each event once, however many times BarPay sent it. Newest first.</p>
-<div class="card scroll">
-<table>
-  <thead><tr><th>Received</th><th>Event</th><th>Type</th><th>Subject</th><th>Sequence</th><th>Applied</th></tr></thead>
-  <tbody>
-  {{range .Data.Received}}
-    <tr><td>{{time .ReceivedAt}}</td><td>{{.EventID}}</td><td>{{.Type}}</td><td>{{.Subject}}</td><td>{{.Sequence}}</td><td>{{.Note}}</td></tr>
-  {{else}}
-    <tr><td colspan="6">Nothing received yet.</td></tr>
-  {{end}}
-  </tbody>
-</table>
-</div>
+{{range .Data.Rows}}
+<dialog class="sheet" id="{{.ID}}">
+  <h2>{{.What}}</h2>
+  <p class="muted" style="margin-top: 0">{{.Time}} · <span class="pill {{.StatusClass}}">{{.Status}}</span></p>
+  <dl class="summary detail"><dt>Type</dt><dd>{{.TypeDetail}}</dd><dt>Customer</dt><dd>{{.CustomerDetail}}</dd><dt>Sent by BarPay</dt><dd>{{.Sent}}</dd><dt>This app</dt><dd>{{.App}}</dd><dt>Event ID</dt><dd>{{.EventID}}</dd></dl>
+  <div class="dialog-actions"><button class="button" type="button" data-close>Close</button></div>
+</dialog>
+{{end}}
 {{end}}
