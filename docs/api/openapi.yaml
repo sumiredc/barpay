@@ -97,7 +97,10 @@ paths:
         '409':
           description: |
             `member_has_open_session`: the member already has a session that
-            is not closed. `idempotency_key_reused`: the key was used with a
+            is not closed, including a guest's session the member was
+            attached to (`attachMember`); of a check-in and an `attachMember`
+            of the same member at the same time, one goes through.
+            `idempotency_key_reused`: the key was used with a
             different request. `idempotency_key_in_progress`: a request with the
             same key is still being processed; retry shortly.
           content:
@@ -150,7 +153,8 @@ paths:
         Call it after the store app has signed up or logged in the guest as
         `member_id`. The session becomes that member's as the same visit:
         its check-in time, orders, cover charge, block ends, pause and cap
-        carry on unchanged. `session.member_attached` is sent. The returned
+        carry on unchanged, and the maximum stay still counts from
+        `checked_in_at`. `session.member_attached` is sent. The returned
         session is never linked yet: for a member with a saved PayPal,
         linking is reported later by `session.paypal_linked`, or
         `member.saved_paypal_deleted` if PayPal no longer has the saved
@@ -166,8 +170,13 @@ paths:
         attached (`409` `session_has_member`), the session's state (`409`
         `session_not_active`), the member's other sessions (`409`
         `member_has_open_session`). Of two requests that arrive at the same
-        time for the same session, or for the same member, one attaches and
-        the other gets the error it would get after it.
+        time for the same session, or for the same member, including a
+        `createCheckin` of that member, one goes through and the other gets
+        the error it would get after it. When the session leaves `active` at
+        the same moment (the maximum stay, an exit QR, `requestRegister`,
+        `closeSession`, `recordRegisterPayment`), whichever BarPay takes
+        first holds: a member attached first stays attached, and otherwise
+        the request gets `session_not_active`.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -1246,7 +1255,10 @@ webhooks:
 
         `data.session.member_id` is the attached member. For a member with a
         saved PayPal, `session.paypal_linked` follows once PayPal confirms
-        it, with a higher `sequence`.
+        it, with a higher `sequence`. If PayPal no longer has the saved
+        PayPal, `member.saved_paypal_deleted` follows instead; it is a
+        `member.*` event, so its `sequence` counts per member, not per
+        session.
       security: []
       parameters:
         - $ref: '#/components/parameters/Signature'
