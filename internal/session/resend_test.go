@@ -99,7 +99,7 @@ func TestChargeNeverSentIsSentAfterARestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := f.st.Tx(context.Background(), func(tx store.Querier) error {
-		_, _, err := f.api.begin(context.Background(), tx, s, checkout, f.clk.Now(), f.clk.Now())
+		_, _, err := f.api.begin(context.Background(), tx, s, checkout, f.clk.Now())
 		return err
 	}); err != nil {
 		t.Fatal(err)

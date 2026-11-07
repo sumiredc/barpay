@@ -55,7 +55,7 @@ func (a API) charge(w http.ResponseWriter, req *http.Request, operation string, 
 			if err != nil {
 				return err
 			}
-			if v, c, err = a.begin(ctx, tx, s, t, now, now); err != nil {
+			if v, c, err = a.begin(ctx, tx, s, t, now); err != nil {
 				return err
 			}
 			return keep(ctx, tx, claim, now, v)

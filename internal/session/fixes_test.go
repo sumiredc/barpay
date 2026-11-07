@@ -65,7 +65,7 @@ func TestSettlingAnAttemptTwiceChangesNothing(t *testing.T) {
 	}
 	var c *charge
 	err = f.st.Tx(context.Background(), func(tx store.Querier) (err error) {
-		_, c, err = f.api.begin(context.Background(), tx, s, checkout, f.clk.Now(), f.clk.Now())
+		_, c, err = f.api.begin(context.Background(), tx, s, checkout, f.clk.Now())
 		return err
 	})
 	if err != nil || c == nil {
