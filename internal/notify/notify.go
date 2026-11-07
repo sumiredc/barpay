@@ -22,6 +22,7 @@ type Type string
 
 const (
 	SessionStarted           Type = "session.started"
+	SessionMemberAttached    Type = "session.member_attached"
 	SessionPaypalLinked      Type = "session.paypal_linked"
 	SessionRegisterRequested Type = "session.register_requested"
 	SessionClosed            Type = "session.closed"
@@ -35,8 +36,9 @@ const (
 
 // types are the spec's webhooks.
 var types = []Type{
-	SessionStarted, SessionPaypalLinked, SessionRegisterRequested, SessionClosed, SessionPaymentFailed,
-	SessionSettledOutside, SessionClosedUnpaid, GateUnlockFailed, MemberPaypalLinked, MemberSavedPaypalDeleted,
+	SessionStarted, SessionMemberAttached, SessionPaypalLinked, SessionRegisterRequested, SessionClosed,
+	SessionPaymentFailed, SessionSettledOutside, SessionClosedUnpaid, GateUnlockFailed, MemberPaypalLinked,
+	MemberSavedPaypalDeleted,
 }
 
 // subjectKind is what a sequence number counts per: the session for session.* and gate.*, the

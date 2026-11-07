@@ -450,6 +450,7 @@ func TestSessionOperationsNeedTheStoreAPIKey(t *testing.T) {
 	ops := map[string]call{
 		"createCheckin": {method: http.MethodPost, path: "/v1/checkins", key: "key-x", body: `{}`},
 		"getSession":    {method: http.MethodGet, path: "/v1/sessions/" + v.SessionID},
+		"attachMember":  {method: http.MethodPost, path: "/v1/sessions/" + v.SessionID + "/member", key: "key-y", body: `{"member_id":"m_1"}`},
 		"reportOrder":   {method: http.MethodPost, path: "/v1/sessions/" + v.SessionID + "/orders", body: orderBody("o-1", line("Beer", 1, 650))},
 	}
 	for name, c := range ops {
@@ -462,7 +463,8 @@ func TestSessionOperationsNeedTheStoreAPIKey(t *testing.T) {
 			}
 		}
 	}
-	if f.sessions(t) != 1 || f.orderCount(t) != 0 || f.notifications(t) != 1 || f.count(t, "SELECT count(*) FROM idempotency_keys") != 1 {
+	if f.sessions(t) != 1 || f.orderCount(t) != 0 || f.notifications(t) != 1 || f.count(t, "SELECT count(*) FROM idempotency_keys") != 1 ||
+		f.count(t, "SELECT count(*) FROM sessions WHERE member_id IS NOT NULL") != 0 {
 		t.Error("something changed")
 	}
 }

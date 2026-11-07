@@ -16,8 +16,8 @@ import (
 // Waker is told when a notification was stored, so it is sent at once (notify.Dispatcher).
 type Waker interface{ Wake() }
 
-// API serves the session operations of the store API (createCheckin, getSession, reportOrder,
-// requestRegister) and of the admin API (listSessions and the operations on a session).
+// API serves the session operations of the store API (createCheckin, getSession, attachMember,
+// reportOrder, requestRegister) and of the admin API (listSessions and the operations on a session).
 type API struct {
 	Store  *store.Store
 	Clock  clock.Clock
@@ -39,6 +39,7 @@ type API struct {
 func (a API) Register(r *httpapi.Router) {
 	r.Store("POST /checkins", a.Keys.Require(http.HandlerFunc(a.createCheckin)))
 	r.Store("GET /sessions/{session_id}", http.HandlerFunc(a.getSession))
+	r.Store("POST /sessions/{session_id}/member", a.Keys.Require(http.HandlerFunc(a.attachMember)))
 	r.Store("POST /sessions/{session_id}/orders", http.HandlerFunc(a.reportOrder))
 	r.Store("POST /sessions/{session_id}/register-request", http.HandlerFunc(a.requestRegister))
 	r.Store("GET /sessions/{session_id}/exit-token", http.HandlerFunc(a.getExitToken))
@@ -62,6 +63,7 @@ const (
 	codeCurrencyMismatch     httpapi.Code = "currency_mismatch"
 	codeAmountTooLarge       httpapi.Code = "amount_too_large"
 	codeMemberHasOpenSession httpapi.Code = "member_has_open_session"
+	codeSessionHasMember     httpapi.Code = "session_has_member"
 	codeSessionNotAtRegister httpapi.Code = "session_not_at_register"
 	codeExitTokenUnavailable httpapi.Code = "exit_token_unavailable"
 	codeSessionNotLinked     httpapi.Code = "session_not_linked"
