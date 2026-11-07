@@ -15,10 +15,11 @@ COPY go.mod go.sum ./
 COPY examples/mobile-order/go.mod examples/mobile-order/go.sum examples/mobile-order/
 RUN go mod download && cd examples/mobile-order && go mod download
 COPY . .
-# The sample app's templates and static files are embedded, so the binaries are all the image needs.
-RUN go build -trimpath -o /out/barpay ./cmd/barpay \
- && go build -trimpath -o /out/barpay-dev ./cmd/barpay-dev \
- && cd examples/mobile-order && go build -trimpath -o /out/mobile-order .
+# The sample app's templates and static files are embedded, and so is the time zone data
+# (timetzdata) that TZ names, so the binaries are all the image needs.
+RUN go build -trimpath -tags timetzdata -o /out/barpay ./cmd/barpay \
+ && go build -trimpath -tags timetzdata -o /out/barpay-dev ./cmd/barpay-dev \
+ && cd examples/mobile-order && go build -trimpath -tags timetzdata -o /out/mobile-order .
 
 FROM scratch
 # BarPay calls PayPal over https.
