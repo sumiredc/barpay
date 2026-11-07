@@ -108,6 +108,11 @@ spec:
             - name: data
               mountPath: /data
               subPath: mobile-order
+          # The store's local time, in which the sample app shows times; the image has its own
+          # time zone data.
+          env:
+            - name: TZ
+              value: America/Los_Angeles
         # The signal simulator stands in for the edge device's microphone. It reads only the edge
         # device's shared secret, never BarPay's config file.
         - name: signals
