@@ -150,8 +150,16 @@ paths:
       description: |
         PRD: UC10; Responsibilities → Check-in.
 
-        Call it after the store app has signed up or logged in the guest as
-        `member_id`. The session becomes that member's as the same visit:
+        Call it only as part of signing up or logging in the guest as
+        `member_id`, after showing the member the visit's running total and
+        orders, and, if the member has a saved PayPal, that this visit's
+        total will be charged to it at checkout without asking again, and
+        only once the member agreed. Take `session_id` only from the store
+        app's own server-side record of the guest check-in it made for that
+        browser session, never from a request body, a link or a query
+        parameter, and send as `member_id` only the member just signed up or
+        logged in in that same browser session, so that a link from someone
+        else can never start an attach. The session becomes that member's as the same visit:
         its check-in time, orders, cover charge, block ends, pause and cap
         carry on unchanged, and the maximum stay still counts from
         `checked_in_at`. `session.member_attached` is sent. The returned
@@ -173,7 +181,7 @@ paths:
         time for the same session, or for the same member, including a
         `createCheckin` of that member, one goes through and the other gets
         the error it would get after it. When the session leaves `active` at
-        the same moment (the maximum stay, an exit QR, `requestRegister`,
+        the same moment (an exit QR, `requestRegister`,
         `closeSession`, `recordRegisterPayment`), whichever BarPay takes
         first holds: a member attached first stays attached, and otherwise
         the request gets `session_not_active`.
@@ -1640,7 +1648,7 @@ components:
   schemas:
     SessionId:
       type: string
-      description: Assigned by BarPay.
+      description: Assigned by BarPay at random and unguessable (130 random bits).
       pattern: '^ses_[A-Za-z0-9]{16,32}$'
       examples: [ses_8f3k2m9q1x7v4b6n]
     MemberId:
