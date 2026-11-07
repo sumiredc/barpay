@@ -36,8 +36,8 @@ func pastLimit(s Session, now time.Time) bool {
 const poll = time.Second
 
 // Run, when it starts and every second until ctx ends, closes the sessions that reached their
-// 3-day limit, sends again the charges whose outcome is unknown, and checks out or raises an
-// alert for the sessions at the maximum stay.
+// 3-day limit, sends again the charges whose outcome is unknown, and raises an alert for the
+// sessions at the maximum stay.
 func (a API) Run(ctx context.Context, log *slog.Logger) {
 	tick := time.NewTicker(poll)
 	defer tick.Stop()

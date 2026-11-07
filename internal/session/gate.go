@@ -119,7 +119,7 @@ func (a API) scanExitToken(w http.ResponseWriter, req *http.Request) {
 			res.ReaderMessage = readPayAtRegister
 		case s.State == Active && isActive:
 			var v View
-			v, c, err = a.begin(ctx, tx, s, checkout, now, now)
+			v, c, err = a.begin(ctx, tx, s, checkout, now)
 			switch {
 			case errors.Is(err, errNoSavedPaypal):
 				// Not expected while linked: begin changed nothing, and the customer sees staff.

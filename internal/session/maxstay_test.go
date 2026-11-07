@@ -12,71 +12,170 @@ import (
 	"github.com/sumiredc/barpay/internal/spectest"
 )
 
-// UC3 exception: a linked session at the maximum stay is checked out as in UC5 without the gate;
-// before it, nothing happens. The boundary instant is left open by the PRD.
-func TestMaxStayChecksOutALinkedSession(t *testing.T) {
-	f := newFixture(t)
-	v := f.ordered(t, "m_1")
-	f.clk.Set(t0.Add(maxStay - time.Second))
-	if n := f.maxStayDue(t); n != 0 || f.state(t, v.SessionID) != Active {
-		t.Fatalf("handled %d before the maximum stay", n)
+// stillOpen fails the test unless the session is active, has max_stay_reached raised alerts
+// times, and nothing was sent to PayPal to charge it.
+func (f *fixture) stillOpen(t *testing.T, id string, alerts int) {
+	t.Helper()
+	if s, n := f.state(t, id), f.alerts(t, id, "max_stay_reached"); s != Active || n != alerts {
+		t.Errorf("state %s with %d max_stay_reached; want active with %d", s, n, alerts)
 	}
-	f.clk.Set(t0.Add(maxStay + time.Second))
-	if n := f.maxStayDue(t); n != 1 {
-		t.Fatalf("handled %d at the maximum stay, want 1", n)
+	if n, stored := len(f.charges()), f.count(t, "SELECT count(*) FROM charges WHERE session_id = ?", id); n != 0 || stored != 0 {
+		t.Errorf("%d charges sent, %d stored; want none", n, stored)
 	}
-	if f.state(t, v.SessionID) != Closed || len(f.pp.Captures()) != 1 || f.count(t, "SELECT count(*) FROM gate_unlocks") != 0 {
-		t.Errorf("state %s, %d captures", f.state(t, v.SessionID), len(f.pp.Captures()))
-	}
-	evs := f.events(t, v.SessionID, "session.closed")
-	if len(evs) != 1 {
-		t.Fatalf("%d session.closed", len(evs))
-	}
-	spectest.Valid(t, "SessionClosedEvent", evs[0])
-	if n := f.maxStayDue(t); n != 0 || len(f.charges()) != 1 {
-		t.Error("handled again")
-	}
-	// The customer can check in again.
-	f.checkedIn(t, "m_1")
 }
 
-// UC3 exception: an unlinked session at the maximum stay stays active with max_stay_reached raised
-// once, however often and across restarts BarPay looks. A session at the register is left alone.
+// UC3 exception: just before the maximum stay, a linked session is left alone.
+func TestMaxStayDoesNothingJustBeforeIt(t *testing.T) {
+	f := newFixture(t)
+	v := f.ordered(t, "m_1")
+	f.clk.Set(t0.Add(maxStay - time.Nanosecond))
+	if n := f.maxStayDue(t); n != 0 {
+		t.Errorf("handled %d, want 0", n)
+	}
+	f.stillOpen(t, v.SessionID, 0)
+}
+
+// UC3 exception: from exactly the maximum stay, a linked session stays active with
+// max_stay_reached raised once, however often BarPay looks, and PayPal is not asked to charge.
+// The exact instant counts as reached.
+func TestMaxStayKeepsALinkedSessionOpen(t *testing.T) {
+	for name, at := range map[string]time.Duration{"exactly at": maxStay, "just after": maxStay + time.Nanosecond} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			v := f.ordered(t, "m_1")
+			f.clk.Set(t0.Add(at))
+			if n := f.maxStayDue(t); n != 1 {
+				t.Errorf("handled %d, want 1", n)
+			}
+			f.clk.Advance(time.Hour)
+			if n := f.maxStayDue(t); n != 0 {
+				t.Errorf("handled %d again, want 0", n)
+			}
+			f.stillOpen(t, v.SessionID, 1)
+		})
+	}
+}
+
+// UC3 exception: an unlinked session at the maximum stay stays active with max_stay_reached
+// raised once, however often BarPay looks.
 func TestMaxStayAlertsOnceForAnUnlinkedSession(t *testing.T) {
 	f := newFixture(t)
 	v := f.checkedIn(t, "")
-	reg := f.linkedIn(t, "m_1")
-	f.requested(t, reg.SessionID)
-	f.clk.Set(t0.Add(maxStay - time.Second))
-	if n := f.maxStayDue(t); n != 0 {
-		t.Fatalf("handled %d before the maximum stay", n)
-	}
-	f.clk.Set(t0.Add(maxStay + time.Second))
+	f.clk.Set(t0.Add(maxStay))
 	if n := f.maxStayDue(t); n != 1 {
-		t.Fatalf("handled %d, want 1", n)
+		t.Errorf("handled %d, want 1", n)
 	}
-	f.maxStayDue(t)
-	f.restart(t)
 	f.clk.Advance(time.Hour)
 	f.maxStayDue(t)
-	if f.state(t, v.SessionID) != Active || f.alerts(t, v.SessionID, "max_stay_reached") != 1 {
-		t.Errorf("state %s, %d alerts; want active with one alert", f.state(t, v.SessionID), f.alerts(t, v.SessionID, "max_stay_reached"))
+	f.stillOpen(t, v.SessionID, 1)
+}
+
+// UC3 exception: a linked session whose member has no saved PayPal any more is handled like any
+// other at the maximum stay: it stays active with max_stay_reached raised once.
+func TestMaxStayAlertsOnceWithNoSavedPaypal(t *testing.T) {
+	f := newFixture(t)
+	v := f.ordered(t, "m_1")
+	f.saved.mu.Lock()
+	delete(f.saved.vaults, "m_1")
+	f.saved.mu.Unlock()
+	f.clk.Set(t0.Add(maxStay))
+	if n := f.maxStayDue(t); n != 1 {
+		t.Errorf("handled %d, want 1", n)
 	}
-	if f.state(t, reg.SessionID) != AtRegister || f.alerts(t, reg.SessionID, "max_stay_reached") != 0 || len(f.charges()) != 0 {
-		t.Error("the session at the register was touched")
+	f.maxStayDue(t)
+	f.stillOpen(t, v.SessionID, 1)
+}
+
+// UC3 exception: a session linked after its max_stay_reached was raised is not checked out, and
+// the alert is not raised again.
+func TestMaxStayIgnoresALinkAfterTheAlert(t *testing.T) {
+	f := newFixture(t)
+	v := f.checkedIn(t, "m_1")
+	f.clk.Set(t0.Add(maxStay))
+	f.maxStayDue(t)
+	f.saved.mu.Lock()
+	f.saved.vaults["m_1"] = f.pp.Vault(payer("m_1"))
+	f.saved.mu.Unlock()
+	f.clk.Advance(time.Minute)
+	if !f.link(t, v.SessionID) {
+		t.Fatal("not linked")
+	}
+	if n := f.maxStayDue(t); n != 0 {
+		t.Errorf("handled %d after the link, want 0", n)
+	}
+	f.stillOpen(t, v.SessionID, 1)
+}
+
+// UC3 exception: a checkout after the maximum stay, at the exit gate or by staff, charges the
+// total at that moment, not the total at the maximum stay.
+func TestCheckoutAfterTheMaximumStayChargesTheTotalThen(t *testing.T) {
+	checkouts := map[string]func(t *testing.T, f *fixture, id string){
+		"exit gate":   func(t *testing.T, f *fixture, id string) { f.scan(t, f.token(t, id).Token) },
+		"staff close": func(t *testing.T, f *fixture, id string) { f.closed(t, id) },
+	}
+	for name, checkout := range checkouts {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			v := f.ordered(t, "m_1")
+			f.api.MaxStay = time.Hour
+			f.clk.Set(t0.Add(time.Hour))
+			f.maxStayDue(t)
+			f.clk.Set(t0.Add(2 * time.Hour))
+			checkout(t, f, v.SessionID)
+			// $13.00 of orders; six blocks of $2.00 by t0+1h ($25.00), twelve by t0+2h ($37.00).
+			if caps := f.pp.Captures(); len(caps) != 1 || caps[0].Amount != usd(3700) {
+				t.Errorf("captures %+v, want one of 3700 USD", caps)
+			}
+			if s := f.state(t, v.SessionID); s != Closed {
+				t.Errorf("state %s, want closed", s)
+			}
+		})
 	}
 }
 
+// UC3 exception: only an active session reaches the maximum stay; the cover charge of any other
+// has stopped, so none gets max_stay_reached.
+func TestMaxStayIgnoresSessionsNotActive(t *testing.T) {
+	for _, state := range []State{AtRegister, CheckingOut, PaymentFailed, Closed, ClosedUnpaid} {
+		t.Run(string(state), func(t *testing.T) {
+			f := newFixture(t)
+			v := f.ordered(t, "m_1")
+			f.setState(t, v.SessionID, state)
+			f.clk.Set(t0.Add(maxStay))
+			if n := f.maxStayDue(t); n != 0 || f.alerts(t, v.SessionID, "max_stay_reached") != 0 {
+				t.Errorf("handled %d, want 0 and no alert", n)
+			}
+		})
+	}
+}
+
+// Guarantees → Durability: whether max_stay_reached was raised is stored, so a restart after it
+// does not raise it again.
+func TestMaxStayAlertsOnceAcrossARestart(t *testing.T) {
+	f := newFixture(t)
+	v := f.ordered(t, "m_1")
+	f.clk.Set(t0.Add(maxStay))
+	f.maxStayDue(t)
+	f.restart(t)
+	f.clk.Advance(time.Hour)
+	if n := f.maxStayDue(t); n != 0 {
+		t.Errorf("handled %d after the restart, want 0", n)
+	}
+	f.stillOpen(t, v.SessionID, 1)
+}
+
 // Guarantees → Durability: the maximum stay is computed from the stored check-in, so a session
-// that reached it while BarPay was stopped is checked out at the next start.
-func TestMaxStayAcrossARestart(t *testing.T) {
+// that reached it while BarPay was stopped gets max_stay_reached once at the next start, and
+// stays open.
+func TestMaxStayReachedWhileStoppedAlertsAtTheStart(t *testing.T) {
 	f := newFixture(t)
 	v := f.ordered(t, "m_1")
 	f.restart(t)
 	f.clk.Set(t0.Add(maxStay + 3*time.Hour))
-	if n := f.maxStayDue(t); n != 1 || f.state(t, v.SessionID) != Closed {
-		t.Errorf("handled %d, state %s", n, f.state(t, v.SessionID))
+	if n := f.maxStayDue(t); n != 1 {
+		t.Errorf("handled %d, want 1", n)
 	}
+	f.stillOpen(t, v.SessionID, 1)
 }
 
 func (f *fixture) unlockGate(body string) *httptest.ResponseRecorder {
@@ -153,25 +252,26 @@ func TestWaitForUnlockEndsEmpty(t *testing.T) {
 	}
 }
 
-// Guarantees → Single payment: any two of the scan, closeSession, retryCharge, settleOutside and
-// the maximum stay arriving together charge once at most and end the session with one kind of
-// notification; with requestRegister or recordRegisterPayment, only one goes through, and PayPal
-// is called only if the checkout did.
+// Guarantees → Single payment: any two of the scan, closeSession, retryCharge and settleOutside
+// arriving together charge once at most and end the session with one kind of notification; with
+// requestRegister or recordRegisterPayment, only one goes through, and PayPal is called only if
+// the checkout did. The maximum stay arriving with a scan or closeSession adds no charge and
+// raises max_stay_reached once at most.
 func TestOperationsOnOneSessionAtOnce(t *testing.T) {
 	type op func(f *fixture, v View, tok string)
 	scan := func(f *fixture, _ View, tok string) { f.scanRaw(tok) }
 	closeOp := func(f *fixture, v View, _ string) { f.closeSession(v.SessionID, "c-"+newID()) }
-	maxStayOp := func(f *fixture, _ View, _ string) { _, _ = f.api.MaxStayDue(context.Background()) }
 	register := func(f *fixture, v View, _ string) { f.requestRegister(v.SessionID) }
 	record := func(f *fixture, v View, _ string) { f.recordPayment(v.SessionID, amountBody(1700, "USD")) }
 	retry := func(f *fixture, v View, _ string) { f.retry(v.SessionID, "r-"+newID()) }
 	settle := func(f *fixture, v View, _ string) { f.settleOutside(v.SessionID, amountBody(1700, "USD")) }
+	maxStayOp := func(f *fixture, _ View, _ string) { _, _ = f.api.MaxStayDue(context.Background()) }
 	pairs := map[string][2]op{
-		"scan+close": {scan, closeOp}, "scan+max stay": {scan, maxStayOp}, "close+max stay": {closeOp, maxStayOp},
-		"scan+register": {scan, register}, "close+register": {closeOp, register}, "max stay+register": {maxStayOp, register},
-		"scan+record": {scan, record}, "close+record": {closeOp, record}, "max stay+record": {maxStayOp, record},
-		"retry+settle": {retry, settle},
+		"scan+close": {scan, closeOp}, "scan+register": {scan, register}, "close+register": {closeOp, register},
+		"scan+record": {scan, record}, "close+record": {closeOp, record},
+		"retry+settle": {retry, settle}, "scan+max stay": {scan, maxStayOp}, "close+max stay": {closeOp, maxStayOp},
 	}
+	atMaxStay := map[string]bool{"scan+max stay": true, "close+max stay": true}
 	for name, pair := range pairs {
 		t.Run(name, func(t *testing.T) {
 			for range 10 {
@@ -183,8 +283,9 @@ func TestOperationsOnOneSessionAtOnce(t *testing.T) {
 				} else {
 					v = f.ordered(t, "m_1")
 				}
-				// At the maximum stay; the token stays current, its period beginning then.
-				f.clk.Set(t0.Add(maxStay))
+				if atMaxStay[name] {
+					f.clk.Set(t0.Add(maxStay))
+				}
 				tok := ""
 				if w := f.exitToken(v.SessionID); w.Code == http.StatusOK {
 					var et exitTokenJSON
@@ -198,6 +299,9 @@ func TestOperationsOnOneSessionAtOnce(t *testing.T) {
 				wg.Wait()
 				if n := len(f.pp.Captures()); n > 1 {
 					t.Fatalf("%d captures", n)
+				}
+				if n := f.alerts(t, v.SessionID, "max_stay_reached"); n > 1 {
+					t.Fatalf("%d max_stay_reached", n)
 				}
 				if f.endEvents(t, v.SessionID) > 1 {
 					t.Fatalf("ended with %d notifications", f.endEvents(t, v.SessionID))

@@ -94,22 +94,22 @@ var errNoSavedPaypal = errors.New("session: the member has no saved PayPal")
 
 // begin moves s along t (checkout from active, or a staff retry) inside tx and stores the attempt
 // to charge its total with the member's saved PayPal, before PayPal is called (the PRD's
-// Guarantees, Single payment). A session leaving active has its total fixed at fixAt, which is
-// now except at the maximum stay; now is when the attempt is first sent. It returns the session
-// as moved and the attempt to send. A total of 0 charges nothing: the session is closed at once
-// with its session.closed, and there is no attempt to send. When the member has no saved PayPal
-// to charge, it returns errNoSavedPaypal before changing anything.
-func (a API) begin(ctx context.Context, tx store.Querier, s Session, t trigger, fixAt, now time.Time) (View, *charge, error) {
+// Guarantees, Single payment). A session leaving active has its total fixed at now, which is
+// also when the attempt is first sent. It returns the session as moved and the attempt to send.
+// A total of 0 charges nothing: the session is closed at once with its session.closed, and there
+// is no attempt to send. When the member has no saved PayPal to charge, it returns
+// errNoSavedPaypal before changing anything.
+func (a API) begin(ctx context.Context, tx store.Querier, s Session, t trigger, now time.Time) (View, *charge, error) {
 	// Refused moves are refused as such, before the saved PayPal is looked for.
-	if err := judge(s, t, fixAt); err != nil {
+	if err := judge(s, t, now); err != nil {
 		return View{}, nil, err
 	}
 	// The total as the move will fix it, to find whether there is anything to charge first.
 	fixed := s
 	if fixed.TotalFixedAt.IsZero() {
-		fixed.TotalFixedAt = fixAt
+		fixed.TotalFixedAt = now
 	}
-	v, err := compute(ctx, tx, fixed, fixAt)
+	v, err := compute(ctx, tx, fixed, now)
 	if err != nil {
 		return View{}, nil, err
 	}
@@ -122,7 +122,7 @@ func (a API) begin(ctx context.Context, tx store.Querier, s Session, t trigger, 
 			return View{}, nil, errNoSavedPaypal
 		}
 	}
-	moved, err := move(ctx, tx, s, t, fixAt)
+	moved, err := move(ctx, tx, s, t, now)
 	if err != nil {
 		return View{}, nil, err
 	}

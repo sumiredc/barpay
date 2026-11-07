@@ -72,7 +72,7 @@ If the process stops between the two, what was stored is the only record of what
 
 ## One place decides every state change of a session
 
-A session receives operations from several entry points at once — the exit gate, the store server's admin operations (close, retry, settle outside BarPay, mark unpaid, record a register payment), the maximum stay, the register request, and late orders — so every state change is decided in one place, and "only once" is held by a unique constraint or a conditional state transition in the store, not by a mutex.
+A session receives operations from several entry points at once — the exit gate, the store server's admin operations (close, retry, settle outside BarPay, mark unpaid, record a register payment), the register request, and late orders — so every state change is decided in one place, and "only once" is held by a unique constraint or a conditional state transition in the store, not by a mutex.
 A mutex lives in one process and disappears on restart; a check in each handler lets two handlers both see "active" and both act. Broken in BarPay: a scan at the gate and a staff close arrive together, both see the session active, and both charge.
 
 - **Move the state with a conditional update and act only if it moved.** "Set checking out where state is active" either changes one row or none; the caller that changed none stops. The allowed transitions are the ones in the PRD's Use cases state diagram. Broken in BarPay: a register request arriving during a charge also fixes a total and marks the session at the register, and staff collect cash from a customer PayPal already charged.
@@ -107,7 +107,7 @@ The failures above happen only in timing and partial outcomes that the real serv
 | The charge succeeds but the reply never arrives | BarPay resends with the same `PayPal-Request-Id` and `invoice_id`, gets the same capture back, closes the session with that capture ID, and PayPal saw exactly one capture |
 | No answer until the resend window ends, or a resend gets `DUPLICATE_INVOICE_ID` with no capture recorded | BarPay sends nothing more; the session is PaymentFailed with a `charge_unconfirmed` alert; the fake clock is checked on both sides of the window's end |
 | The same call is made twice at the same time | PayPal saw one call per key; one session transition happened; both callers got the same result |
-| Another operation arrives during a charge (staff close, register request, late order, maximum stay) | The second operation is rejected or has no effect (maximum stay), as the PRD's Guarantees, Single payment and Use cases say; the total charged equals the receipt |
+| Another operation arrives during a charge (staff close, register request, late order) | The second operation is rejected, as the PRD's Guarantees, Single payment and Use cases say; the total charged equals the receipt |
 | The same `Idempotency-Key` is sent again, after success and while still running | The repeat gets the first response or is rejected as in progress, as the `IdempotencyKey` parameter says; no second PayPal attempt |
 | Two rate-evaluation requests arrive together | The fake model was called once; both requests got the same rate |
 | The store app does not acknowledge a notification | It is resent with the same event ID and sequence; an acknowledged one is not resent |
