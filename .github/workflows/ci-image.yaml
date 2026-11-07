@@ -7,7 +7,7 @@ name: "[CI] Image"
 on:
   push:
     branches: [main]
-    # A change to deploy/ alone (such as a new newTag) changes no binary.
+    # A change to deploy/ alone (such as a new digest) changes no binary.
     paths-ignore:
       - "deploy/**"
   workflow_dispatch:
@@ -40,7 +40,7 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: 10.1.1.10:5000/barpay/demo:${{ github.sha }}
-      # deploy/kustomization.yaml takes the tag and the digest from here.
+      # deploy/kustomization.yaml takes the digest, and the commit in its comment, from here.
       - name: Write the image to the summary
         env:
           TAG: ${{ github.sha }}
@@ -51,7 +51,7 @@ jobs:
             echo
             echo "| | |"
             echo "|---|---|"
-            echo "| newTag | \`$TAG\` |"
+            echo "| Commit | \`$TAG\` |"
             echo "| digest | \`$DIGEST\` |"
             echo "| Reference | \`10.1.1.10:5000/barpay/demo:$TAG@$DIGEST\` |"
           } >> "$GITHUB_STEP_SUMMARY"
