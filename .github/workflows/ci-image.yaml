@@ -33,9 +33,25 @@ jobs:
         with:
           driver: remote
           endpoint: tcp://buildkitd.arc-runners.svc:1234
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/amd64
           push: true
           tags: 10.1.1.10:5000/barpay/demo:${{ github.sha }}
+      # deploy/kustomization.yaml takes the tag and the digest from here.
+      - name: Write the image to the summary
+        env:
+          TAG: ${{ github.sha }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "### Image"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| newTag | \`$TAG\` |"
+            echo "| digest | \`$DIGEST\` |"
+            echo "| Reference | \`10.1.1.10:5000/barpay/demo:$TAG@$DIGEST\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
