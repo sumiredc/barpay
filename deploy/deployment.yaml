@@ -23,6 +23,9 @@ spec:
     spec:
       # No container waits for another: the sample app does not call BarPay at start, BarPay sends
       # notifications again, and the simulator sends again at its next interval.
+      # No container calls the Kubernetes API or another Service.
+      automountServiceAccountToken: false
+      enableServiceLinks: false
       securityContext:
         runAsUser: 65532
         runAsGroup: 65532
@@ -110,8 +113,7 @@ spec:
             - signals
             - -barpay
             - http://127.0.0.1:8080
-            # PLACEHOLDER: the flag that makes the simulator vary the liveliness by itself, which
-            # has no standard input in a container. Replace it with the flag's real name.
+            # Varies the liveliness by itself: a container has no standard input to change it.
             - -vary
           env:
             - name: BARPAY_EDGE_SHARED_SECRET
