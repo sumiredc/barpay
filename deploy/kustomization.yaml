@@ -15,6 +15,8 @@ resources:
 
 images:
   - name: 10.1.1.10:5000/barpay/demo
-    # The commit SHA that ci-image.yaml built and pushed. Change it in a pull request to roll out
-    # another image.
+    # The image's commit SHA and its digest, both from the summary of the run that pushed it. The
+    # digest decides what runs: a tag in the registry can be overwritten. Change both in a pull
+    # request to roll out another image.
     newTag: replace-with-commit-sha
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
