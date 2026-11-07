@@ -342,6 +342,99 @@ go run .
 
 開く URL をログに出せば、サンプルアプリは動いている。その URL をブラウザで開くと入口の画面が出る。スタッフは `/admin` で管理画面にログインする。
 
+## Kubernetes で動かす
+
+[`deploy/`](deploy) は、BarPay・サンプルアプリ・シグナルのシミュレーターを、自宅の Kubernetes クラスターの 1 つの Pod で PayPal sandbox に対して動かし、`https://barpay-demo.sumire.pink` で公開する。`deploy/` は Argo CD が `main` から適用する。その Application は、namespace `barpay` も作り、クラスターのインフラのリポジトリにある。イメージは 3 つのプログラムを持ち、BarPay の本番のビルドではない。[`ci-image.yaml`](.github/workflows/ci-image.yaml) が、`deploy/` 以外も変える `main` への push で [`Dockerfile`](Dockerfile) からビルドし、クラスターの registry に `10.1.1.10:5000/barpay/demo:<commit SHA>` として push し、そのタグと digest を実行のサマリーに書く。サンプルアプリは時刻を店のタイムゾーンで表示する。それは [`deploy/deployment.yaml`](deploy/deployment.yaml) にあるそのコンテナの `TZ`（`America/Los_Angeles`）。
+
+```mermaid
+flowchart LR
+  IN[Ingress<br/>barpay-demo.sumire.pink] -->|/v1/paypal-links/| B
+  IN -->|それ以外| M
+  subgraph Pod
+    B[BarPay :8080]
+    M[サンプルアプリ :3000]
+    S[シグナルのシミュレーター]
+    M -->|127.0.0.1:8080| B
+    B -->|通知<br/>127.0.0.1:3000| M
+    S -->|127.0.0.1:8080| B
+  end
+```
+
+### 設定ファイルを作る
+
+設定ファイルは秘密を持つので、SealedSecret `barpay-demo` を通してだけ Pod に届く。雛形をコピーする。雛形は、秘密以外の値を Pod 向けに埋めてある。2 つのコピーは git が無視する。
+
+```sh
+cp deploy/barpay.example.toml deploy/barpay.toml
+cp deploy/mobile-order.example.conf deploy/mobile-order.conf
+```
+
+空の値をすべて埋める。PayPal sandbox のアプリの認証情報と、残りは [BarPay の起動](#barpay-の起動) と同じく自分で決めたランダムな文字列。`llm.address` には、`qwen3:8b` を出すクラスターの外の Ollama が埋めてある。別の場所にあるなら変える。違っていると、どの判定もフォールバックする。`staff` の行は `staff = <スタッフの ID> <パスワードのハッシュ>`。管理画面にはインターネットから届くので、強く、ほかで使っていないパスワードにする。次のコマンドがそのハッシュを表示する。
+
+```sh
+go run -C examples/mobile-order . hash-password
+```
+
+次の値は、両方の場所で同じにする。
+
+| `deploy/barpay.toml` | 同じにする相手 |
+|---|---|
+| `keys.store_api_key` | `deploy/mobile-order.conf` の `store_api_key` |
+| `keys.admin_api_key` | `deploy/mobile-order.conf` の `admin_api_key` |
+| `notifications.signing_secret` | `deploy/mobile-order.conf` の `notification_signing_secret` |
+| `keys.edge_shared_secret` | Secret のキー `edge_shared_secret`。シミュレーターは `BARPAY_EDGE_SHARED_SECRET` として受け取る |
+
+### Secret に封をする
+
+2 つのファイルとエッジ端末の共有シークレットを、`deploy/sealed-secret.yaml` に封をする。`kubeseal` はクラスターの公開鍵で暗号化するので、`kubectl` がクラスターに届くマシンで、リポジトリのルートで実行する。SealedSecret は、namespace `barpay` の `barpay-demo` としてしか開かない。別の名前か namespace で封をすると、Pod は起動しない。聞かれたら `deploy/barpay.toml` の `keys.edge_shared_secret` を入力する。
+
+```sh
+printf 'keys.edge_shared_secret: '; read -rs EDGE_SHARED_SECRET; echo
+kubectl create secret generic barpay-demo --namespace barpay \
+  --from-file=barpay.toml=deploy/barpay.toml \
+  --from-file=mobile-order.conf=deploy/mobile-order.conf \
+  --from-literal=edge_shared_secret="$EDGE_SHARED_SECRET" \
+  --dry-run=client -o yaml \
+  | kubeseal --format yaml > deploy/sealed-secret.yaml
+unset EDGE_SHARED_SECRET
+```
+
+`deploy/sealed-secret.yaml` をコミットし、[`deploy/kustomization.yaml`](deploy/kustomization.yaml) の `resources` にあるその行の `#` を外す。後で値を変えるときは、ファイルを直し、封をし直し、新しい `deploy/sealed-secret.yaml` をコミットする。コンテナは設定ファイルを、シミュレーターは環境変数を起動時にしか読まないので、Argo CD が SealedSecret を同期した後に Pod を再起動する。
+
+```sh
+kubectl -n barpay rollout restart deploy/barpay-demo
+```
+
+### 初めて配置する
+
+次の順で入れる。まだ registry に無いイメージのタグでは Pod が `ImagePullBackOff` で止まり、Secret が無ければ `CreateContainerConfigError` で止まる。
+
+```mermaid
+flowchart LR
+  A[ci-image.yaml がイメージを push] --> B[PR：newTag・digest・sealed-secret.yaml] --> C[インフラのリポジトリが Application を足す]
+```
+
+1. `main` への push の後、`ci-image.yaml` が終わるのを待ち、実行のサマリーから `newTag` と `digest` を取る。イメージは、`barpay-dev signals` が `-vary` を受け付ける commit からビルドしたものにする。[`deploy/deployment.yaml`](deploy/deployment.yaml) がそれを渡すので、それより古いものでは signals のコンテナが起動時に止まる。クラスターのネットワークにあるマシンからは、registry が持つタグを一覧できる。
+
+   ```sh
+   curl -s http://10.1.1.10:5000/v2/barpay/demo/tags/list
+   ```
+
+2. 1 つの PR で、[`deploy/kustomization.yaml`](deploy/kustomization.yaml) の `newTag` と `digest` をその値にし、[Secret に封をする](#secret-に封をする) のとおりに SealedSecret を足す。
+3. それが `main` に入ったら、インフラのリポジトリが Argo CD の Application を足す。
+
+BarPay とサンプルアプリはユーザー 65532 で動く。それぞれがボリュームの自分のディレクトリ `barpay` と `mobile-order` に書く。kubelet はそれらを root で、ボリュームのディレクトリと同じ mode で作るので、その mode がほかのユーザーに書き込みを許すときだけ、ユーザーは書き込める。BarPay のログに `BarPay started` が出れば動いている。`not started: store: /data/barpay.db: … unable to open database file` が出たら、そのユーザーは書き込めていない。サンプルアプリはどちらでも起動し、最初に保存するときに初めて失敗するので、一度会員登録をして、ログにエラーが出ないことを確かめる。どれかのディレクトリに書き込めなければ、storage ノードでユーザー 65532 が書き込めるようにしてもらい、Pod を消す。シグナルのシミュレーターは 10 秒ごとに `liveliness … sent` をログに出す。`not sent: BarPay answered 401 …` が出たら、Secret の `edge_shared_secret` が `keys.edge_shared_secret` と違う。
+
+```sh
+kubectl -n barpay logs deploy/barpay-demo -c barpay
+kubectl -n barpay logs deploy/barpay-demo -c mobile-order
+kubectl -n barpay logs deploy/barpay-demo -c signals
+```
+
+### 新しいイメージを入れる
+
+どのイメージも、[`deploy/kustomization.yaml`](deploy/kustomization.yaml) の `newTag` と `digest` を、そのイメージを push した `ci-image.yaml` の実行のサマリーにある値に変える PR で入れる。何がいつ動いていたかが履歴に残る。Pod はイメージを digest で pull するので、registry でタグが上書きされても、動くものは変わらない。マージされると Argo CD が適用する。2 つの Pod が同時にボリュームを持てないので、古い Pod が止まってから新しい Pod が起動し、その間サイトは少しのあいだ止まる。
+
 ## 次に読むもの
 
 - [`docs/PRD.ja.md`](docs/PRD.ja.md)：BarPay が何をし、何を保証し、何を扱わないか

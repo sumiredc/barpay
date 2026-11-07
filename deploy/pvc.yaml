@@ -1,0 +1,12 @@
+# SQLite needs a local disk: its locks do not work over NFS. A local-path volume cannot be resized
+# later, and the Pod runs on the node that holds it, the storage node.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: barpay-demo-data
+spec:
+  storageClassName: local-path
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi

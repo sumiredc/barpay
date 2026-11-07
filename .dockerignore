@@ -1,0 +1,17 @@
+# Only the Go sources reach the build. Config files, databases and the sample app's data hold
+# secrets or customer data and must never be sent to the builder.
+.git
+.github
+.claude
+**/*.toml
+**/*.conf
+**/*.db*
+**/*.json
+**/.mobile-order-*
+.env*
+deploy
+docs
+edge
+mock
+scripts
+**/node_modules

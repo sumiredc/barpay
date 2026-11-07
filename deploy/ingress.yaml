@@ -1,0 +1,28 @@
+# Cloudflare ends TLS in front of the cluster, so there is no tls here: BarPay and the sample app
+# take their absolute URLs and Secure cookies from public_url in their config files, not from the
+# request.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: barpay-demo
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: barpay-demo.sumire.pink
+      http:
+        paths:
+          # The browser reaches BarPay only to go to PayPal and back when linking it.
+          - path: /v1/paypal-links/
+            pathType: Prefix
+            backend:
+              service:
+                name: barpay
+                port:
+                  number: 8080
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mobile-order
+                port:
+                  number: 3000

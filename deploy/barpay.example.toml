@@ -1,0 +1,53 @@
+# BarPay's config file as it runs in the Pod, for the Secret barpay-demo. Copy it to
+# deploy/barpay.toml, which git ignores, and fill in every empty value: they are the secrets. What
+# each key takes is in barpay.example.toml at the repository root.
+
+# Every interface, so the Service reaches BarPay.
+listen_address = ":8080"
+# On the volume. SQLite writes barpay.db-wal and barpay.db-shm in the same directory.
+database_path = "/data/barpay.db"
+
+currency = "USD"
+starting_rate = 1200
+max_step = 300
+min_evaluation_interval = "1m"
+capacity = 40
+max_stay = "12h"
+reunlock_window = "2m"
+exit_token_refresh = "30s"
+
+# The sample app and BarPay share the host: the Ingress sends /v1/paypal-links/ to BarPay.
+store_app_origin = "https://barpay-demo.sumire.pink"
+public_url = "https://barpay-demo.sumire.pink"
+
+# Each key must differ from the other two. store_api_key and admin_api_key are also in
+# mobile-order.conf; edge_shared_secret is also the Secret's key edge_shared_secret.
+[keys]
+store_api_key = ""
+admin_api_key = ""
+edge_shared_secret = ""
+
+# A PayPal sandbox app's REST credentials.
+[paypal]
+client_id = ""
+client_secret = ""
+
+# The sample app in the same Pod. signing_secret is also notification_signing_secret in
+# mobile-order.conf.
+[notifications]
+url = "http://127.0.0.1:3000/barpay/notifications"
+signing_secret = ""
+
+# Ollama outside the cluster.
+[llm]
+address = "http://10.1.1.20:11434/v1"
+model = "qwen3:8b"
+reasoning_effort = "none"
+
+[settings]
+floor = 600
+ceiling = 2400
+block_minutes = 10
+pause_minutes = 30
+cap_per_visit = 3000
+goal = 50

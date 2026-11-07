@@ -1,0 +1,160 @@
+# BarPay, the sample app and the signal simulator share one Pod and call each other at 127.0.0.1:
+# BarPay sends notifications only to https or to http on a loopback IP address, so the sample app
+# cannot be reached by its Service name. BarPay and the sample app listen on every interface so the
+# Services reach them; the addresses they call stay on 127.0.0.1.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: barpay-demo
+  labels:
+    app.kubernetes.io/name: barpay-demo
+spec:
+  replicas: 1
+  # The volume is ReadWriteOnce: a new Pod cannot start while the old one holds it.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: barpay-demo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: barpay-demo
+    spec:
+      # No container waits for another: the sample app does not call BarPay at start, BarPay sends
+      # notifications again, and the simulator sends again at its next interval.
+      # No container calls the Kubernetes API or another Service.
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+        # Lets the user read the config files mounted from the Secret. It has no effect on the
+        # local-path volume, which the user must be able to write as created.
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      # The local-path volume is on the storage node, which only Pods that tolerate its taint run on.
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: storage
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/storage
+                    operator: Exists
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      containers:
+        - name: barpay
+          image: 10.1.1.10:5000/barpay/demo
+          command: [/usr/local/bin/barpay, -config, /etc/barpay/barpay.toml]
+          ports:
+            - name: barpay
+              containerPort: 8080
+          # BarPay has no health endpoint; it listens once it has started.
+          readinessProbe:
+            tcpSocket:
+              port: barpay
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: barpay-config
+              mountPath: /etc/barpay
+              readOnly: true
+            # SQLite writes barpay.db-wal and barpay.db-shm next to barpay.db. Each program sees only
+            # its own directory of the volume. The kubelet creates it as root with the mode of the
+            # volume's directory, so the user can write it only if it can write that one.
+            - name: data
+              mountPath: /data
+              subPath: barpay
+            - name: tmp
+              mountPath: /tmp
+        - name: mobile-order
+          image: 10.1.1.10:5000/barpay/demo
+          command: [/usr/local/bin/mobile-order, -config, /etc/mobile-order/mobile-order.conf]
+          ports:
+            - name: mobile-order
+              containerPort: 3000
+          readinessProbe:
+            tcpSocket:
+              port: mobile-order
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: mobile-order-config
+              mountPath: /etc/mobile-order
+              readOnly: true
+            # The sample app writes a temporary file next to its data file and renames it.
+            - name: data
+              mountPath: /data
+              subPath: mobile-order
+          # The store's local time, in which the sample app shows times; the image has its own
+          # time zone data.
+          env:
+            - name: TZ
+              value: America/Los_Angeles
+        # The signal simulator stands in for the edge device's microphone. It reads only the edge
+        # device's shared secret, never BarPay's config file.
+        - name: signals
+          image: 10.1.1.10:5000/barpay/demo
+          command:
+            - /usr/local/bin/barpay-dev
+            - signals
+            - -barpay
+            - http://127.0.0.1:8080
+            # Varies the liveliness by itself: a container has no standard input to change it.
+            - -vary
+          env:
+            - name: BARPAY_EDGE_SHARED_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: barpay-demo
+                  key: edge_shared_secret
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: barpay-config
+          secret:
+            secretName: barpay-demo
+            defaultMode: 0440
+            items:
+              - key: barpay.toml
+                path: barpay.toml
+        - name: mobile-order-config
+          secret:
+            secretName: barpay-demo
+            defaultMode: 0440
+            items:
+              - key: mobile-order.conf
+                path: mobile-order.conf
+        - name: data
+          persistentVolumeClaim:
+            claimName: barpay-demo-data
+        - name: tmp
+          emptyDir: {}
