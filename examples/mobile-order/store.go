@@ -61,6 +61,9 @@ type Browser struct {
 	Guest     bool      `json:"guest,omitempty"`
 	SessionID string    `json:"session_id,omitempty"` // the customer's current BarPay session
 	StaffID   string    `json:"staff_id,omitempty"`
+	// Takeover is the guest visit offered to the member who just signed up or logged in here,
+	// until they agree or decline (takeover.go).
+	Takeover *Takeover `json:"takeover,omitempty"`
 	// LinkState is the state sent with createPaypalLink from this browser session; only a return
 	// carrying it is confirmed, and only for LinkMemberID.
 	LinkState     string    `json:"link_state,omitempty"`
@@ -267,6 +270,9 @@ func (d *Data) remember(s *Session) {
 	cp := *s
 	v.Session = &cp
 	v.UpdatedAt = time.Now()
+	if s.ended() {
+		d.dropAttachKeys(s.SessionID)
+	}
 	if s.MemberID == nil {
 		return
 	}

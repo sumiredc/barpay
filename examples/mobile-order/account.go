@@ -8,7 +8,8 @@ import (
 )
 
 // The account: the member's name, the rows to the visit history and the PayPal page, and log out.
-// A guest sees the rows a member has, unavailable.
+// A guest sees the rows a member has, unavailable, and during a visit is offered to sign up or log
+// in and keep it (takeover.go).
 
 func (a *App) account(w http.ResponseWriter, r *http.Request) {
 	id, b := a.browser(w, r)
@@ -21,7 +22,9 @@ func (a *App) account(w http.ResponseWriter, r *http.Request) {
 		Initial string
 		// PayPal is what paypalStatus says, or "" when BarPay could not be read.
 		PayPal string
-	}{}
+		// InVisit offers a guest to sign up or log in and keep the visit open in this browser.
+		InVisit bool
+	}{InVisit: a.guestVisitToOffer(b) != ""}
 	if v.Member != nil {
 		r0, _ := utf8.DecodeRuneInString(v.Member.Name)
 		data.Initial = string(unicode.ToUpper(r0))

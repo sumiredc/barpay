@@ -69,6 +69,8 @@ func TestFrameOfEachCustomerPage(t *testing.T) {
 		{"exit", member, "bill", true, true},
 		{"account", guest, "account", true, true},
 		{"paypal", member, "account", true, true},
+		// Answered by its own two buttons, so the tabs would only lead away from the question.
+		{"takeover", member, "account", true, false},
 		{"receipts", member, "account", true, true},
 		{"receipt", member, "account", true, true},
 		{"login", view{}, "", false, false},

@@ -1,0 +1,35 @@
+{{define "content"}}
+<h1>Keep this visit on your account?</h1>
+{{template "notices" .}}
+{{$s := .Data.Session}}
+<p class="muted">Your visit so far moves to your account as it is, and shows in your visit history</p>
+<div class="card bill">
+  <div class="bill-row">
+    <div>Cover charge</div>
+    <div class="bill-amount">{{money $s.CoverCharge}}</div>
+  </div>
+  <div class="bill-row">
+    <div>Orders<span class="muted"> ({{$s.OrderCount}})</span></div>
+    <div class="bill-amount">{{money $s.OrdersTotal}}</div>
+  </div>
+  {{with .Data.Orders}}
+  <div class="orders">
+    {{range .}}
+    <div class="order">
+      <div class="order-head"><span class="muted">{{clock .RecordedAt}}</span><span>{{money .Amount}}</span></div>
+      <ul>{{range .Lines}}<li><span>{{.Name}}</span><span class="muted">× {{.Quantity}}</span></li>{{end}}</ul>
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+  <div class="bill-row total"><div>Total so far</div><div class="bill-amount">{{money $s.Total}}</div></div>
+</div>
+{{if .Data.ChargesPayPal}}
+<p class="notice info"><i data-icon="credit-card"></i><span>This visit&#39;s total will be charged to your saved PayPal when you leave through the exit gate, without asking you again</span></p>
+{{else}}
+<p class="notice info"><i data-icon="info"></i><span>You pay at the register, or with PayPal once you link it in your account</span></p>
+{{end}}
+<form id="takeover-form" method="post" action="/account/takeover"><input type="hidden" name="csrf" value="{{.CSRF}}"></form>
+<form method="post" action="/account/takeover/decline" class="center"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="textbutton muted" type="submit">Not now, keep it as a guest visit</button></form>
+{{end}}
+{{define "cartbar"}}<button class="button" type="submit" form="takeover-form" style="justify-content: center">Keep this visit</button>{{end}}
