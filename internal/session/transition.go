@@ -19,7 +19,7 @@ const (
 	registerPaymentRecorded trigger = "staff record a register payment"
 	markedUnpaid            trigger = "staff mark it unpaid"
 	unpaidLimit             trigger = "the 3-day limit is reached"
-	checkout                trigger = "the exit QR is scanned, staff close it or the maximum stay is reached"
+	checkout                trigger = "the exit QR is scanned or staff close it"
 	charged                 trigger = "the full total is charged"
 	chargeFailed            trigger = "the charge failed or could not be confirmed"
 	retried                 trigger = "staff retry the charge"
