@@ -31,7 +31,8 @@ const usage = `Usage:
       The signal simulator. Sends the liveliness N (0 quiet to 1 loudest) every 10 seconds.
       Type another number, one per line, to send it at once and from then on.
       With -vary it reads no input and moves the liveliness by itself, up to W above and below N
-      and back once every D (0.3 and 30m unless given), kept from 0 to 1.
+      and back once every D (0.3 and 30m unless given), kept from 0 to 1. -period and -swing
+      need -vary.
 
 The edge device's shared secret is read from ` + secretEnv + `.
 `
@@ -63,6 +64,17 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdin i
 		period := flags.Duration("period", 30*time.Minute, "with -vary, how long the liveliness takes to go up, down and back")
 		swing := flags.Float64("swing", 0.3, "with -vary, how far the liveliness goes either side of the centre, from 0 to 1")
 		start = func(c *edge.Client) error {
+			if !*vary {
+				var err error
+				flags.Visit(func(f *flag.Flag) {
+					if err == nil && (f.Name == "period" || f.Name == "swing") {
+						err = fmt.Errorf("-%s needs -vary", f.Name)
+					}
+				})
+				if err != nil {
+					return err
+				}
+			}
 			o := signalsOptions{liveliness: *liveliness, vary: *vary, period: *period, swing: *swing}
 			return runSignals(ctx, c, systemClock{}, o, stdin, stdout)
 		}

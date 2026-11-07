@@ -288,7 +288,8 @@ func TestVaryFlagStartsTheVaryingSimulator(t *testing.T) {
 		"liveliness 0.6 sent")
 }
 
-// The period and the swing, like -liveliness, are refused when they cannot be.
+// The period and the swing, like -liveliness, are refused when they cannot be, and without -vary,
+// where they would do nothing.
 func TestVaryFlagsOutsideTheirRangeAreRefused(t *testing.T) {
 	b := newBarPay(t)
 	env := func(k string) string {
@@ -304,6 +305,9 @@ func TestVaryFlagsOutsideTheirRangeAreRefused(t *testing.T) {
 		{"-vary", "-swing", "1.1"},
 		{"-vary", "-swing", "NaN"},
 		{"-vary", "-liveliness", "1.5"},
+		{"-period", "45m"},
+		{"-swing", "0.2"},
+		{"-swing", "5"},
 	} {
 		var out syncBuffer
 		c := run(context.Background(), append([]string{"signals", "-barpay", b.devURL}, args...), env, strings.NewReader(""), &out, &out)
