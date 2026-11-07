@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 )
@@ -255,6 +256,9 @@ func (d *Data) visit(sessionID string) *Visit {
 // remember stores a session read from BarPay or carried by a notification as the latest known
 // one. A session that has ended never changes again, so a snapshot of it from before the end,
 // such as a notification that arrives late, does not replace it.
+//
+// A session with a member is kept in that member's visits, whether it was theirs from check-in
+// or a guest's session they were attached to later, so the visit history finds it either way.
 func (d *Data) remember(s *Session) {
 	v := d.visit(s.SessionID)
 	if v.Session != nil && v.Session.ended() && !s.ended() {
@@ -263,10 +267,22 @@ func (d *Data) remember(s *Session) {
 	cp := *s
 	v.Session = &cp
 	v.UpdatedAt = time.Now()
-	if s.MemberID != nil {
-		v.MemberID = *s.MemberID
-		if m := d.Members[*s.MemberID]; m != nil && s.ended() && m.OpenSessionID == s.SessionID {
-			m.OpenSessionID = ""
-		}
+	if s.MemberID == nil {
+		return
+	}
+	v.MemberID = *s.MemberID
+	m := d.Members[*s.MemberID]
+	if m == nil {
+		return
+	}
+	if !slices.Contains(m.SessionIDs, s.SessionID) {
+		m.SessionIDs = append(m.SessionIDs, s.SessionID)
+	}
+	switch {
+	case !s.ended():
+		// BarPay keeps at most one session per member that has not ended.
+		m.OpenSessionID = s.SessionID
+	case m.OpenSessionID == s.SessionID:
+		m.OpenSessionID = ""
 	}
 }

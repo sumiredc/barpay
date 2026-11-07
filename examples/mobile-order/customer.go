@@ -402,14 +402,7 @@ func (a *App) startVisit(w http.ResponseWriter, r *http.Request, id string, b Br
 		a.fail(w, id, b, f)
 		return
 	}
-	a.store.update(func(d *Data) error {
-		d.remember(s)
-		if m := d.Members[b.MemberID]; m != nil {
-			m.OpenSessionID = s.SessionID
-			m.SessionIDs = append(m.SessionIDs, s.SessionID)
-		}
-		return nil
-	})
+	a.store.update(func(d *Data) error { d.remember(s); return nil })
 	a.updateBrowser(id, func(b *Browser) {
 		b.SessionID = s.SessionID
 		b.Toast = "You're checked in"
