@@ -29,3 +29,7 @@ build/
 
 # Throwaway prototype, not tracked
 mock/
+
+# The config files sealed into deploy/sealed-secret.yaml (barpay.toml is ignored above in every
+# directory); only the sealed copy is committed
+deploy/mobile-order.conf

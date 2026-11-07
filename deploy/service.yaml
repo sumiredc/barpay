@@ -1,0 +1,24 @@
+# Inside the cluster, barpay reaches every BarPay API; each one is guarded by its key.
+apiVersion: v1
+kind: Service
+metadata:
+  name: barpay
+spec:
+  selector:
+    app.kubernetes.io/name: barpay-demo
+  ports:
+    - name: http
+      port: 8080
+      targetPort: barpay
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mobile-order
+spec:
+  selector:
+    app.kubernetes.io/name: barpay-demo
+  ports:
+    - name: http
+      port: 3000
+      targetPort: mobile-order

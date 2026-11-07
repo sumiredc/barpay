@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# BarPay, the sample app and the signal simulator in one Pod, reached at barpay-demo.sumire.pink.
+# README.md (Running on Kubernetes) says how to make the Secret and in which order to add things.
+namespace: barpay
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - pvc.yaml
+  # The SealedSecret barpay-demo, which you seal yourself. Uncomment this line when you add the file.
+  # - sealed-secret.yaml
+
+images:
+  - name: 10.1.1.10:5000/barpay/demo
+    # The commit SHA that ci-image.yaml built and pushed. Change it in a pull request to roll out
+    # another image.
+    newTag: replace-with-commit-sha
