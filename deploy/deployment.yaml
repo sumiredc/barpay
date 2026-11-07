@@ -74,9 +74,12 @@ spec:
             - name: barpay-config
               mountPath: /etc/barpay
               readOnly: true
-            # SQLite writes barpay.db-wal and barpay.db-shm next to barpay.db.
+            # SQLite writes barpay.db-wal and barpay.db-shm next to barpay.db. Each program sees only
+            # its own directory of the volume. The kubelet creates it as root with the mode of the
+            # volume's directory, so the user can write it only if it can write that one.
             - name: data
               mountPath: /data
+              subPath: barpay
             - name: tmp
               mountPath: /tmp
         - name: mobile-order
@@ -104,6 +107,7 @@ spec:
             # The sample app writes a temporary file next to its data file and renames it.
             - name: data
               mountPath: /data
+              subPath: mobile-order
         # The signal simulator stands in for the edge device's microphone. It reads only the edge
         # device's shared secret, never BarPay's config file.
         - name: signals
