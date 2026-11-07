@@ -34,7 +34,7 @@ type signalClock interface {
 	NewTicker(d time.Duration) signalTicker
 }
 
-// signalTicker is a time.Ticker.
+// signalTicker is the part of time.Ticker the simulator uses.
 type signalTicker interface {
 	C() <-chan time.Time
 	Reset(d time.Duration)
