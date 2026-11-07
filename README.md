@@ -344,7 +344,7 @@ The sample app is running when it logs the URL to open. Open that URL in a brows
 
 ## Running on Kubernetes
 
-[`deploy/`](deploy) runs BarPay, the sample app and the signal simulator against the PayPal sandbox in one Pod of the home Kubernetes cluster, at `https://barpay-demo.sumire.pink`. Argo CD applies `deploy/` from `main`; its Application, which also creates the namespace `barpay`, lives in the cluster's infrastructure repository. The image holds all three programs and is not a production build of BarPay: [`ci-image.yaml`](.github/workflows/ci-image.yaml) builds it from the [`Dockerfile`](Dockerfile) on pushes to `main` that change more than `deploy/`, pushes it to the cluster's registry as `10.1.1.10:5000/barpay/demo:<commit SHA>`, and writes its tag and digest to the run's summary. The sample app shows times in the store's time zone, `TZ` of its container in [`deploy/deployment.yaml`](deploy/deployment.yaml) (`America/Los_Angeles`).
+[`deploy/`](deploy) runs BarPay, the sample app and the signal simulator against the PayPal sandbox in one Pod of the home Kubernetes cluster, at `https://barpay-demo.sumire.pink`. Argo CD applies `deploy/` from `main`; its Application, which also creates the namespace `barpay`, lives in the cluster's infrastructure repository. The image holds all three programs and is not a production build of BarPay: [`ci-image.yaml`](.github/workflows/ci-image.yaml) builds it from the [`Dockerfile`](Dockerfile) on pushes to `main` that change more than `deploy/`, pushes it to the cluster's registry as `10.1.1.10:5000/barpay/demo:<commit SHA>`, and writes its commit and digest to the run's summary. The sample app shows times in the store's time zone, `TZ` of its container in [`deploy/deployment.yaml`](deploy/deployment.yaml) (`America/Los_Angeles`).
 
 ```mermaid
 flowchart LR
@@ -407,20 +407,20 @@ kubectl -n barpay rollout restart deploy/barpay-demo
 
 ### First deployment
 
-Add things in this order. An image tag that is not in the registry yet stops the Pod with `ImagePullBackOff`, and a missing Secret with `CreateContainerConfigError`.
+Add things in this order. An image that is not in the registry yet stops the Pod with `ImagePullBackOff`, and a missing Secret with `CreateContainerConfigError`.
 
 ```mermaid
 flowchart LR
-  A[ci-image.yaml pushes the image] --> B[Pull request: newTag, digest, sealed-secret.yaml] --> C[The infrastructure repository adds the Application]
+  A[ci-image.yaml pushes the image] --> B[Pull request: digest, sealed-secret.yaml] --> C[The infrastructure repository adds the Application]
 ```
 
-1. After a push to `main`, wait for `ci-image.yaml` to finish, and take `newTag` and `digest` from the run's summary. The image must be built from a commit whose `barpay-dev signals` takes `-vary`, which [`deploy/deployment.yaml`](deploy/deployment.yaml) passes; with an older one, the signals container stops at start. From a machine on the cluster's network, the registry lists the tags it has:
+1. After a push to `main`, wait for `ci-image.yaml` to finish, and take the commit and `digest` from the run's summary. The image must be built from a commit whose `barpay-dev signals` takes `-vary`, which [`deploy/deployment.yaml`](deploy/deployment.yaml) passes; with an older one, the signals container stops at start. From a machine on the cluster's network, the registry lists the tags it has:
 
    ```sh
    curl -s http://10.1.1.10:5000/v2/barpay/demo/tags/list
    ```
 
-2. In one pull request, set `newTag` and `digest` in [`deploy/kustomization.yaml`](deploy/kustomization.yaml) to those values, and add the SealedSecret as in [Sealing the Secret](#sealing-the-secret).
+2. In one pull request, set `digest` in [`deploy/kustomization.yaml`](deploy/kustomization.yaml) to that value and the comment above it to the commit, and add the SealedSecret as in [Sealing the Secret](#sealing-the-secret).
 3. Once it is on `main`, the infrastructure repository adds the Argo CD Application.
 
 BarPay and the sample app run as user 65532. Each writes its own directory of the volume, `barpay` and `mobile-order`, which the kubelet creates as root with the same mode as the volume's directory: the user can write them only if that mode lets others write. BarPay is running when its log shows `BarPay started`; if it shows `not started: store: /data/barpay.db: … unable to open database file`, the user cannot write there. The sample app starts either way and fails only when it first saves, so sign up once and check that its log shows no error. If a directory is not writable, have it made writable by user 65532 on the storage node and delete the Pod. The signal simulator logs `liveliness … sent` every 10 seconds; `not sent: BarPay answered 401 …` means the Secret's `edge_shared_secret` differs from `keys.edge_shared_secret`.
@@ -433,7 +433,7 @@ kubectl -n barpay logs deploy/barpay-demo -c signals
 
 ### Rolling out a new image
 
-Every image is rolled out by a pull request that changes `newTag` and `digest` in [`deploy/kustomization.yaml`](deploy/kustomization.yaml) to the values in the summary of the `ci-image.yaml` run that pushed it, so the history shows what ran when. The Pod pulls the image by its digest, so a tag overwritten in the registry does not change what runs. Argo CD applies it once it is merged. The old Pod stops before the new one starts, as both cannot hold the volume, so the site is down for a moment.
+Every image is rolled out by a pull request that changes `digest` in [`deploy/kustomization.yaml`](deploy/kustomization.yaml), and the commit in the comment above it, to the values in the summary of the `ci-image.yaml` run that pushed it, so the history shows what ran when. `images` names no tag, whose handling beside a digest differs between kustomize versions. The Pod pulls the image by its digest, so a tag overwritten in the registry does not change what runs. Argo CD applies it once it is merged. The old Pod stops before the new one starts, as both cannot hold the volume, so the site is down for a moment.
 
 ## Next to read
 

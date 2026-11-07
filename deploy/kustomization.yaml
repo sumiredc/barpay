@@ -15,8 +15,7 @@ resources:
 
 images:
   - name: 10.1.1.10:5000/barpay/demo
-    # The image's commit SHA and its digest, both from the summary of the run that pushed it. The
-    # digest decides what runs: a tag in the registry can be overwritten. Change both in a pull
-    # request to roll out another image.
-    newTag: replace-with-commit-sha
+    # Commit replace-with-commit-sha. The digest, from the summary of the run that
+    # pushed the image, decides what runs: a tag in the registry can be overwritten. To roll out
+    # another image, change the digest and this commit in a pull request.
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
