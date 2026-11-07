@@ -62,6 +62,7 @@ var customerPages = map[string]customerPage{
 	"panel":    {tab: "bill", header: true, tabbar: true},
 	"exit":     {tab: "bill", header: true, tabbar: true},
 	"account":  {tab: "account", header: true, tabbar: true},
+	"takeover": {tab: "account", header: true},
 	"paypal":   {tab: "account", header: true, tabbar: true},
 	"receipts": {tab: "account", header: true, tabbar: true},
 	"receipt":  {tab: "account", header: true, tabbar: true},

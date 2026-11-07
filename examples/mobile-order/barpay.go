@@ -339,6 +339,14 @@ func (b *BarPay) readSession(ctx context.Context, id string, resend bool) (*Sess
 	return &s, err
 }
 
+// attachMember is resent only with the same Idempotency-Key, which BarPay answers with the first
+// response and attaches once for.
+func (b *BarPay) attachMember(ctx context.Context, idemKey, sessionID, memberID string) (*Session, error) {
+	var s Session
+	_, err := b.do(ctx, call{method: "POST", path: "/sessions/" + url.PathEscape(sessionID) + "/member", idemKey: idemKey, body: map[string]string{"member_id": memberID}, out: &s}, true)
+	return &s, err
+}
+
 // reportOrder resends with the same order_id, which BarPay records once.
 func (b *BarPay) reportOrder(ctx context.Context, sessionID, orderID string, lines []OrderLine) (*Order, error) {
 	var o Order

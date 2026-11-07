@@ -27,6 +27,21 @@ type accountBarPay struct {
 	// returnURL is the return_url of the last link asked for.
 	returnURL string
 	links     int
+	// attaches are the attachMember requests received, in order.
+	attaches []attachRequest
+	// attachErr, when set, is the error code attaching answers, with attachStatus. attachLost is
+	// how many attaching requests get an unreadable answer, after attaching when attachLostLate
+	// is set.
+	attachErr      string
+	attachStatus   int
+	attachLost     int
+	attachLostLate bool
+	// sessionReadFails makes every session read answer 503.
+	sessionReadFails bool
+}
+
+type attachRequest struct {
+	SessionID, MemberID, Key string
 }
 
 func (f *accountBarPay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -39,7 +54,34 @@ func (f *accountBarPay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	usd := func(v int64) Money { return Money{Value: v, Currency: "USD"} }
 	member := regexp.MustCompile(`^/v1/members/([^/]+)(/.*)?$`).FindStringSubmatch(r.URL.Path)
+	attach := regexp.MustCompile(`^/v1/sessions/([^/]+)/member$`).FindStringSubmatch(r.URL.Path)
 	switch {
+	case attach != nil && r.Method == "POST":
+		var body struct {
+			MemberID string `json:"member_id"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		f.attaches = append(f.attaches, attachRequest{attach[1], body.MemberID, r.Header.Get("Idempotency-Key")})
+		s := f.sessions[attach[1]]
+		switch {
+		case f.attachLost > 0 && !f.attachLostLate:
+			f.attachLost--
+			io.WriteString(w, "{")
+			return
+		case f.attachErr != "":
+			fail(f.attachStatus, f.attachErr)
+			return
+		case s == nil:
+			fail(http.StatusNotFound, "session_not_found")
+			return
+		}
+		s.MemberID = &body.MemberID
+		if f.attachLost > 0 {
+			f.attachLost--
+			io.WriteString(w, "{")
+			return
+		}
+		json.NewEncoder(w).Encode(s)
 	case r.Method == "POST" && r.URL.Path == "/v1/checkins":
 		var body struct {
 			MemberID string `json:"member_id"`
@@ -54,6 +96,10 @@ func (f *accountBarPay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(s)
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/v1/sessions/"):
+		if f.sessionReadFails {
+			fail(http.StatusServiceUnavailable, "unavailable")
+			return
+		}
 		s := f.sessions[strings.TrimPrefix(r.URL.Path, "/v1/sessions/")]
 		if s == nil {
 			fail(http.StatusNotFound, "session_not_found")

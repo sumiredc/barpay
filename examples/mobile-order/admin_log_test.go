@@ -392,7 +392,8 @@ func TestTheLogIsInTheWordsOfTheMockup(t *testing.T) {
 func TestEachKindOfNotificationIsSaidInWords(t *testing.T) {
 	for typ, want := range map[string]string{
 		"gate.unlock_failed": "Gate didn't open", "session.closed": "Paid", "session.payment_failed": "Payment failed",
-		"member.paypal_linked": "Linked PayPal", "something.new": "something.new",
+		"member.paypal_linked": "Linked PayPal", "session.member_attached": "Guest visit moved to a member",
+		"something.new": "something.new",
 	} {
 		if got := eventWords(typ); got != want {
 			t.Errorf("%s is said as %q, want %q", typ, got, want)

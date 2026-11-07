@@ -1,6 +1,7 @@
 {{define "content"}}
 <h1>Log in</h1>
 {{template "notices" .}}
+{{if .Data.KeepsVisit}}<p class="notice info"><i data-icon="info"></i><span>Your current visit carries over to your account</span></p>{{end}}
 <form class="form" id="login-form" method="post" action="/login">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <label for="email">Email</label>

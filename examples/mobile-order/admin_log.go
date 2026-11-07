@@ -224,6 +224,8 @@ func eventWords(t string) string {
 	switch t {
 	case "session.started":
 		return "Checked in"
+	case "session.member_attached":
+		return "Guest visit moved to a member"
 	case "session.paypal_linked":
 		return "Linked saved PayPal to the visit"
 	case "session.register_requested":

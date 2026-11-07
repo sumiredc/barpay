@@ -159,12 +159,14 @@ type landingData struct {
 type signupInput struct {
 	Name, Email                          string
 	NameError, EmailError, PasswordError string
+	// KeepsVisit says the guest visit open in this browser will be offered to the new account.
+	KeepsVisit bool
 }
 
 func (a *App) signupForm(w http.ResponseWriter, r *http.Request) {
 	id, b := a.browser(w, r)
 	v := a.baseView(id, b, "Sign up")
-	v.Data = signupInput{}
+	v.Data = signupInput{KeepsVisit: a.guestVisitToOffer(b) != ""}
 	a.render(w, http.StatusOK, "signup", v)
 }
 
@@ -173,7 +175,8 @@ func (a *App) signup(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	in := signupInput{Name: strings.TrimSpace(r.PostFormValue("name")), Email: strings.TrimSpace(r.PostFormValue("email"))}
+	in := signupInput{Name: strings.TrimSpace(r.PostFormValue("name")), Email: strings.TrimSpace(r.PostFormValue("email")),
+		KeepsVisit: a.guestVisitToOffer(b) != ""}
 	email := strings.ToLower(in.Email)
 	password := r.PostFormValue("password")
 	if !validName(in.Name) {
@@ -213,16 +216,35 @@ func (a *App) signup(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/login")
 		return
 	}
-	// A guest who signs up during a visit keeps it: it stays a guest visit, paid at the
-	// register, and the account is used from the next check-in.
+	// A guest who signs up during a visit keeps it in this browser, and is asked whether it moves
+	// to the new account.
+	offered := a.guestVisitToOffer(b)
 	a.renewBrowser(w, id, func(nb *Browser) {
 		if !nb.Guest {
 			nb.SessionID = ""
 		}
 		nb.MemberID, nb.Guest, nb.StaffID = m.ID, false, ""
+		nb.Takeover = takeoverOf(offered, m.ID)
 		nb.Toast = "Welcome, " + in.Name + ". Your account is ready"
 	})
-	redirect(w, r, "/")
+	redirect(w, r, afterLogin(offered))
+}
+
+// takeoverOf is the takeover a sign-up or login of memberID starts for the guest visit offered,
+// or nil when none was.
+func takeoverOf(offered, memberID string) *Takeover {
+	if offered == "" {
+		return nil
+	}
+	return &Takeover{SessionID: offered, MemberID: memberID}
+}
+
+// afterLogin is where a sign-up or login leads: the takeover when it offered a guest visit.
+func afterLogin(offered string) string {
+	if offered != "" {
+		return takeoverPage
+	}
+	return "/"
 }
 
 // strongPassword tells a password of 8 or more characters with a lower case letter, an upper
@@ -248,6 +270,8 @@ func strongPassword(p string) bool {
 // already registered.
 type loginInput struct {
 	Email string
+	// KeepsVisit says the guest visit open in this browser will be offered to the member.
+	KeepsVisit bool
 }
 
 // validName says whether a member's name, already trimmed, can be kept: not empty and at most 60
@@ -272,7 +296,7 @@ func (a *App) loginForm(w http.ResponseWriter, r *http.Request) {
 		a.updateBrowser(id, func(b *Browser) { b.LoginEmail = "" })
 	}
 	v := a.baseView(id, b, "Log in")
-	v.Data = loginInput{Email: b.LoginEmail}
+	v.Data = loginInput{Email: b.LoginEmail, KeepsVisit: a.guestVisitToOffer(b) != ""}
 	a.render(w, http.StatusOK, "login", v)
 }
 
@@ -303,19 +327,38 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 		// Drawn again here with the email kept, so only the password is typed again.
 		v := a.baseView(id, b, "Log in")
 		v.Alert = "Wrong email or password"
-		v.Data = loginInput{Email: entered}
+		v.Data = loginInput{Email: entered, KeepsVisit: a.guestVisitToOffer(b) != ""}
 		a.render(w, http.StatusOK, "login", v)
 		return
 	}
+	// A guest visit open in this browser stays, to be paid here, and is offered to the member,
+	// unless the member is in another visit, which BarPay would refuse to attach them beside.
+	// Otherwise the member's own open visit wins over a guest visit that ended here.
+	offered := a.guestVisitToOffer(b)
+	refused := ""
+	if offered != "" {
+		ctx, cancel := a.ctx(r)
+		defer cancel()
+		if a.inOtherVisit(ctx, m, offered) {
+			offered, refused = "", takeoverRefused("member_has_open_session")
+		}
+	}
 	a.renewBrowser(w, id, func(nb *Browser) {
-		// The member's own open visit wins; otherwise a guest visit open in this browser stays.
-		if m.OpenSessionID != "" || !nb.Guest {
+		if offered == "" && refused == "" && (m.OpenSessionID != "" || !nb.Guest) {
 			nb.SessionID = m.OpenSessionID
 		}
 		nb.MemberID, nb.Guest, nb.StaffID = m.ID, false, ""
 		nb.LinkState, nb.LinkMemberID = "", ""
+		nb.Takeover = takeoverOf(offered, m.ID)
+		if refused != "" {
+			nb.Alert = refused
+		}
 	})
-	redirect(w, r, "/")
+	if refused != "" {
+		redirect(w, r, "/account")
+		return
+	}
+	redirect(w, r, afterLogin(offered))
 }
 
 func (a *App) logout(w http.ResponseWriter, r *http.Request) {
@@ -325,7 +368,7 @@ func (a *App) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	a.renewBrowser(w, id, func(nb *Browser) {
 		nb.MemberID, nb.Guest, nb.SessionID = "", false, ""
-		nb.LinkState, nb.LinkMemberID, nb.PendingOrder = "", "", nil
+		nb.LinkState, nb.LinkMemberID, nb.PendingOrder, nb.Takeover = "", "", nil, nil
 	})
 	redirect(w, r, "/")
 }
@@ -402,14 +445,7 @@ func (a *App) startVisit(w http.ResponseWriter, r *http.Request, id string, b Br
 		a.fail(w, id, b, f)
 		return
 	}
-	a.store.update(func(d *Data) error {
-		d.remember(s)
-		if m := d.Members[b.MemberID]; m != nil {
-			m.OpenSessionID = s.SessionID
-			m.SessionIDs = append(m.SessionIDs, s.SessionID)
-		}
-		return nil
-	})
+	a.store.update(func(d *Data) error { d.remember(s); return nil })
 	a.updateBrowser(id, func(b *Browser) {
 		b.SessionID = s.SessionID
 		b.Toast = "You're checked in"

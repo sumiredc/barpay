@@ -29,5 +29,11 @@
   <li><span class="disabled"><i data-icon="history"></i><span>Visit history</span><span class="muted">Members only</span></span></li>
   <li><span class="disabled"><i data-icon="credit-card"></i><span>PayPal</span><span class="muted">Members only</span></span></li>
 </ul>
+{{if $.Data.InVisit}}
+<div class="stack">
+  <a class="button" href="/signup">Sign up and keep this visit</a>
+  <a class="textbutton" href="/login" style="align-self: center">Already a member? Log in</a>
+</div>
+{{end}}
 {{end}}
 {{end}}

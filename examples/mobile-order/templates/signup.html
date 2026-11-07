@@ -4,6 +4,9 @@
 <ul class="benefits">
   <li><i data-icon="check"></i>Pay with PayPal</li>
   <li><i data-icon="check"></i>Keep your receipts</li>
+  {{- if .Data.KeepsVisit}}
+  <li><i data-icon="check"></i>Keep this visit as it is</li>
+  {{- end}}
 </ul>
 {{- /* The server checks the fields and draws the page again with an error under each one wrong. */}}
 <form class="form" id="signup-form" method="post" action="/signup" novalidate>
