@@ -1,0 +1,41 @@
+name: "[CI] Image"
+
+# Builds the image deploy/ runs and pushes it to the cluster's registry, tagged with the commit SHA.
+# The registry has no authentication and anyone whose job runs on this runner can overwrite an
+# image, so this runs only for main: never for pull_request, pull_request_target, workflow_run or
+# issue_comment, which would run changes from outside.
+on:
+  push:
+    branches: [main]
+    # A change to deploy/ alone (such as a new newTag) changes no binary.
+    paths-ignore:
+      - "deploy/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  demo:
+    if: github.ref == 'refs/heads/main'
+    runs-on: arc-runner-barpay
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The build runs on the cluster's buildkitd, which reaches the registry and pulls Docker Hub
+      # images through the cluster's mirror.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver: remote
+          endpoint: tcp://buildkitd.arc-runners.svc:1234
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: 10.1.1.10:5000/barpay/demo:${{ github.sha }}
