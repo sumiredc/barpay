@@ -415,8 +415,6 @@ Implementation notes:
 
 ## 12. Open questions
 
-Question 2 is decided after building a mock in `mock/`. The mock is a throwaway prototype in plain HTML, CSS and JavaScript only, is not part of the product, and is not tracked in git, so it never reaches the public repository. Its UI is Japanese, for the author. It is exempt from translation pairing and from the product's tests and CI.
-
 1. **Liveliness sensing** (closed): microphone loudness only (see Signals in the [Pricing model](#4-pricing-model)). Loudness is computed on the edge device alone and cheaply, which keeps [Privacy](#6-guarantees) simple. An on-device audio classifier (cheering, music, laughter) is not used and can be added later; a camera people-count is not used either, since it would change what occupancy means.
-2. **Exit gate framing**: what the lock physically secures, so BarPay does not read as "customers are locked in".
+2. **Exit gate framing** (closed): the gate is shown by the edge device's indications (Indicator under Hardware in [Fixed constraints](#8-fixed-constraints)) together with the lock rules there: the lock opens only while powered and always opens from inside ([Locking customers in](#7-out-of-scope)). The indicator shows the customer what the gate is doing, and the lock rules make sure the lock only opens an exit and never holds anyone in, so no hardware or rule is added.
 3. **JPY in the sandbox**: confirm a sandbox business account can receive JPY without holding it as pending.
