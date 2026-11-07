@@ -399,7 +399,7 @@ kubectl create secret generic barpay-demo --namespace barpay \
 unset EDGE_SHARED_SECRET
 ```
 
-Commit `deploy/sealed-secret.yaml` and remove the `#` from its line under `resources` in [`deploy/kustomization.yaml`](deploy/kustomization.yaml). To change a value later, edit the files, seal again and commit the new `deploy/sealed-secret.yaml`; the containers read their config files and the simulator its environment only at start, so restart the Pod after Argo CD has synced the SealedSecret:
+Commit `deploy/sealed-secret.yaml` and make sure [`deploy/kustomization.yaml`](deploy/kustomization.yaml) lists it under `resources`. To change a value later, edit the files, seal again and commit the new `deploy/sealed-secret.yaml`; the containers read their config files and the simulator its environment only at start, so restart the Pod after Argo CD has synced the SealedSecret:
 
 ```sh
 kubectl -n barpay rollout restart deploy/barpay-demo

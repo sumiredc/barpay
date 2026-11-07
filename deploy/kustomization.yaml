@@ -10,12 +10,12 @@ resources:
   - service.yaml
   - ingress.yaml
   - pvc.yaml
-  # The SealedSecret barpay-demo, which you seal yourself. Uncomment this line when you add the file.
-  # - sealed-secret.yaml
+  # The SealedSecret barpay-demo, which you seal yourself.
+  - sealed-secret.yaml
 
 images:
   - name: 10.1.1.10:5000/barpay/demo
-    # Commit replace-with-commit-sha. The digest, from the summary of the run that
+    # Commit 4486a6f7355e6459e6c17462e6c2556ffde9b0a3. The digest, from the summary of the run that
     # pushed the image, decides what runs: a tag in the registry can be overwritten. To roll out
     # another image, change the digest and this commit in a pull request.
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    digest: sha256:d44cefc1dd2f6cd8e7e94eb44d77018d25b6eae04bf4c660d145a9c115fb309d
