@@ -37,6 +37,7 @@ The store app calls these operations from its server, under `/v1` of BarPay's UR
 |---|---|---|---|---|
 | `POST` | `/checkins` | Store | `createCheckin` | Start a check-in |
 | `GET` | `/sessions/{session_id}` | Store | `getSession` | Read a session |
+| `POST` | `/sessions/{session_id}/member` | Store | `attachMember` | Attach a member to a guest's session |
 | `POST` | `/sessions/{session_id}/orders` | Store | `reportOrder` | Report an order |
 | `POST` | `/sessions/{session_id}/register-request` | Store | `requestRegister` | The customer chooses to pay at the register |
 | `GET` | `/sessions/{session_id}/exit-token` | Store | `getExitToken` | Get the session's current exit token |
@@ -65,6 +66,7 @@ BarPay sends these notifications, signed, to `notifications.url` in `barpay.toml
 | Event type | When |
 |---|---|
 | `session.started` | A session started |
+| `session.member_attached` | A member was attached to a guest's session |
 | `session.paypal_linked` | A session was linked to the member's saved PayPal |
 | `session.register_requested` | The customer chose to pay at the register |
 | `session.closed` | The session was checked out through BarPay |

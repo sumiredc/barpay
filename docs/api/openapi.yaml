@@ -137,6 +137,73 @@ paths:
         '404':
           $ref: '#/components/responses/SessionNotFound'
 
+  /sessions/{session_id}/member:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [Sessions]
+      operationId: attachMember
+      summary: Attach a member to a guest's session
+      description: |
+        PRD: UC10; Responsibilities → Check-in.
+
+        Call it after the store app has signed up or logged in the guest as
+        `member_id`. The session becomes that member's as the same visit:
+        its check-in time, orders, cover charge, block ends, pause and cap
+        carry on unchanged. `session.member_attached` is sent. The returned
+        session is never linked yet: for a member with a saved PayPal,
+        linking is reported later by `session.paypal_linked`, or
+        `member.saved_paypal_deleted` if PayPal no longer has the saved
+        PayPal, as for `createCheckin`.
+
+        A member is attached once: a session that already has a member is
+        rejected, even with the same member. Repeating the call with the
+        same `Idempotency-Key` and the same body returns the original
+        response and sends no second notification.
+
+        A request is checked in this order, and the first failure is
+        returned: the body (`400`), the session (`404`), a member already
+        attached (`409` `session_has_member`), the session's state (`409`
+        `session_not_active`), the member's other sessions (`409`
+        `member_has_open_session`). Of two requests that arrive at the same
+        time for the same session, or for the same member, one attaches and
+        the other gets the error it would get after it.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttachMemberRequest'
+      responses:
+        '200':
+          description: The member was attached; the session as it is now.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '409':
+          description: |
+            `session_has_member`: the session already has a member, the same
+            one or another; it is unchanged.
+            `session_not_active`: the session is checking out, at the
+            register, payment failed or ended; it is unchanged.
+            `member_has_open_session`: the member already has another
+            session that is not closed.
+            `idempotency_key_reused`, `idempotency_key_in_progress`: as for
+            `createCheckin`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /sessions/{session_id}/orders:
     parameters:
       - $ref: '#/components/parameters/SessionId'
@@ -1170,12 +1237,35 @@ webhooks:
       responses:
         '2XX':
           $ref: '#/components/responses/Acknowledged'
+  session.member_attached:
+    post:
+      operationId: onSessionMemberAttached
+      summary: A member was attached to a guest's session
+      description: |
+        PRD: UC10; Responsibilities → Notifications.
+
+        `data.session.member_id` is the attached member. For a member with a
+        saved PayPal, `session.paypal_linked` follows once PayPal confirms
+        it, with a higher `sequence`.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Signature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionMemberAttachedEvent'
+      responses:
+        '2XX':
+          $ref: '#/components/responses/Acknowledged'
   session.paypal_linked:
     post:
       operationId: onSessionPaypalLinked
       summary: A session was linked to the member's saved PayPal
       description: |
-        PRD: UC1 alternative flow; UC2; Responsibilities → Notifications.
+        PRD: UC1 alternative flow; UC2; UC10 alternative flow;
+        Responsibilities → Notifications.
       security: []
       parameters:
         - $ref: '#/components/parameters/Signature'
@@ -1623,6 +1713,14 @@ components:
         member_id:
           description: Omit for a guest.
           $ref: '#/components/schemas/MemberId'
+    AttachMemberRequest:
+      type: object
+      additionalProperties: false
+      required: [member_id]
+      properties:
+        member_id:
+          description: The member the store app signed up or logged in.
+          $ref: '#/components/schemas/MemberId'
     Session:
       type: object
       additionalProperties: false
@@ -1647,7 +1745,7 @@ components:
         state:
           $ref: '#/components/schemas/SessionState'
         member_id:
-          description: '`null` for a guest.'
+          description: '`null` for a guest''s session, until a member is attached to it (`attachMember`). Once set, it never changes.'
           oneOf:
             - $ref: '#/components/schemas/MemberId'
             - type: 'null'
@@ -2283,6 +2381,29 @@ components:
                       properties:
                         state:
                           const: active
+    SessionMemberAttachedEvent:
+      allOf:
+        - $ref: '#/components/schemas/EventBase'
+        - type: object
+          required: [data]
+          properties:
+            type:
+              const: session.member_attached
+            data:
+              type: object
+              additionalProperties: false
+              required: [session]
+              properties:
+                session:
+                  description: The session as of this event.
+                  allOf:
+                    - $ref: '#/components/schemas/Session'
+                    - type: object
+                      properties:
+                        state:
+                          const: active
+                        member_id:
+                          $ref: '#/components/schemas/MemberId'
     SessionPaypalLinkedEvent:
       allOf:
         - $ref: '#/components/schemas/EventBase'
@@ -2508,6 +2629,7 @@ components:
                 - currency_mismatch
                 - amount_too_large
                 - member_has_open_session
+                - session_has_member
                 - idempotency_key_reused
                 - idempotency_key_in_progress
                 - saved_paypal_exists
