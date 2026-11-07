@@ -78,10 +78,12 @@ func newBarPay(t *testing.T) *barpay {
 			return
 		}
 		r.Body = io.NopCloser(bytes.NewReader(body))
+		// down is read when the request is recorded, so a test that sees the request knows its answer.
 		b.mu.Lock()
+		down := b.down.Load()
 		b.dev = append(b.dev, devRequest{Method: r.Method, Path: r.URL.Path, Body: string(body), Header: r.Header.Clone()})
 		b.mu.Unlock()
-		if b.down.Load() {
+		if down {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
