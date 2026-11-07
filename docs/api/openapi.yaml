@@ -181,8 +181,9 @@ paths:
         time for the same session, or for the same member, including a
         `createCheckin` of that member, one goes through and the other gets
         the error it would get after it. When the session leaves `active` at
-        the same moment (an exit QR, `requestRegister`,
-        `closeSession`, `recordRegisterPayment`), whichever BarPay takes
+        the same moment (`requestRegister` or `recordRegisterPayment`; a
+        guest's session is never linked, so nothing else moves it out of
+        `active`), whichever BarPay takes
         first holds: a member attached first stays attached, and otherwise
         the request gets `session_not_active`.
       parameters:

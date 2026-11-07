@@ -371,7 +371,7 @@ Staff act through the store app's admin screen, which calls BarPay's admin API.
 - **Exception**: the store API key is missing or wrong → rejected; nothing changes.
 - **Exception**: the store app sends the same request twice (same idempotency key) → the same response is returned; the member is attached once and the store app is notified once.
 - **Exception**: two requests to attach a member to the same session, or the same member to two sessions, arrive at the same time, or the member checks in at that moment → one of them goes through; the other is rejected as if it had arrived after it.
-- **Exception**: the session leaves active at the same moment (the exit QR in UC5, the register request in UC6, a staff close or register payment in UC7) → whichever BarPay takes first holds: if the member was attached first, the session leaves active as the member's; otherwise the request is rejected as not active.
+- **Exception**: the session leaves active at the same moment (the register request in UC6, or a register payment staff record in UC7; a guest's session is never linked, so nothing else moves it out of active) → whichever BarPay takes first holds: if the member was attached first, the session leaves active as the member's; otherwise the request is rejected as not active.
 - **Postcondition**: lookup shows the session with the attached member; its check-in time, orders, cover charge, block ends, pause and cap per visit are as before, and its maximum stay counts from the check-in; it is linked only if PayPal still has the member's saved PayPal; no money has moved; the member cannot check in again until this session is closed (UC1).
 
 ## 10. System overview
