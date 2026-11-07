@@ -25,7 +25,7 @@ A function that calls the system clock gives a different answer each run, so its
 ## Compute time limits from stored times, not from timers
 
 A time limit is stored as the instant it started (check-in, the last order, checkout began, the request time) and recomputed from that instant whenever it matters; it is never held only as a timer or a sleeping goroutine in memory.
-A timer in memory is lost on restart, while the stored instants survive it (the PRD's Guarantees, Durability), so time limits must be derived from them. Broken in BarPay: the backend restarts during a visit, the block timer is gone, and the customer stays for free until checkout; or the maximum stay passes unnoticed and a linked session is never checked out.
+A timer in memory is lost on restart, while the stored instants survive it (the PRD's Guarantees, Durability), so time limits must be derived from them. Broken in BarPay: the backend restarts during a visit, the block timer is gone, and the customer stays for free until checkout; or the maximum stay passes unnoticed and staff are never alerted to speak to the customer.
 
 - **A background loop may wake things up, but it decides from stored times.** On start and on each wake it finds what is due by comparing stored instants with the current time, so it catches up on anything that fell due while it was down. Broken in BarPay: a PaymentFailed session whose staff retry window ended during a restart is never closed as unpaid, and staff can still retry a charge the PRD no longer allows.
 - **Each block is charged once, from its stored end instant, and never recomputed.** Which blocks have ended is derived from stored instants (check-in and the end of the last charged block), so a missed tick is caught up; each block's amount follows the PRD's Pricing model, Blocks and Settings changes (which rate applies, and from which block a changed setting applies), and is stored under a key for that block, so a doubled tick cannot add it twice. Broken in BarPay: a slow loop skips a block and it is never charged, runs twice and charges it twice, or recomputes past blocks at today's rate and changes what the customer already accrued.
@@ -52,7 +52,7 @@ Sleep makes tests slow and flaky, and it cannot land on an exact instant, so the
 | Technique | What the test asserts |
 |---|---|
 | Fake clock moved forward by the test | After moving past a block end, the block is charged at the rate published at that instant; before it, the block is not charged |
-| Restart in the middle | Store a session, drop every in-memory object, build a new service from the store, move the clock past a time limit: the block is charged, the maximum stay checks out, the window closes, exactly as without the restart |
+| Restart in the middle | Store a session, drop every in-memory object, build a new service from the store, move the clock past a time limit: the block is charged, the maximum stay raises its alert once, the window closes, exactly as without the restart |
 | Just before, exactly at, just after | For each boundary — block end, the block that reaches the cap, end of the pause, end of each window — the three instants give the results the PRD states |
 
 - **Move the clock in steps that land on boundaries, not only in large jumps.** A jump over a boundary hides whether the code handled the instant itself. Broken in BarPay: a test that jumps an hour ahead passes while a block ending exactly at a pause's end is charged wrongly.
