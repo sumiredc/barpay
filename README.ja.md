@@ -37,6 +37,7 @@ go run ./cmd/barpay
 |---|---|---|---|---|
 | `POST` | `/checkins` | 店 | `createCheckin` | 入店を始める |
 | `GET` | `/sessions/{session_id}` | 店 | `getSession` | セッションを読む |
+| `POST` | `/sessions/{session_id}/member` | 店 | `attachMember` | ゲストのセッションに会員を付ける |
 | `POST` | `/sessions/{session_id}/orders` | 店 | `reportOrder` | 注文を伝える |
 | `POST` | `/sessions/{session_id}/register-request` | 店 | `requestRegister` | 客がレジで払うことを選ぶ |
 | `GET` | `/sessions/{session_id}/exit-token` | 店 | `getExitToken` | セッションの今の退店トークンを得る |
@@ -65,6 +66,7 @@ BarPay は次の通知を、署名して `barpay.toml` の `notifications.url` �
 | イベントの種類 | いつ |
 |---|---|
 | `session.started` | セッションが始まった |
+| `session.member_attached` | ゲストのセッションに会員が付いた |
 | `session.paypal_linked` | セッションが会員の保存した PayPal に結び付いた |
 | `session.register_requested` | 客がレジで払うことを選んだ |
 | `session.closed` | セッションが BarPay で精算された |
