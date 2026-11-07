@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/sumiredc/barpay/cmd/barpay-dev/edge"
 )
@@ -26,9 +27,12 @@ const usage = `Usage:
       The virtual exit gate. Type or paste the text of an exit QR, one per line, to scan it.
       "fail on" makes the gate fail to unlock from then on, "fail off" makes it work again.
       Unlocks staff make by hand through the admin API arrive while it runs.
-  barpay-dev signals [-barpay URL] [-liveliness N]
+  barpay-dev signals [-barpay URL] [-liveliness N] [-vary [-period D] [-swing W]]
       The signal simulator. Sends the liveliness N (0 quiet to 1 loudest) every 10 seconds.
       Type another number, one per line, to send it at once and from then on.
+      With -vary it reads no input and moves the liveliness by itself, up to W above and below N
+      and back once every D (0.3 and 30m unless given), kept from 0 to 1. -period and -swing
+      need -vary.
 
 The edge device's shared secret is read from ` + secretEnv + `.
 `
@@ -55,8 +59,25 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdin i
 		fail := flags.Bool("fail-unlock", false, "start with the gate failing to unlock")
 		start = func(c *edge.Client) error { return runGate(ctx, c, *fail, stdin, stdout) }
 	case "signals":
-		liveliness := flags.Float64("liveliness", 0.5, "the liveliness to send, from 0 to 1")
-		start = func(c *edge.Client) error { return runSignals(ctx, c, *liveliness, stdin, stdout) }
+		liveliness := flags.Float64("liveliness", 0.5, "the liveliness to send, from 0 to 1, or with -vary the centre")
+		vary := flags.Bool("vary", false, "move the liveliness by itself instead of reading new values")
+		period := flags.Duration("period", 30*time.Minute, "with -vary, how long the liveliness takes to go up, down and back")
+		swing := flags.Float64("swing", 0.3, "with -vary, how far the liveliness goes either side of the centre, from 0 to 1")
+		start = func(c *edge.Client) error {
+			if !*vary {
+				var err error
+				flags.Visit(func(f *flag.Flag) {
+					if err == nil && (f.Name == "period" || f.Name == "swing") {
+						err = fmt.Errorf("-%s needs -vary", f.Name)
+					}
+				})
+				if err != nil {
+					return err
+				}
+			}
+			o := signalsOptions{liveliness: *liveliness, vary: *vary, period: *period, swing: *swing}
+			return runSignals(ctx, c, systemClock{}, o, stdin, stdout)
+		}
 	default:
 		fmt.Fprint(stderr, usage)
 		return 2

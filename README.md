@@ -92,7 +92,13 @@ export BARPAY_EDGE_SHARED_SECRET='<keys.edge_shared_secret in barpay.toml>'
 go run ./cmd/barpay-dev signals
 ```
 
-The virtual exit gate takes the text of an exit QR, one per line, as a QR reader would type it: read the exit QR the store app shows with any QR scanner and paste its text. The signal simulator sends the room's liveliness until you stop it, and takes a new value, one per line. Run without arguments, the tools print their usage, including what else they take and the `-barpay` flag for a BarPay that listens elsewhere, and exit with an error status:
+The virtual exit gate takes the text of an exit QR, one per line, as a QR reader would type it: read the exit QR the store app shows with any QR scanner and paste its text. The signal simulator sends the room's liveliness until you stop it, and takes a new value, one per line. With `-vary` it reads no input and moves the liveliness by itself instead, so it keeps changing where nobody types, such as in a container: up to `-swing` (0.3 unless given) above and below `-liveliness` and back once every `-period` (30 minutes unless given), kept from 0 to 1:
+
+```sh
+go run ./cmd/barpay-dev signals -vary
+```
+
+Run without arguments, the tools print their usage, including what else they take and the `-barpay` flag for a BarPay that listens elsewhere, and exit with an error status:
 
 ```sh
 go run ./cmd/barpay-dev

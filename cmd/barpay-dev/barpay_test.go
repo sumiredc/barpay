@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -33,8 +34,8 @@ const (
 
 // devRequest is one request the development tools sent to BarPay.
 type devRequest struct {
-	Method, Path string
-	Header       http.Header
+	Method, Path, Body string
+	Header             http.Header
 }
 
 // barpay is BarPay as barpaytest assembles it. The development tools reach it over HTTP at
@@ -49,6 +50,8 @@ type barpay struct {
 
 	mu  sync.Mutex
 	dev []devRequest
+	// down makes BarPay answer every request from the development tools with 503 after recording it.
+	down atomic.Bool
 }
 
 func newBarPay(t *testing.T) *barpay {
@@ -69,9 +72,21 @@ func newBarPay(t *testing.T) *barpay {
 	b := &barpay{st: a.Store, clk: a.Clock, pp: a.PayPal, router: a.Handler}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		// down is read when the request is recorded, so a test that sees the request knows its answer.
 		b.mu.Lock()
-		b.dev = append(b.dev, devRequest{Method: r.Method, Path: r.URL.Path, Header: r.Header.Clone()})
+		down := b.down.Load()
+		b.dev = append(b.dev, devRequest{Method: r.Method, Path: r.URL.Path, Body: string(body), Header: r.Header.Clone()})
 		b.mu.Unlock()
+		if down {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		b.router.ServeHTTP(w, r)
 	}))
 	// Closed before BarPay is: cleanups run last added first.
