@@ -349,6 +349,7 @@ The sample app is running when it logs the URL to open. Open that URL in a brows
 ```mermaid
 flowchart LR
   IN[Ingress<br/>barpay-demo.sumire.pink] -->|/v1/paypal-links/| B
+  IN -->|/v1/edge/| B
   IN -->|everything else| M
   subgraph Pod
     B[BarPay :8080]
@@ -359,6 +360,8 @@ flowchart LR
     S -->|127.0.0.1:8080| B
   end
 ```
+
+An edge device reaches this BarPay through `/v1/edge/`. In its environment file, set `BARPAY_URL=https://barpay-demo.sumire.pink`, `BARPAY_EDGE_SHARED_SECRET` to the Secret's `edge_shared_secret`, and `BARPAY_EDGE_MICROPHONE=fake`: the signal simulator already sends the liveliness, and two sources overwrite each other.
 
 ### Making the config files
 

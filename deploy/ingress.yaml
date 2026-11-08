@@ -19,6 +19,14 @@ spec:
                 name: barpay
                 port:
                   number: 8080
+          # The edge device at the gate reaches BarPay's edge API with the edge shared secret.
+          - path: /v1/edge/
+            pathType: Prefix
+            backend:
+              service:
+                name: barpay
+                port:
+                  number: 8080
           - path: /
             pathType: Prefix
             backend:
