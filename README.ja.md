@@ -13,6 +13,49 @@ BarPay は、店のアプリが自分のサーバーから呼ぶ HTTP のサー�
 - BarPay と店のアプリがそれぞれ何を受け持つか：[責務の分担](docs/PRD.ja.md#3-責務の分担)
 - BarPay がしないこと：[扱わないこと](docs/PRD.ja.md#7-扱わないこと)
 
+## 部品のつながり
+
+BarPay は、店のアプリ、PayPal、言語モデル、出口のゲートのエッジ端末をつなぐ。PayPal と言語モデルとやり取りするのは BarPay だけ。開発用ツールは、エッジ端末とその部品の代わりになる。
+
+```mermaid
+flowchart LR
+  Phone["客のスマホ<br/>（ブラウザ）"]
+  Staff["スタッフの端末<br/>（管理画面）"]
+  App["店のアプリのサーバー<br/>メニュー、会員、すべての画面<br/>（サンプル：examples/mobile-order）"]
+  B["BarPay（Go）<br/>HTTP サーバー、SQLite"]
+  PP["PayPal<br/>Vault v3、Orders v2"]
+  LLM["言語モデルのサーバー<br/>OpenAI 互換の API"]
+  subgraph Gate["出口のゲート"]
+    Edge["エッジ端末（edge/）<br/>Raspberry Pi 5、Python"]
+    QR["QR リーダー"]
+    Mic["マイク"]
+    LED["RGB LED"]
+    Buzz["ブザー"]
+    Relay["リレー"]
+    Lock["錠<br/>電気が来ている間だけ開く"]
+  end
+  Phone -->|画面、退店の QR| App
+  Phone -->|連携の URL、リダイレクトのみ| B
+  Staff -->|管理画面| App
+  App -->|店の API キー、管理の API キー| B
+  B -->|署名付きの通知| App
+  B -->|Vault v3、Orders v2<br/>店の資格情報| PP
+  B -->|シグナル、方針<br/>/chat/completions| LLM
+  Edge -->|退店トークン、盛り上がり<br/>共有シークレット| B
+  Dev["開発用ツール<br/>仮想の出口ゲート、シグナルのシミュレーター"] -->|エッジ端末の API| B
+  Phone -.->|退店の QR を見せる| QR
+  QR -->|USB キーボード| Edge
+  Mic -->|ALSA| Edge
+  Edge -->|GPIO| LED
+  Edge -->|GPIO、トランジスタ| Buzz
+  Edge -->|GPIO、トランジスタ| Relay
+  Relay -->|電気| Lock
+```
+
+- 店のアプリの呼び出しと BarPay の通知：[API](#api)
+- エッジ端末、その部品と配線：[エッジ端末の動かし方](#エッジ端末の動かし方)
+- 言語モデルの接続先とモデル：[`barpay.example.toml`](barpay.example.toml) の `[llm]`
+
 ## BarPay の起動
 
 BarPay は、見本からコピーして値を入れた設定ファイルで動く。Go（版は [`go.mod`](go.mod) のもの）と、PayPal の sandbox のアプリの REST の資格情報が要る。

@@ -376,20 +376,9 @@ Staff act through the store app's admin screen, which calls BarPay's admin API.
 
 ## 10. System overview
 
-```mermaid
-flowchart LR
-  Phone["Customer phone"] --> App["Sample mobile order app<br/>(store app: panel, admin screen)"]
-  Phone -- "link URL: redirects only" --> API
-  App -- "store API key / admin API key" --> API
-  API -- "signed notifications" --> App
-  API["BarPay backend (Go)<br/>sessions · pricing · payments"] -- "Vault v3 / Orders v2<br/>(store's credentials)" --> PP["PayPal sandbox"]
-  API -- "signals, goal" --> LLM["AI pricing agent<br/>(local LLM)"]
-  Edge["Edge (Raspberry Pi 5, Python)<br/>QR reader · mic · LED · buzzer"] -- "exit token, signals<br/>(shared secret)" --> API
-  Edge -- "GPIO line" --> Relay["Relay"] -- "power" --> Lock["Lock<br/>(open only while powered)"]
-  Dev["Development tools<br/>virtual exit gate · signal simulator"] -- "edge device's API" --> API
-```
+The parts and how they connect: [How the parts connect](../README.md#how-the-parts-connect) in the README.
 
-Read: only the BarPay backend talks to PayPal and the AI; the store app reports orders and draws every screen from its server's calls, and the customer's phone never sends amounts BarPay trusts.
+Only the BarPay backend talks to PayPal and the AI; the store app reports orders and draws every screen from its server's calls, and the customer's phone never sends amounts BarPay trusts.
 
 Implementation notes:
 
