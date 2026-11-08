@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   python:
-    runs-on: arc-runner-barpay
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: edge

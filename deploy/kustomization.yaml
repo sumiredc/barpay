@@ -15,7 +15,7 @@ resources:
 
 images:
   - name: 10.1.1.10:5000/barpay/demo
-    # Commit a45569080dc8fc722007125613a673a4efe2ab79. The digest, from the summary of the run that
-    # pushed the image, decides what runs: a tag in the registry can be overwritten. To roll out
-    # another image, change the digest and this commit in a pull request.
+    # Commit a45569080dc8fc722007125613a673a4efe2ab79. The digest, which the image's push printed,
+    # decides what runs: a tag in the registry can be overwritten. To roll out another image,
+    # change the digest and this commit in a pull request.
     digest: sha256:8e71a57d815a89d904e918df58f4d268f53a0aaffc9d1deb7101cf23d9274c16

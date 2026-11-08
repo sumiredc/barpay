@@ -14,11 +14,8 @@ concurrency:
 
 jobs:
   go:
-    runs-on: arc-runner-barpay
+    runs-on: ubuntu-24.04
     steps:
-      # The formatting step lists files with git ls-files, so checkout must fetch with git.
-      - name: Install git if missing
-        run: command -v git >/dev/null || { sudo apt-get update && sudo apt-get install -y git; }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
