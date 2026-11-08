@@ -387,7 +387,7 @@ The sample app is running when it logs the URL to open. Open that URL in a brows
 
 ## Running on Kubernetes
 
-[`deploy/`](deploy) runs BarPay, the sample app and the signal simulator against the PayPal sandbox in one Pod of the home Kubernetes cluster, at `https://barpay-demo.sumire.pink`. Argo CD applies `deploy/` from `main`; its Application, which also creates the namespace `barpay`, lives in the cluster's infrastructure repository. The image holds all three programs and is not a production build of BarPay: [`ci-image.yaml`](.github/workflows/ci-image.yaml) builds it from the [`Dockerfile`](Dockerfile) on pushes to `main` that change more than `deploy/`, pushes it to the cluster's registry as `10.1.1.10:5000/barpay/demo:<commit SHA>`, and writes its commit and digest to the run's summary. The sample app shows times in the store's time zone, `TZ` of its container in [`deploy/deployment.yaml`](deploy/deployment.yaml) (`America/Los_Angeles`).
+[`deploy/`](deploy) runs BarPay, the sample app and the signal simulator against the PayPal sandbox in one Pod of the home Kubernetes cluster, at `https://barpay-demo.sumire.pink`. Argo CD applies `deploy/` from `main`; its Application, which also creates the namespace `barpay`, lives in the cluster's infrastructure repository. The image holds all three programs and is not a production build of BarPay: it is built by hand from the [`Dockerfile`](Dockerfile) at a commit on `main`, on the cluster's side, and pushed to the cluster's registry as `10.1.1.10:5000/barpay/demo:<commit SHA>`; this repository's workflows do not build it, as the registry has no authentication. The push prints the image's digest. The sample app shows times in the store's time zone, `TZ` of its container in [`deploy/deployment.yaml`](deploy/deployment.yaml) (`America/Los_Angeles`).
 
 ```mermaid
 flowchart LR
@@ -457,10 +457,10 @@ Add things in this order. An image that is not in the registry yet stops the Pod
 
 ```mermaid
 flowchart LR
-  A[ci-image.yaml pushes the image] --> B[Pull request: digest, sealed-secret.yaml] --> C[The infrastructure repository adds the Application]
+  A[The image is pushed] --> B[Pull request: digest, sealed-secret.yaml] --> C[The infrastructure repository adds the Application]
 ```
 
-1. After a push to `main`, wait for `ci-image.yaml` to finish, and take the commit and `digest` from the run's summary. The image must be built from a commit whose `barpay-dev signals` takes `-vary`, which [`deploy/deployment.yaml`](deploy/deployment.yaml) passes; with an older one, the signals container stops at start. From a machine on the cluster's network, the registry lists the tags it has:
+1. Have the image built and pushed as above, and take its commit and the `digest` the push printed. The image must be built from a commit whose `barpay-dev signals` takes `-vary`, which [`deploy/deployment.yaml`](deploy/deployment.yaml) passes; with an older one, the signals container stops at start. From a machine on the cluster's network, the registry lists the tags it has:
 
    ```sh
    curl -s http://10.1.1.10:5000/v2/barpay/demo/tags/list
@@ -479,7 +479,7 @@ kubectl -n barpay logs deploy/barpay-demo -c signals
 
 ### Rolling out a new image
 
-Every image is rolled out by a pull request that changes `digest` in [`deploy/kustomization.yaml`](deploy/kustomization.yaml), and the commit in the comment above it, to the values in the summary of the `ci-image.yaml` run that pushed it, so the history shows what ran when. `images` names no tag, whose handling beside a digest differs between kustomize versions. The Pod pulls the image by its digest, so a tag overwritten in the registry does not change what runs. Argo CD applies it once it is merged. The old Pod stops before the new one starts, as both cannot hold the volume, so the site is down for a moment.
+Every image is rolled out by a pull request that changes `digest` in [`deploy/kustomization.yaml`](deploy/kustomization.yaml), and the commit in the comment above it, to the image's commit and the digest its push printed, so the history shows what ran when. `images` names no tag, whose handling beside a digest differs between kustomize versions. The Pod pulls the image by its digest, so a tag overwritten in the registry does not change what runs. Argo CD applies it once it is merged. The old Pod stops before the new one starts, as both cannot hold the volume, so the site is down for a moment.
 
 ## Next to read
 

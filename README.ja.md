@@ -387,7 +387,7 @@ go run .
 
 ## Kubernetes で動かす
 
-[`deploy/`](deploy) は、BarPay・サンプルアプリ・シグナルのシミュレーターを、自宅の Kubernetes クラスターの 1 つの Pod で PayPal sandbox に対して動かし、`https://barpay-demo.sumire.pink` で公開する。`deploy/` は Argo CD が `main` から適用する。その Application は、namespace `barpay` も作り、クラスターのインフラのリポジトリにある。イメージは 3 つのプログラムを持ち、BarPay の本番のビルドではない。[`ci-image.yaml`](.github/workflows/ci-image.yaml) が、`deploy/` 以外も変える `main` への push で [`Dockerfile`](Dockerfile) からビルドし、クラスターの registry に `10.1.1.10:5000/barpay/demo:<commit SHA>` として push し、その commit と digest を実行のサマリーに書く。サンプルアプリは時刻を店のタイムゾーンで表示する。それは [`deploy/deployment.yaml`](deploy/deployment.yaml) にあるそのコンテナの `TZ`（`America/Los_Angeles`）。
+[`deploy/`](deploy) は、BarPay・サンプルアプリ・シグナルのシミュレーターを、自宅の Kubernetes クラスターの 1 つの Pod で PayPal sandbox に対して動かし、`https://barpay-demo.sumire.pink` で公開する。`deploy/` は Argo CD が `main` から適用する。その Application は、namespace `barpay` も作り、クラスターのインフラのリポジトリにある。イメージは 3 つのプログラムを持ち、BarPay の本番のビルドではない。`main` の commit から [`Dockerfile`](Dockerfile) で、クラスターの側で手でビルドし、クラスターの registry に `10.1.1.10:5000/barpay/demo:<commit SHA>` として push する。registry に認証が無いので、このリポジトリのワークフローではビルドしない。push がイメージの digest を表示する。サンプルアプリは時刻を店のタイムゾーンで表示する。それは [`deploy/deployment.yaml`](deploy/deployment.yaml) にあるそのコンテナの `TZ`（`America/Los_Angeles`）。
 
 ```mermaid
 flowchart LR
@@ -457,10 +457,10 @@ kubectl -n barpay rollout restart deploy/barpay-demo
 
 ```mermaid
 flowchart LR
-  A[ci-image.yaml がイメージを push] --> B[PR：digest・sealed-secret.yaml] --> C[インフラのリポジトリが Application を足す]
+  A[イメージを push] --> B[PR：digest・sealed-secret.yaml] --> C[インフラのリポジトリが Application を足す]
 ```
 
-1. `main` への push の後、`ci-image.yaml` が終わるのを待ち、実行のサマリーから commit と `digest` を取る。イメージは、`barpay-dev signals` が `-vary` を受け付ける commit からビルドしたものにする。[`deploy/deployment.yaml`](deploy/deployment.yaml) がそれを渡すので、それより古いものでは signals のコンテナが起動時に止まる。クラスターのネットワークにあるマシンからは、registry が持つタグを一覧できる。
+1. 上のとおりイメージをビルドして push してもらい、その commit と、push が表示した `digest` を取る。イメージは、`barpay-dev signals` が `-vary` を受け付ける commit からビルドしたものにする。[`deploy/deployment.yaml`](deploy/deployment.yaml) がそれを渡すので、それより古いものでは signals のコンテナが起動時に止まる。クラスターのネットワークにあるマシンからは、registry が持つタグを一覧できる。
 
    ```sh
    curl -s http://10.1.1.10:5000/v2/barpay/demo/tags/list
@@ -479,7 +479,7 @@ kubectl -n barpay logs deploy/barpay-demo -c signals
 
 ### 新しいイメージを入れる
 
-どのイメージも、[`deploy/kustomization.yaml`](deploy/kustomization.yaml) の `digest` と、その上のコメントの commit を、そのイメージを push した `ci-image.yaml` の実行のサマリーにある値に変える PR で入れる。何がいつ動いていたかが履歴に残る。`images` にタグは書かない。digest と並べたときのタグの扱いが、kustomize の版で違うため。Pod はイメージを digest で pull するので、registry でタグが上書きされても、動くものは変わらない。マージされると Argo CD が適用する。2 つの Pod が同時にボリュームを持てないので、古い Pod が止まってから新しい Pod が起動し、その間サイトは少しのあいだ止まる。
+どのイメージも、[`deploy/kustomization.yaml`](deploy/kustomization.yaml) の `digest` と、その上のコメントの commit を、そのイメージの commit と、その push が表示した digest に変える PR で入れる。何がいつ動いていたかが履歴に残る。`images` にタグは書かない。digest と並べたときのタグの扱いが、kustomize の版で違うため。Pod はイメージを digest で pull するので、registry でタグが上書きされても、動くものは変わらない。マージされると Argo CD が適用する。2 つの Pod が同時にボリュームを持てないので、古い Pod が止まってから新しい Pod が起動し、その間サイトは少しのあいだ止まる。
 
 ## 次に読むもの
 
