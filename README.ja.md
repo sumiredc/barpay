@@ -349,6 +349,7 @@ go run .
 ```mermaid
 flowchart LR
   IN[Ingress<br/>barpay-demo.sumire.pink] -->|/v1/paypal-links/| B
+  IN -->|/v1/edge/| B
   IN -->|それ以外| M
   subgraph Pod
     B[BarPay :8080]
@@ -359,6 +360,8 @@ flowchart LR
     S -->|127.0.0.1:8080| B
   end
 ```
+
+エッジ端末は `/v1/edge/` を通ってこの BarPay に届く。その環境ファイルで、`BARPAY_URL=https://barpay-demo.sumire.pink`、`BARPAY_EDGE_SHARED_SECRET` を Secret の `edge_shared_secret`、`BARPAY_EDGE_MICROPHONE=fake` にする。盛り上がりはシグナルのシミュレーターが送っていて、2 つの送り手は互いに上書きする。
 
 ### 設定ファイルを作る
 
