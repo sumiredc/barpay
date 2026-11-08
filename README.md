@@ -13,6 +13,49 @@ It owns the visits, the cover charge and its AI pricing, and the PayPal charges,
 - What BarPay and the store app each own: [Responsibilities](docs/PRD.md#3-responsibilities)
 - What BarPay does not do: [Out of scope](docs/PRD.md#7-out-of-scope)
 
+## How the parts connect
+
+BarPay sits between the store app, PayPal, a language model and the edge device at the exit gate; only BarPay talks to PayPal and the language model. The development tools stand in for the edge device and its parts.
+
+```mermaid
+flowchart LR
+  Phone["Customer's phone<br/>(browser)"]
+  Staff["Staff's device<br/>(admin screen)"]
+  App["Store app server<br/>menu, members, every screen<br/>(sample: examples/mobile-order)"]
+  B["BarPay (Go)<br/>HTTP server, SQLite"]
+  PP["PayPal<br/>Vault v3, Orders v2"]
+  LLM["Language model server<br/>OpenAI-compatible API"]
+  subgraph Gate["Exit gate"]
+    Edge["Edge device (edge/)<br/>Raspberry Pi 5, Python"]
+    QR["QR reader"]
+    Mic["Microphone"]
+    LED["RGB LED"]
+    Buzz["Buzzer"]
+    Relay["Relay"]
+    Lock["Lock<br/>open only while powered"]
+  end
+  Phone -->|screens, exit QR| App
+  Phone -->|link URL, redirects only| B
+  Staff -->|admin screen| App
+  App -->|store API key, admin API key| B
+  B -->|signed notifications| App
+  B -->|Vault v3, Orders v2<br/>store's credentials| PP
+  B -->|signals, goal<br/>/chat/completions| LLM
+  Edge -->|exit token, liveliness<br/>shared secret| B
+  Dev["Development tools<br/>virtual exit gate, signal simulator"] -->|edge device's API| B
+  Phone -.->|shows the exit QR| QR
+  QR -->|USB keyboard| Edge
+  Mic -->|ALSA| Edge
+  Edge -->|GPIO| LED
+  Edge -->|GPIO, transistor| Buzz
+  Edge -->|GPIO, transistor| Relay
+  Relay -->|power| Lock
+```
+
+- The store app's calls and BarPay's notifications: [API](#api)
+- The edge device, its parts and their wiring: [Running the edge device](#running-the-edge-device)
+- The language model's address and model: `[llm]` in [`barpay.example.toml`](barpay.example.toml)
+
 ## Running BarPay
 
 BarPay runs from a config file you copy from the sample and fill in; it needs Go (the version in [`go.mod`](go.mod)) and the REST credentials of a PayPal sandbox app.
